@@ -1,0 +1,657 @@
+openapi: 3.1.0
+info:
+  title: Status (Monitoring & Crash Reporting) API
+  version: 0.1.0
+  description: >-
+    First-draft API for the status service. Actively monitors registered sites
+    and ingests crash reports from them, surfacing a green/orange/red status per
+    site. Companion to PRD.md.
+
+    Auth: admin endpoints use bearerAuth (JWT, 15-min) with session-cookie
+    fallback, via the shared auth backend (site id `status`). The crash-ingest
+    endpoint is public and authenticated per-site by an ingest key header
+    (Sentry-DSN style). Health probes are unauthenticated.
+servers:
+  - url: https://status.tilcer.cz
+    description: Production (Coolify)
+
+tags:
+  - name: health
+    description: Liveness/readiness probes (baseline for every backend)
+  - name: sites
+    description: Registry of monitored sites (admin)
+  - name: monitoring
+    description: Check history (admin)
+  - name: crashes
+    description: Crash groups and events (admin)
+  - name: ingest
+    description: Public crash ingest (per-site ingest key)
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Process is up
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /readyz:
+    get:
+      tags: [health]
+      summary: Readiness probe (includes SQLite check)
+      security: []
+      responses:
+        "200":
+          description: Ready to serve traffic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          description: Not ready (e.g. DB unavailable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # --- Sites (admin) ---
+  /api/sites:
+    get:
+      tags: [sites]
+      summary: List sites with current status
+      parameters:
+        - name: status
+          in: query
+          description: Filter by computed color
+          schema:
+            $ref: "#/components/schemas/Color"
+      responses:
+        "200":
+          description: Sites with computed color and headline counts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SiteSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [sites]
+      summary: Register a monitored site
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteCreate"
+      responses:
+        "201":
+          description: Site created; ingest key returned once
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteWithKey"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: A site with this id already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/sites/{id}:
+    parameters:
+      - $ref: "#/components/parameters/SiteId"
+    get:
+      tags: [sites]
+      summary: Get a site
+      responses:
+        "200":
+          description: Site detail with computed color and counts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [sites]
+      summary: Update a site (id is immutable)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteUpdate"
+      responses:
+        "200":
+          description: Updated site
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [sites]
+      summary: Delete a site (cascades checks, groups, events)
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/sites/{id}/rotate-key:
+    parameters:
+      - $ref: "#/components/parameters/SiteId"
+    post:
+      tags: [sites]
+      summary: Rotate the ingest key (old key stops working immediately)
+      responses:
+        "200":
+          description: New ingest key (shown once)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ingest_key]
+                properties:
+                  ingest_key:
+                    type: string
+                    examples: ["ik_9f2c...redacted"]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/sites/{id}/checks:
+    parameters:
+      - $ref: "#/components/parameters/SiteId"
+      - $ref: "#/components/parameters/Limit"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [monitoring]
+      summary: Recent check history for a site
+      responses:
+        "200":
+          description: Paginated check results (newest first)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CheckResult"
+                  next_cursor:
+                    type: [string, "null"]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/sites/{id}/crashes:
+    parameters:
+      - $ref: "#/components/parameters/SiteId"
+      - name: status
+        in: query
+        schema:
+          $ref: "#/components/schemas/GroupStatus"
+      - name: level
+        in: query
+        schema:
+          $ref: "#/components/schemas/Level"
+      - $ref: "#/components/parameters/Limit"
+      - $ref: "#/components/parameters/Cursor"
+    get:
+      tags: [crashes]
+      summary: List crash groups for a site
+      responses:
+        "200":
+          description: Paginated crash groups (by last_seen desc)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CrashGroup"
+                  next_cursor:
+                    type: [string, "null"]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/crashes/{groupId}:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags: [crashes]
+      summary: Get a crash group with recent events
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Group plus paginated events
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [group, events]
+                properties:
+                  group:
+                    $ref: "#/components/schemas/CrashGroup"
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CrashEvent"
+                  next_cursor:
+                    type: [string, "null"]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [crashes]
+      summary: Triage a crash group (open/resolved/ignored)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: "#/components/schemas/GroupStatus"
+      responses:
+        "200":
+          description: Updated group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CrashGroup"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  # --- Ingest (public, per-site key) ---
+  /api/ingest/{siteId}:
+    parameters:
+      - name: siteId
+        in: path
+        required: true
+        description: The user-supplied site id this crash belongs to
+        schema:
+          $ref: "#/components/schemas/SiteIdString"
+    post:
+      tags: [ingest]
+      summary: Ingest a crash report
+      description: >-
+        Public endpoint. Authenticated by the per-site ingest key in the
+        `X-Ingest-Key` header. Rate-limited per key and size-capped
+        (default 64 KB). Called by backends (Go) and frontends (browser JS).
+      security:
+        - ingestKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CrashReport"
+      responses:
+        "202":
+          description: Accepted; grouped by fingerprint
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [group_id, event_id]
+                properties:
+                  group_id:
+                    type: integer
+                  event_id:
+                    type: integer
+        "401":
+          description: Missing or invalid ingest key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-term FE→BE auth, 15-minute expiry (via auth backend, site `status`).
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Long-term FE→BE auth.
+    serviceSecret:
+      type: apiKey
+      in: header
+      name: X-Service-Secret
+      description: BE→BE shared secret (unused in v1; reserved).
+    ingestKey:
+      type: apiKey
+      in: header
+      name: X-Ingest-Key
+      description: Per-site crash-ingest key (public, Sentry-DSN style). Scoped to POST /api/ingest/{siteId}.
+
+  parameters:
+    SiteId:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/SiteIdString"
+    Limit:
+      name: limit
+      in: query
+      description: Max items per page
+      schema:
+        type: integer
+        default: 50
+        minimum: 1
+        maximum: 200
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque pagination cursor
+      schema:
+        type: string
+
+  responses:
+    Unauthorized:
+      description: Not authenticated
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ValidationError:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        detail:
+          type: string
+
+    Color:
+      type: string
+      enum: [red, orange, green, unknown]
+    Level:
+      type: string
+      enum: [fatal, error, warning]
+    GroupStatus:
+      type: string
+      enum: [open, resolved, ignored]
+    SiteIdString:
+      type: string
+      pattern: "^[a-z0-9][a-z0-9-]{0,62}$"
+      examples: ["home", "fin", "yarnlog"]
+
+    SiteCreate:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          $ref: "#/components/schemas/SiteIdString"
+        name:
+          type: string
+        monitor_url:
+          type: [string, "null"]
+          format: uri
+          description: Endpoint to poll; null/omitted = crash-only site
+        monitor_enabled:
+          type: boolean
+          default: true
+        expected_status:
+          type: integer
+          default: 200
+        crash_window_hours:
+          type: integer
+          default: 24
+          minimum: 1
+
+    SiteUpdate:
+      type: object
+      description: id is immutable and cannot be changed
+      properties:
+        name:
+          type: string
+        monitor_url:
+          type: [string, "null"]
+          format: uri
+        monitor_enabled:
+          type: boolean
+        expected_status:
+          type: integer
+        crash_window_hours:
+          type: integer
+          minimum: 1
+
+    SiteSummary:
+      type: object
+      required: [id, name, color, monitor_enabled]
+      properties:
+        id:
+          $ref: "#/components/schemas/SiteIdString"
+        name:
+          type: string
+        color:
+          $ref: "#/components/schemas/Color"
+        monitor_url:
+          type: [string, "null"]
+        monitor_enabled:
+          type: boolean
+        expected_status:
+          type: integer
+        crash_window_hours:
+          type: integer
+        last_checked_at:
+          type: [string, "null"]
+          format: date-time
+        last_ok:
+          type: [boolean, "null"]
+        fail_streak:
+          type: integer
+          description: Consecutive failed checks; site goes red at RED_FAIL_THRESHOLD (default 2)
+        open_crash_groups:
+          type: integer
+        recent_crash_count:
+          type: integer
+          description: Crash events within crash_window_hours
+        created_at:
+          type: string
+          format: date-time
+
+    SiteWithKey:
+      allOf:
+        - $ref: "#/components/schemas/SiteSummary"
+        - type: object
+          required: [ingest_key]
+          properties:
+            ingest_key:
+              type: string
+              description: Plaintext ingest key — shown once, only stored hashed
+              examples: ["ik_9f2c...redacted"]
+
+    CheckResult:
+      type: object
+      required: [id, site_id, checked_at, ok]
+      properties:
+        id:
+          type: integer
+        site_id:
+          $ref: "#/components/schemas/SiteIdString"
+        checked_at:
+          type: string
+          format: date-time
+        ok:
+          type: boolean
+        status_code:
+          type: [integer, "null"]
+        latency_ms:
+          type: [integer, "null"]
+        error:
+          type: [string, "null"]
+
+    CrashReport:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        level:
+          $ref: "#/components/schemas/Level"
+        stack:
+          type: string
+        environment:
+          type: string
+          examples: ["prod", "dev"]
+        release:
+          type: string
+        fingerprint:
+          type: string
+          description: Client-supplied grouping override
+        context:
+          type: object
+          additionalProperties: true
+          description: Free-form tags/metadata; size-capped
+        occurred_at:
+          type: string
+          format: date-time
+          description: Client event time; server uses receipt time if absent
+
+    CrashGroup:
+      type: object
+      required: [id, site_id, fingerprint, title, level, count, status, first_seen, last_seen]
+      properties:
+        id:
+          type: integer
+        site_id:
+          $ref: "#/components/schemas/SiteIdString"
+        fingerprint:
+          type: string
+        title:
+          type: string
+        level:
+          $ref: "#/components/schemas/Level"
+        count:
+          type: integer
+        status:
+          $ref: "#/components/schemas/GroupStatus"
+        first_seen:
+          type: string
+          format: date-time
+        last_seen:
+          type: string
+          format: date-time
+
+    CrashEvent:
+      type: object
+      required: [id, group_id, site_id, level, message, occurred_at, received_at]
+      properties:
+        id:
+          type: integer
+        group_id:
+          type: integer
+        site_id:
+          $ref: "#/components/schemas/SiteIdString"
+        level:
+          $ref: "#/components/schemas/Level"
+        message:
+          type: string
+        stack:
+          type: [string, "null"]
+        environment:
+          type: [string, "null"]
+        release:
+          type: [string, "null"]
+        context:
+          type: [object, "null"]
+          additionalProperties: true
+        occurred_at:
+          type: string
+          format: date-time
+        received_at:
+          type: string
+          format: date-time
+
+# Default auth for service endpoints (override per-path; health probes and ingest set their own).
+security:
+  - bearerAuth: []
+  - sessionCookie: []
