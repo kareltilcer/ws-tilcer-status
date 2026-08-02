@@ -1,0 +1,19 @@
+# Litestream configuration for the `status` service.
+#
+# One database, one Cloudflare R2 replica under the prefix `status` (project
+# convention: one prefix per database; PRD §8). Litestream expands ${VAR} from the
+# environment, so nothing secret lives in this file — all credentials come from
+# Coolify env vars at runtime.
+dbs:
+  - path: ${STATUS_DB_PATH}
+    replicas:
+      - type: s3
+        # Cloudflare R2 S3-compatible endpoint:
+        #   https://<account-id>.r2.cloudflarestorage.com
+        endpoint: ${LITESTREAM_R2_ENDPOINT}
+        bucket: ${LITESTREAM_R2_BUCKET}
+        path: status
+        region: auto
+        access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+        force-path-style: true

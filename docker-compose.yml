@@ -1,0 +1,56 @@
+# Offline end-to-end run of the two services on your machine, mirroring the
+# home/fin layout: a Go API backend and an Nginx-served SPA.
+#   - backend  : Go API on http://localhost:112
+#   - frontend : Nginx-served SPA on http://localhost:1155, reverse-proxying /api
+#                to the backend (status's SPA is same-origin).
+# Both run with the dev auth bypass and no R2 replication — a smoke test of the
+# images and entrypoint, not a real deploy (real deploys go through Coolify).
+#
+# Build + run:  docker compose up --build
+# Then open http://localhost:1155 (you are the fake dev admin; no login).
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: tilcer-status-backend:dev
+    container_name: tilcer-status-backend
+    environment:
+      STATUS_ENV: ${STATUS_ENV:-development}
+      STATUS_ADDR: ${STATUS_ADDR:-:112}
+      STATUS_DEV_AUTH_BYPASS: ${STATUS_DEV_AUTH_BYPASS:-true}
+      STATUS_DEV_ACTOR_ROLES: ${STATUS_DEV_ACTOR_ROLES:-admin}
+      # Real auth — required only when the dev bypass is OFF (a real Coolify
+      # deploy). The defaults below are intentionally NONSENSE so a forgotten
+      # override fails loudly: REPLACE all three in Coolify.
+      AUTH_BASE_URL: ${AUTH_BASE_URL:-https://REPLACE-ME.auth.invalid}
+      STATUS_AUTH_SERVICE_SECRET: ${STATUS_AUTH_SERVICE_SECRET:-REPLACE_ME_service_client_secret}
+      STATUS_AUTH_JWT_SECRET: ${STATUS_AUTH_JWT_SECRET:-REPLACE_ME_shared_jwt_secret}
+      STATUS_AUTH_JWT_ISSUER: ${STATUS_AUTH_JWT_ISSUER:-}
+      LITESTREAM_ENABLED: ${LITESTREAM_ENABLED:-false}
+      STATUS_DB_PATH: ${STATUS_DB_PATH:-/data/status.db}
+    volumes:
+      - status-data:/data
+    ports:
+      - "112:112"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      # Vite bakes VITE_* at build time; the Nginx runtime image can't see env.
+      args:
+        # No Traefik locally, so bake the config that proxies /api to the
+        # `backend` service — keeps the SPA same-origin on :1155.
+        NGINX_CONF: nginx.harness.conf
+    image: tilcer-status-frontend:dev
+    container_name: tilcer-status-frontend
+    ports:
+      - "1155:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  status-data:

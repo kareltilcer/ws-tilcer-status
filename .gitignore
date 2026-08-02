@@ -1,0 +1,25 @@
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/node_modules/
+*.tsbuildinfo
+
+# Go build output
+/backend/status
+/backend/status.exe
+
+# Local SQLite databases + Litestream sidecars
+*.db
+*.db-wal
+*.db-shm
+/data/
+
+# Env / secrets (config comes from Coolify env)
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.idea/
+*.log
