@@ -105,6 +105,24 @@ func Recover(l *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
+// StripAPIPrefix rewrites the request path by removing a leading "/api"
+// prefix *only when a double prefix is detected* (e.g. "/api/api/..." → "/api/...").
+// This handles deployments where the reverse proxy (Coolify/Traefik) is
+// misconfigured with an upstream that includes "/api", causing requests to arrive
+// with a double prefix (e.g. "/api/api/auth/login" instead of "/api/auth/login").
+func StripAPIPrefix(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		// Only strip if path starts with "/api/api/" or "/api/" (exact match)
+		if strings.HasPrefix(path, "/api/api") {
+			r.URL.Path = strings.TrimPrefix(path, "/api")
+		} else if path == "/api" {
+			r.URL.Path = "/"
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // clientIP extracts a best-effort client IP for logging and login rate-limit
 // keying. Behind a reverse proxy the connecting peer (r.RemoteAddr) is the proxy,
 // so the real client is read from X-Forwarded-For.

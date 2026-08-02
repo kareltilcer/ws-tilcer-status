@@ -48,6 +48,7 @@ type Deps struct {
 func NewRouter(d Deps) http.Handler {
 	r := chi.NewRouter()
 
+	r.Use(StripAPIPrefix)
 	r.Use(RequestID(d.Site, d.TrustedProxyCount))
 	r.Use(Logger(d.Logger))
 	r.Use(Recover(d.Logger))

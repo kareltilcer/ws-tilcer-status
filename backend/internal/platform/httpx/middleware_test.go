@@ -2,8 +2,49 @@ package httpx
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
+
+func TestStripAPIPrefix(t *testing.T) {
+	cases := []struct {
+		name     string
+		path     string
+		expected string
+	}{
+		// Normal paths should pass through unchanged
+		{"no prefix", "/sites", "/sites"},
+		{"api prefix once", "/api/sites", "/api/sites"},
+		{"api auth", "/api/auth/login", "/api/auth/login"},
+		{"health", "/healthz", "/healthz"},
+		{"root", "/", "/"},
+
+		// Double prefix should be stripped to single
+		{"double api prefix", "/api/api/sites", "/api/sites"},
+		{"double api auth", "/api/api/auth/login", "/api/auth/login"},
+		{"double api exact", "/api/api", "/api"},
+		{"exact api", "/api", "/"},
+		{"triple api", "/api/api/api/sites", "/api/api/sites"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", tc.path, nil)
+			w := httptest.NewRecorder()
+
+			handler := StripAPIPrefix(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(r.URL.Path))
+			}))
+
+			handler.ServeHTTP(w, req)
+
+			if got := w.Body.String(); got != tc.expected {
+				t.Errorf("StripAPIPrefix(%q) = %q, want %q", tc.path, got, tc.expected)
+			}
+		})
+	}
+}
 
 func TestClientIP(t *testing.T) {
 	const remote = "10.0.0.9:5555" // the direct peer (proxy) address:port
