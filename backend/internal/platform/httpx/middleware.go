@@ -105,20 +105,54 @@ func Recover(l *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-// StripAPIPrefix rewrites the request path by removing a leading "/api"
-// prefix *only when a double prefix is detected* (e.g. "/api/api/..." → "/api/...").
-// This handles deployments where the reverse proxy (Coolify/Traefik) is
-// misconfigured with an upstream that includes "/api", causing requests to arrive
-// with a double prefix (e.g. "/api/api/auth/login" instead of "/api/auth/login").
+// StripAPIPrefix normalizes the request path to handle reverse proxy
+// misconfigurations. It handles two common scenarios:
+//
+// 1. Double prefix: upstream includes "/api" (e.g. Coolify upstream = :112/api)
+//    /api/api/auth/login → /api/auth/login
+//
+// 2. Stripped prefix: "Strip Prefix" is enabled on a /api path rule
+//    /auth/login → /api/auth/login
+//    /sites → /api/sites
+//
+// Health probes (/healthz, /readyz) are never rewritten.
 func StripAPIPrefix(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		// Only strip if path starts with "/api/api/" or "/api/" (exact match)
+
+		// Health probes: never rewrite
+		if path == "/healthz" || path == "/readyz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Double prefix case: /api/api/... → /api/...
 		if strings.HasPrefix(path, "/api/api") {
 			r.URL.Path = strings.TrimPrefix(path, "/api")
-		} else if path == "/api" {
-			r.URL.Path = "/"
+			next.ServeHTTP(w, r)
+			return
 		}
+
+		// Exact /api → /
+		if path == "/api" {
+			r.URL.Path = "/"
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Stripped prefix case: path doesn't start with /api but looks like
+		// an API endpoint that was stripped by the proxy
+		if !strings.HasPrefix(path, "/api") {
+			// Common API path prefixes that might be stripped
+			apiPaths := []string{"/auth/", "/sites", "/crashes", "/ingest/"}
+			for _, prefix := range apiPaths {
+				if strings.HasPrefix(path, prefix) || path == strings.TrimSuffix(prefix, "/") {
+					r.URL.Path = "/api" + path
+					break
+				}
+			}
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }

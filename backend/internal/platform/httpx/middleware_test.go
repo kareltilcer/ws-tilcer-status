@@ -13,10 +13,11 @@ func TestStripAPIPrefix(t *testing.T) {
 		expected string
 	}{
 		// Normal paths should pass through unchanged
-		{"no prefix", "/sites", "/sites"},
+		{"no prefix", "/sites", "/api/sites"},
 		{"api prefix once", "/api/sites", "/api/sites"},
 		{"api auth", "/api/auth/login", "/api/auth/login"},
 		{"health", "/healthz", "/healthz"},
+		{"readyz", "/readyz", "/readyz"},
 		{"root", "/", "/"},
 
 		// Double prefix should be stripped to single
@@ -25,6 +26,12 @@ func TestStripAPIPrefix(t *testing.T) {
 		{"double api exact", "/api/api", "/api"},
 		{"exact api", "/api", "/"},
 		{"triple api", "/api/api/api/sites", "/api/api/sites"},
+
+		// Stripped prefix should be prepended with /api
+		{"stripped auth login", "/auth/login", "/api/auth/login"},
+		{"stripped sites", "/sites", "/api/sites"},
+		{"stripped crashes", "/crashes", "/api/crashes"},
+		{"stripped ingest", "/ingest/test", "/api/ingest/test"},
 	}
 
 	for _, tc := range cases {
