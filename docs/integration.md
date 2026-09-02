@@ -80,6 +80,31 @@ event — a monitoring client must never build an unbounded backlog.
 **Fail safe:** treat *any* ingest error (including network failures) as non-fatal. Never let reporting
 block a request path or crash the app. The copy-in helpers already do this.
 
+## Cross-origin (browser) reporting
+
+A page on `home.tilcer.cz` reporting to `status.tilcer.cz` is a **cross-origin** request, and both
+headers above force a preflight: neither `Content-Type: application/json` nor `X-Ingest-Key` is
+CORS-safelisted. status answers that preflight on its public endpoints only.
+
+| Behaviour | Value |
+|---|---|
+| Allowed origins | `STATUS_ALLOWED_ORIGINS` (default `https://*.tilcer.cz`), echoed back — never `*` |
+| Allowed methods | `GET`, `POST`, `OPTIONS` |
+| Allowed headers | `Content-Type`, `X-Ingest-Key`, `X-Widget-Key` |
+| Preflight cache | `Access-Control-Max-Age: 600` |
+| Credentials | ⚠ **never** — `Access-Control-Allow-Credentials` is not sent |
+
+Two consequences worth stating plainly:
+
+- **Your origin must be in the allow-list.** A page served from anywhere outside `*.tilcer.cz` gets no
+  `Access-Control-Allow-Origin`, the browser blocks the POST, and — because the client is deliberately
+  fail-safe — *nothing is logged anywhere*. Add the origin to `STATUS_ALLOWED_ORIGINS` in Coolify.
+- **Cookies are irrelevant here.** Ingest authenticates by key. Do not set `credentials: "include"` on
+  the fetch; it will fail, and it is not what authenticates the call.
+
+The dashboard endpoints (`/api/sites`, `/api/crashes/*`, …) are **not** cross-origin accessible. They
+are session-cookie authenticated and reachable only from the status origin itself.
+
 ## Copy-in helpers
 
 - **Go:** [`../clients/go/statusreport`](../clients/go/statusreport) — `Report(err, …)` + `defer Recover()`.
@@ -95,5 +120,7 @@ block a request path or crash the app. The copy-in helpers already do this.
 3. Copy [`clients/go/statusreport`](../clients/go/statusreport) into the service (or `go get` it).
 4. In `main`: `sr, _ := statusreport.NewFromEnv(); defer sr.Recover()`; call `sr.Report(err, …)` where
    you handle errors.
-5. (Optional) Set the site's **Monitor URL** to the service's `/readyz` so uptime is tracked too.
-6. Trigger a test error and confirm it appears on the board.
+5. Reporting from the **browser**? Confirm the page's origin is inside `STATUS_ALLOWED_ORIGINS` — see
+   [Cross-origin reporting](#cross-origin-browser-reporting). Server-side Go reporting needs nothing.
+6. (Optional) Set the site's **Monitor URL** to the service's `/readyz` so uptime is tracked too.
+7. Trigger a test error and confirm it appears on the board.

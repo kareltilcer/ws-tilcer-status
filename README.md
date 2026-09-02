@@ -136,7 +136,7 @@ Secrets live in Coolify only — never in the repo.
 | `STATUS_AUTH_SERVICE_SECRET` | *(required)* | BE→BE `X-Service-Secret` (auth service client) |
 | `STATUS_AUTH_JWT_SECRET` | *(required)* | shared HS256 secret to verify auth's tokens |
 | `STATUS_AUTH_JWT_ISSUER` | *(any)* | optional expected token `iss` |
-| `STATUS_ALLOWED_ORIGINS` | `https://*.tilcer.cz` | CSRF Origin allowlist |
+| `STATUS_ALLOWED_ORIGINS` | `https://*.tilcer.cz` | Origin allowlist — CSRF gate **and** CORS on the public endpoints |
 | `STATUS_SESSION_TTL_DAYS` | `90` | session sliding window |
 | `STATUS_ROLE_REFRESH_MINUTES` | `15` | role re-mint interval |
 | `STATUS_CHECK_INTERVAL` | `5m` | poll interval |
@@ -167,7 +167,10 @@ Two separate Coolify apps, both on `status.tilcer.cz`; Traefik path-routes (long
 
 - **`status-backend`** — API-only Go image. Domain `status.tilcer.cz/api`; port **112**; Base Directory
   `/` (context root), Dockerfile `/backend/Dockerfile`; health check `/readyz`; persistent volume at
-  `/data`. **Do NOT enable Strip Prefix** — routes are served under `/api` or they 404.
+  `/data`. ⚠ **Strip Prefix must be OFF** — routes are served under `/api`. `httpx.StripAPIPrefix`
+  re-prefixes a stripped path as a defensive fallback should the toggle be flipped back, deriving the
+  segments it accepts from the routes the router registers; it is a safety net for a misconfigured
+  proxy, not a supported routing mode.
 - **`status-frontend`** — static Nginx SPA. Domain `status.tilcer.cz` (catch-all); Base Directory
   `/frontend`, Dockerfile `/frontend/Dockerfile`.
 

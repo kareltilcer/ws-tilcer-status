@@ -162,6 +162,7 @@ func run(logger *slog.Logger) error {
 		CSRFMW:            csrfMW,
 		MountAPI:          func(api chi.Router) { registry.MountAll(api, modules) },
 		StaticDir:         cfg.StaticDir,
+		AllowedOrigins:    cfg.AllowedOrigins,
 	})
 	srv := &http.Server{
 		Addr:              cfg.Addr,

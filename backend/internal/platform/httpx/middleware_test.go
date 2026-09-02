@@ -3,8 +3,18 @@ package httpx
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
 )
+
+// apiSegments is the derived re-prefix set under test. Every case below states
+// the segment it exercises, so a segment the router registers but this test
+// never names is visible as an omission — see
+// TestStripAPIPrefixCoversEveryRegisteredAPIRoute in internal/apitest, which
+// enumerates the real routing tree.
+var apiSegments = []string{"auth", "crashes", "ingest", "meta", "sites"}
 
 func TestStripAPIPrefix(t *testing.T) {
 	cases := []struct {
@@ -12,26 +22,35 @@ func TestStripAPIPrefix(t *testing.T) {
 		path     string
 		expected string
 	}{
-		// Normal paths should pass through unchanged
-		{"no prefix", "/sites", "/api/sites"},
+		// Already correct: passed through untouched.
 		{"api prefix once", "/api/sites", "/api/sites"},
 		{"api auth", "/api/auth/login", "/api/auth/login"},
+		{"api meta", "/api/meta", "/api/meta"},
 		{"health", "/healthz", "/healthz"},
 		{"readyz", "/readyz", "/readyz"},
 		{"root", "/", "/"},
 
-		// Double prefix should be stripped to single
+		// Double prefix: stripped back to one.
 		{"double api prefix", "/api/api/sites", "/api/sites"},
 		{"double api auth", "/api/api/auth/login", "/api/auth/login"},
 		{"double api exact", "/api/api", "/api"},
 		{"exact api", "/api", "/"},
 		{"triple api", "/api/api/api/sites", "/api/api/sites"},
 
-		// Stripped prefix should be prepended with /api
-		{"stripped auth login", "/auth/login", "/api/auth/login"},
+		// Stripped prefix: re-prefixed, one case per derived segment.
+		{"stripped auth", "/auth/login", "/api/auth/login"},
 		{"stripped sites", "/sites", "/api/sites"},
+		{"stripped site detail", "/sites/home", "/api/sites/home"},
 		{"stripped crashes", "/crashes", "/api/crashes"},
 		{"stripped ingest", "/ingest/test", "/api/ingest/test"},
+		// The segment the hand-written list forgot. /api/meta 404'd in production
+		// because of it, and the test that guarded the list never named it.
+		{"stripped meta", "/meta", "/api/meta"},
+
+		// Not an API segment: left alone (an SPA route, or a typo that must 404
+		// loudly rather than be bent into an API path).
+		{"unknown segment", "/nope", "/nope"},
+		{"segment prefix is not a segment", "/sitesomething", "/sitesomething"},
 	}
 
 	for _, tc := range cases {
@@ -39,9 +58,9 @@ func TestStripAPIPrefix(t *testing.T) {
 			req := httptest.NewRequest("GET", tc.path, nil)
 			w := httptest.NewRecorder()
 
-			handler := StripAPIPrefix(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := StripAPIPrefix(apiSegments)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(r.URL.Path))
+				_, _ = w.Write([]byte(r.URL.Path))
 			}))
 
 			handler.ServeHTTP(w, req)
@@ -50,6 +69,25 @@ func TestStripAPIPrefix(t *testing.T) {
 				t.Errorf("StripAPIPrefix(%q) = %q, want %q", tc.path, got, tc.expected)
 			}
 		})
+	}
+}
+
+// TestAPISegments proves the set is read off the routing tree, including a
+// segment nobody would think to add by hand.
+func TestAPISegments(t *testing.T) {
+	r := chi.NewRouter()
+	r.Get("/healthz", func(http.ResponseWriter, *http.Request) {})
+	r.Route("/api", func(api chi.Router) {
+		api.Post("/auth/login", func(http.ResponseWriter, *http.Request) {})
+		api.Get("/meta", func(http.ResponseWriter, *http.Request) {})
+		api.Get("/sites/{id}/crashes", func(http.ResponseWriter, *http.Request) {})
+		api.Get("/zzz-whatever-v4-adds", func(http.ResponseWriter, *http.Request) {})
+	})
+
+	got := APISegments(r)
+	want := []string{"auth", "meta", "sites", "zzz-whatever-v4-adds"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("APISegments = %v, want %v", got, want)
 	}
 }
 
