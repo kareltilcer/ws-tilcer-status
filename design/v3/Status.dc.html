@@ -1,0 +1,1792 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:oklch(0.165 0.008 264);--s1:oklch(0.198 0.010 264);--s2:oklch(0.232 0.012 264);--s3:oklch(0.270 0.013 264);--s4:oklch(0.310 0.014 264);
+  --border:oklch(0.320 0.012 264);--border-strong:oklch(0.400 0.014 264);--text:oklch(0.945 0.006 264);--muted:oklch(0.740 0.010 264);--subtle:oklch(0.660 0.012 264);
+  --accent:oklch(0.680 0.120 256);--accent-fg:oklch(0.220 0.040 256);--accent-soft:oklch(0.360 0.070 256);
+  --good:oklch(0.740 0.090 150);--good-soft:oklch(0.360 0.055 150);--warn:oklch(0.800 0.100 78);--warn-soft:oklch(0.380 0.060 78);--danger:oklch(0.700 0.130 22);--danger-soft:oklch(0.360 0.070 22);
+  --good-text:oklch(0.780 0.090 150);--warn-text:oklch(0.820 0.100 78);--danger-text:oklch(0.760 0.130 22);--err-orange-text:oklch(0.790 0.130 45);--on-color:oklch(0.205 0.020 264);
+  --err-orange:oklch(0.760 0.130 45);--focus:oklch(0.780 0.130 256);
+  --shadow:0 1px 2px oklch(0 0 0 / 0.4);--radius:10px;--font:'Hanken Grotesk',system-ui,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+.light{
+  --bg:oklch(0.975 0.004 264);--s1:oklch(1 0 0);--s2:oklch(0.978 0.004 264);--s3:oklch(0.955 0.006 264);--s4:oklch(0.930 0.008 264);
+  --border:oklch(0.905 0.006 264);--border-strong:oklch(0.840 0.008 264);--text:oklch(0.240 0.014 264);--muted:oklch(0.470 0.014 264);--subtle:oklch(0.545 0.012 264);
+  --accent:oklch(0.530 0.150 256);--accent-fg:oklch(0.990 0.004 256);--accent-soft:oklch(0.930 0.045 256);
+  --good:oklch(0.520 0.120 150);--good-soft:oklch(0.930 0.045 150);--warn:oklch(0.600 0.130 66);--warn-soft:oklch(0.945 0.050 78);--danger:oklch(0.550 0.170 25);--danger-soft:oklch(0.945 0.055 25);
+  --good-text:oklch(0.500 0.120 150);--warn-text:oklch(0.520 0.120 66);--danger-text:oklch(0.525 0.150 25);--err-orange-text:oklch(0.560 0.130 45);--on-color:oklch(0.205 0.020 264);
+  --err-orange:oklch(0.590 0.150 45);--focus:oklch(0.550 0.150 256);
+  --shadow:0 1px 2px oklch(0.2 0.02 264 / 0.10), 0 2px 8px oklch(0.2 0.02 264 / 0.06);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:1.5;-webkit-font-smoothing:antialiased}
+::selection{background:var(--accent-soft)}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+button{font-family:inherit}
+*:focus-visible{outline:2px solid var(--focus)!important;outline-offset:2px!important}
+@keyframes om-spin{to{transform:rotate(360deg)}}
+@keyframes om-pulse-ring{0%{box-shadow:0 0 0 0 var(--warn)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@keyframes om-shimmer{0%{opacity:.45}50%{opacity:.8}100%{opacity:.45}}
+@keyframes om-fadein{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes om-live{0%,100%{opacity:1}50%{opacity:.25}}
+@keyframes om-slidein{from{transform:translateX(-100%)}to{transform:none}}
+@keyframes om-toast{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+.om-skel{background:var(--s3);border-radius:6px;animation:om-shimmer 1.4s ease-in-out infinite}
+</style>
+</helmet>
+<div ref="{{ rootRef }}" style="min-height:100vh;background:var(--bg);color:var(--text);font-family:var(--font)">
+
+  <!-- ===== DESIGN-REVIEW CONTROL BAR ===== -->
+  <div style="position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:8px 16px;background:var(--s1);border-bottom:1px solid var(--border);box-shadow:var(--shadow)">
+    <div style="display:flex;align-items:center;gap:8px;padding-right:12px;border-right:1px solid var(--border)">
+      <span style="font-family:var(--mono);font-size:12px;color:var(--subtle);letter-spacing:.02em">design review</span>
+      <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text)">status.tilcer.cz · v3</span>
+    </div>
+    <div style="display:flex;gap:2px;flex-wrap:wrap">
+      <sc-for list="{{ screenTabs }}" as="t" hint-placeholder-count="8">
+        <button onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</button>
+      </sc-for>
+    </div>
+    <div style="flex:1"></div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <sc-if value="{{ isShellScreen }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--subtle)">view</span>
+          <div style="display:flex;gap:2px;padding:2px;background:var(--s2);border:1px solid var(--border);border-radius:8px">
+            <sc-for list="{{ vpTabs }}" as="v" hint-placeholder-count="2">
+              <button onClick="{{ v.onClick }}" style="{{ v.style }}">{{ v.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ hasStates }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--subtle)">state</span>
+          <div style="display:flex;gap:2px;padding:2px;background:var(--s2);border:1px solid var(--border);border-radius:8px;flex-wrap:wrap">
+            <sc-for list="{{ stateTabs }}" as="s" hint-placeholder-count="4">
+              <button onClick="{{ s.onClick }}" style="{{ s.style }}">{{ s.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+      <button onClick="{{ toggleTheme }}" title="Toggle theme" style="height:30px;width:30px;display:grid;place-items:center;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer">{{ themeGlyph }}</button>
+    </div>
+  </div>
+
+  <!-- ===== OVERLAYS: confirm dialog ===== -->
+  <sc-if value="{{ confirmOpen }}" hint-placeholder-val="{{ true }}">
+    <div style="position:fixed;inset:0;z-index:70;background:oklch(0 0 0 / .55);display:grid;place-items:center;padding:24px;animation:om-fadein .16s ease">
+      <div role="alertdialog" aria-modal="true" style="width:100%;max-width:440px;border:1px solid var(--border);background:var(--s1);border-radius:14px;box-shadow:var(--shadow);overflow:hidden">
+        <div style="padding:22px 22px 4px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+            <span style="display:grid;place-items:center;height:38px;width:38px;border-radius:10px;background:{{ cf.iconBg }};color:{{ cf.iconFg }}">{{ cf.icon }}</span>
+            <h2 style="margin:0;font-size:17px;font-weight:700">{{ cf.title }}</h2>
+          </div>
+          <p style="margin:0 0 18px;font-size:13.5px;color:var(--muted);line-height:1.55;text-wrap:pretty">{{ cf.body }}</p>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;padding:14px 22px;border-top:1px solid var(--border);background:var(--s2)">
+          <button onClick="{{ closeOverlay }}" style="height:38px;padding:0 15px;border:1px solid var(--border);background:var(--s1);color:var(--text);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>
+          <button onClick="{{ cf.onConfirm }}" style="{{ cf.confirmStyle }}">{{ cf.icon2 }}{{ cf.confirmLabel }}</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== OVERLAYS: show-once key modal (create + rotate) ===== -->
+  <sc-if value="{{ keyModalOpen }}" hint-placeholder-val="{{ true }}">
+    <div style="position:fixed;inset:0;z-index:70;background:oklch(0 0 0 / .55);display:grid;place-items:center;padding:24px;animation:om-fadein .18s ease">
+      <div role="dialog" aria-modal="true" style="width:100%;max-width:520px;border:1px solid var(--border);background:var(--s1);border-radius:14px;box-shadow:var(--shadow);overflow:hidden">
+        <div style="padding:20px 22px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="display:grid;place-items:center;height:34px;width:34px;border-radius:9px;background:var(--good-soft);color:var(--good-text)">{{ iconKey }}</span>
+            <div><div style="font-size:16px;font-weight:700">{{ km.title }}</div><div style="font-size:12.5px;color:var(--muted)">{{ km.subtitle }}</div></div>
+          </div>
+        </div>
+        <div style="padding:22px">
+          <div style="display:flex;align-items:flex-start;gap:9px;padding:11px 13px;border-radius:9px;background:color-mix(in oklab,var(--warn) 12%,transparent);border:1px solid color-mix(in oklab,var(--warn) 40%,transparent);margin-bottom:16px">
+            <span style="color:var(--warn-text);flex:none;margin-top:1px">{{ iconAlert }}</span>
+            <div style="font-size:12.5px;color:var(--text);text-wrap:pretty"><b>{{ km.warnBold }}</b> {{ km.warnRest }}</div>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:18px">
+            <code style="flex:1;min-width:0;font-family:var(--mono);font-size:13px;background:var(--s2);border:1px solid var(--border-strong);border-radius:8px;padding:11px 13px;white-space:nowrap;overflow-x:auto;overflow-y:hidden;color:var(--text)">{{ km.key }}</code>
+            <button style="flex:none;display:inline-flex;align-items:center;gap:7px;height:auto;padding:0 14px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">{{ iconCopy }}Copy</button>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:var(--subtle);margin-bottom:6px">Ready to paste</div>
+          <pre style="margin:0 0 20px;font-family:var(--mono);font-size:11.5px;line-height:1.6;background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:13px;overflow:auto;color:var(--text);white-space:pre">{{ km.snippet }}</pre>
+          <div style="display:flex;justify-content:flex-end"><button onClick="{{ km.onClose }}" style="height:38px;padding:0 18px;border:1px solid var(--border);background:var(--s2);color:var(--text);border-radius:8px;font-size:13.5px;font-weight:600;cursor:pointer">{{ km.closeLabel }}</button></div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== TOAST ===== -->
+  <sc-if value="{{ toastMsg }}" hint-placeholder-val="{{ true }}">
+    <div role="status" style="position:fixed;left:50%;bottom:26px;z-index:80;display:inline-flex;align-items:center;gap:9px;padding:11px 16px;border-radius:10px;background:var(--s3);border:1px solid var(--border-strong);box-shadow:0 8px 26px -8px oklch(0 0 0 / .5);animation:om-toast .22s ease">
+      <span style="display:grid;place-items:center;height:18px;width:18px;border-radius:50%;background:var(--good);color:var(--on-color);flex:none">{{ iconCheckSm }}</span>
+      <span style="font-size:13px;font-weight:600;color:var(--text)">{{ toastMsg }}</span>
+    </div>
+  </sc-if>
+
+  <!-- ===== LOGIN (full-bleed, no shell) ===== -->
+  <sc-if value="{{ isLogin }}" hint-placeholder-val="{{ true }}">
+    <div style="display:grid;place-items:center;min-height:calc(100vh - 47px);padding:24px">
+      <div style="width:100%;max-width:380px;animation:om-fadein .25s ease">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:22px">
+          <span style="display:grid;place-items:center;height:36px;width:36px;border-radius:9px;background:var(--accent);color:var(--accent-fg);font-weight:800;font-size:18px">s</span>
+          <span style="font-size:20px;font-weight:800;letter-spacing:-.01em">status</span>
+        </div>
+        <form onSubmit="{{ preventSubmit }}" style="border:1px solid var(--border);background:var(--s1);border-radius:14px;padding:22px;box-shadow:var(--shadow)">
+          <h1 style="margin:0 0 4px;font-size:18px;font-weight:700">Sign in</h1>
+          <p style="margin:0 0 18px;font-size:13px;color:var(--muted)">Fleet monitoring &amp; crash reporting. Admin only.</p>
+          <sc-if value="{{ vError }}" hint-placeholder-val="{{ true }}">
+            <div role="alert" style="margin-bottom:16px;border:1px solid color-mix(in oklab,var(--danger) 45%,transparent);background:color-mix(in oklab,var(--danger) 12%,transparent);color:var(--danger-text);border-radius:9px;padding:10px 12px;font-size:13px">Incorrect email or password. Try again.</div>
+          </sc-if>
+          <label style="display:block;margin-bottom:14px">
+            <span style="display:block;margin-bottom:6px;font-size:13px;font-weight:600;color:var(--subtle)">Email</span>
+            <input type="email" value="karel@tilcer.cz" style="height:40px;width:100%;border:1px solid var(--border);background:var(--s2);border-radius:8px;padding:0 12px;font-size:14px;color:var(--text);font-family:inherit;outline:none">
+          </label>
+          <label style="display:block;margin-bottom:18px">
+            <span style="display:block;margin-bottom:6px;font-size:13px;font-weight:600;color:var(--subtle)">Password</span>
+            <input type="password" value="password" style="height:40px;width:100%;border:1px solid var(--border);background:var(--s2);border-radius:8px;padding:0 12px;font-size:14px;color:var(--text);font-family:inherit;outline:none">
+          </label>
+          <button type="submit" style="display:flex;align-items:center;justify-content:center;gap:8px;height:40px;width:100%;border:none;border-radius:8px;background:var(--accent);color:var(--accent-fg);font-size:14px;font-weight:700;cursor:pointer">
+            <sc-if value="{{ vLoading }}" hint-placeholder-val="{{ true }}"><span style="height:16px;width:16px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:om-spin .7s linear infinite"></span></sc-if>
+            <span>{{ loginBtnLabel }}</span>
+          </button>
+          <div style="margin-top:16px;text-align:center;font-size:12.5px;color:var(--muted)">
+            <a href="#">Forgot password?</a>
+            <p style="margin:4px 0 0">Accounts are managed in auth.tilcer.cz.</p>
+          </div>
+        </form>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== LEGEND / DESIGN SYSTEM (full-bleed) ===== -->
+  <sc-if value="{{ isLegend }}" hint-placeholder-val="{{ true }}">
+    <div style="max-width:1080px;margin:0 auto;padding:32px 24px 64px;animation:om-fadein .25s ease">
+      <header style="margin-bottom:28px">
+        <div style="font-family:var(--mono);font-size:12px;color:var(--subtle);margin-bottom:6px">design system · v2</div>
+        <h1 style="margin:0 0 6px;font-size:26px;font-weight:800;letter-spacing:-.01em">The status system</h1>
+        <p style="margin:0;max-width:64ch;font-size:14px;color:var(--muted);text-wrap:pretty">Four states, precedence <b style="color:var(--text)">red › orange › green › unknown</b>. Color is never the only cue — every state carries a distinct glyph and a text label, so it reads for colorblind users and screen readers alike (WCAG 2.1 AA).</p>
+      </header>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-bottom:36px">
+        <sc-for list="{{ legendStates }}" as="L" hint-placeholder-count="4">
+          <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:16px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+              <span style="display:grid;place-items:center;height:26px;width:26px;border-radius:50%;font-size:14px;font-weight:800;color:var(--on-color);background:{{ L.color }}">{{ L.cue }}</span>
+              <div>
+                <div style="font-size:15px;font-weight:700;text-transform:capitalize">{{ L.name }}</div>
+                <div style="font-size:12px;color:var(--muted)">{{ L.label }}</div>
+              </div>
+            </div>
+            <p style="margin:0 0 12px;font-size:12.5px;color:var(--muted);min-height:52px;text-wrap:pretty">{{ L.desc }}</p>
+            <div style="display:inline-flex;align-items:center;gap:7px;padding:4px 9px 4px 6px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid {{ L.color }};color:{{ L.textColor }};background:{{ L.soft }}">
+              <span style="display:grid;place-items:center;height:16px;width:16px;border-radius:50%;font-size:10px;font-weight:800;color:var(--on-color);background:{{ L.color }}">{{ L.cue }}</span>{{ L.name }}
+            </div>
+            <div style="margin-top:12px;font-family:var(--mono);font-size:11px;color:var(--subtle)">{{ L.token }}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px">
+        <section>
+          <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Crash level badges</h2>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;gap:12px;border:1px solid var(--border);background:var(--s1);border-radius:10px;padding:12px 14px">
+              <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;background:var(--danger);color:var(--on-color)">fatal</span>
+              <span style="font-size:12.5px;color:var(--muted)">Crashed the process — panics, uncaught fatals.</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;border:1px solid var(--border);background:var(--s1);border-radius:10px;padding:12px 14px">
+              <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;background:color-mix(in oklab,var(--err-orange) 16%,transparent);color:var(--err-orange-text);border:1px solid color-mix(in oklab,var(--err-orange) 50%,transparent)">error</span>
+              <span style="font-size:12.5px;color:var(--muted)">Handled but wrong — the default level.</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;border:1px solid var(--border);background:var(--s1);border-radius:10px;padding:12px 14px">
+              <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;background:color-mix(in oklab,var(--warn) 14%,transparent);color:var(--warn-text);border:1px solid color-mix(in oklab,var(--warn) 45%,transparent)">warning</span>
+              <span style="font-size:12.5px;color:var(--muted)">Noise worth watching, not urgent.</span>
+            </div>
+          </div>
+        </section>
+        <section>
+          <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">The debounce affordance</h2>
+          <div style="border:1px solid var(--border);background:var(--s1);border-radius:10px;padding:16px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+              <span style="height:12px;width:12px;border-radius:50%;background:var(--good);animation:om-pulse-ring 1.6s ease-out infinite"></span>
+              <span style="font-size:13px;font-weight:600">Healthy · re-checking</span>
+            </div>
+            <p style="margin:0;font-size:12.5px;color:var(--muted);text-wrap:pretty">One failed check doesn't flip a site red. Until the streak reaches the threshold (2), we hold the prior color and pulse the dot with a quiet <b style="color:var(--text)">1 failed check · re-checking</b> note — so a blip reads as "watching", never a false alarm.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== ACCESSIBILITY REVIEW (full-bleed) ===== -->
+  <sc-if value="{{ isA11y }}" hint-placeholder-val="{{ true }}">
+    <div style="max-width:1000px;margin:0 auto;padding:32px 24px 64px;animation:om-fadein .25s ease">
+      <header style="margin-bottom:24px">
+        <div style="font-family:var(--mono);font-size:12px;color:var(--subtle);margin-bottom:6px">deliverable · design:accessibility-review</div>
+        <h1 style="margin:0 0 6px;font-size:26px;font-weight:800;letter-spacing:-.01em">Accessibility review — WCAG 2.1 AA</h1>
+        <p style="margin:0;max-width:70ch;font-size:14px;color:var(--muted);text-wrap:pretty">Contrast measured by rendering each oklch token to sRGB and computing the WCAG ratio against its real background — both themes. Normal text target <b style="color:var(--text)">4.5:1</b>, UI/large <b style="color:var(--text)">3:1</b>. All flagged failures were fixed by splitting a fill token from an AA-tuned text token.</p>
+      </header>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:26px">
+        <sc-for list="{{ a11ySummary }}" as="c" hint-placeholder-count="3">
+          <div style="border:1px solid var(--border);background:var(--s1);border-radius:10px;padding:14px 16px">
+            <div style="font-size:26px;font-weight:800;color:{{ c.color }};font-variant-numeric:tabular-nums">{{ c.n }}</div>
+            <div style="font-size:12.5px;color:var(--muted)">{{ c.label }}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Fixed — contrast failures</h2>
+      <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);overflow:hidden;margin-bottom:28px">
+        <div style="display:grid;grid-template-columns:1fr 76px 76px 1.1fr;gap:10px;padding:10px 16px;background:var(--s2);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--subtle)">
+          <span>Element</span><span style="text-align:right">Before</span><span style="text-align:right">After</span><span>Fix</span>
+        </div>
+        <sc-for list="{{ a11yFixed }}" as="r" hint-placeholder-count="7">
+          <div style="display:grid;grid-template-columns:1fr 76px 76px 1.1fr;gap:10px;padding:11px 16px;border-bottom:1px solid var(--border);align-items:center">
+            <span style="font-size:12.5px;color:var(--text)">{{ r.area }}</span>
+            <span style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--danger-text)">{{ r.before }}</span>
+            <span style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--good-text)">{{ r.after }}</span>
+            <span style="font-family:var(--mono);font-size:11.5px;color:var(--subtle)">{{ r.fix }}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px">
+        <section>
+          <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Already passing (spot-checks)</h2>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{ a11yPass }}" as="p" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--border);background:var(--s1);border-radius:9px;padding:10px 13px">
+                <span style="font-size:12.5px;color:var(--muted)">{{ p.area }}</span>
+                <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--good-text)">{{ p.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+        <section>
+          <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Focus-visible</h2>
+          <div style="border:1px solid var(--border);background:var(--s1);border-radius:10px;padding:16px">
+            <p style="margin:0 0 14px;font-size:12.5px;color:var(--muted);text-wrap:pretty">Inputs previously set <code style="font-family:var(--mono)">outline:none</code> with no replacement (2.4.7 fail). Now a global <code style="font-family:var(--mono)">:focus-visible</code> ring — 2px <b style="color:var(--text)">--focus</b>, 2px offset — applies to every interactive element, keyboard-only.</p>
+            <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+              <button style="height:38px;padding:0 15px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg);border-radius:8px;font-size:13px;font-weight:700;outline:2px solid var(--focus);outline-offset:2px">Focused button</button>
+              <input value="input" style="height:38px;width:120px;border:1px solid var(--border);background:var(--s2);border-radius:8px;padding:0 12px;font-size:13px;color:var(--text);outline:2px solid var(--focus);outline-offset:2px">
+              <span style="display:inline-flex;align-items:center;gap:7px;padding:4px 11px 4px 6px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid var(--good);color:var(--good-text);background:var(--good-soft);outline:2px solid var(--focus);outline-offset:2px"><span style="display:grid;place-items:center;height:16px;width:16px;border-radius:50%;font-size:10px;color:var(--on-color);background:var(--good)">✓</span>card</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section style="margin-top:24px">
+        <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Not color alone — pill holds at smallest size</h2>
+        <div style="border:1px solid var(--border);background:var(--s1);border-radius:10px;padding:16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+          <sc-for list="{{ legendStates }}" as="L" hint-placeholder-count="4">
+            <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px 3px 4px;border-radius:999px;font-size:11.5px;font-weight:700;border:1px solid {{ L.color }};color:{{ L.textColor }};background:{{ L.soft }}"><span style="display:grid;place-items:center;height:14px;width:14px;border-radius:50%;font-size:9px;font-weight:800;color:var(--on-color);background:{{ L.color }}">{{ L.cue }}</span>{{ L.name }}</span>
+          </sc-for>
+          <span style="font-size:12px;color:var(--subtle);margin-left:4px">Glyph + label survive at 11.5px — passes even in grayscale.</span>
+        </div>
+      </section>
+
+      <section style="margin-top:32px;padding-top:26px;border-top:1px solid var(--border)">
+        <div style="font-family:var(--mono);font-size:12px;color:var(--subtle);margin-bottom:6px">v3 · feedback surfaces</div>
+        <h2 style="margin:0 0 6px;font-size:19px;font-weight:800;letter-spacing:-.01em">The report surfaces</h2>
+        <p style="margin:0 0 18px;max-width:72ch;font-size:13.5px;color:var(--muted);text-wrap:pretty">Reports introduce a second colour language to the dashboard: <b style="color:var(--text)">accent means “someone wrote to you”</b> and never health. That keeps the unread badge legible next to a status pill, and it keeps the four report states out of the red/orange/green vocabulary entirely. The widget carries its own review — see <code style="font-family:var(--mono)">Feedback widget.dc.html</code>.</p>
+        <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);overflow:hidden;margin-bottom:20px">
+          <div style="display:grid;grid-template-columns:1.6fr 84px 84px 1fr;gap:10px;padding:10px 16px;background:var(--s2);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--subtle)">
+            <span>Element</span><span style="text-align:right">Dark</span><span style="text-align:right">Light</span><span>Verdict</span>
+          </div>
+          <sc-for list="{{ a11yV3 }}" as="r" hint-placeholder-count="6">
+            <div style="display:grid;grid-template-columns:1.6fr 84px 84px 1fr;gap:10px;padding:11px 16px;border-bottom:1px solid var(--border);align-items:center">
+              <span style="font-size:12.5px;color:var(--text)">{{ r.area }}</span>
+              <span style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--good-text)">{{ r.d }}</span>
+              <span style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--good-text)">{{ r.l }}</span>
+              <span style="font-size:12px;color:var(--muted)">{{ r.v }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
+          <sc-for list="{{ a11yV3Cards }}" as="c" hint-placeholder-count="4">
+            <div style="border:1px solid var(--border);background:var(--s1);border-radius:10px;padding:14px 16px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+                <span style="font-family:var(--mono);font-size:11px;color:var(--subtle)">{{ c.tag }}</span>
+                <span style="font-size:13.5px;font-weight:700">{{ c.title }}</span>
+              </div>
+              <p style="margin:0;font-size:12.5px;color:var(--muted);line-height:1.55;text-wrap:pretty">{{ c.body }}</p>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+    </div>
+  </sc-if>
+
+  <!-- ===== ENGINEERING REDLINE (full-bleed) ===== -->
+  <sc-if value="{{ isRedline }}" hint-placeholder-val="{{ true }}">
+    <div style="max-width:1040px;margin:0 auto;padding:32px 24px 64px;animation:om-fadein .25s ease">
+      <header style="margin-bottom:24px">
+        <div style="font-family:var(--mono);font-size:12px;color:var(--subtle);margin-bottom:6px">deliverable · design:design-handoff</div>
+        <h1 style="margin:0 0 6px;font-size:26px;font-weight:800;letter-spacing:-.01em">Engineering redline</h1>
+        <p style="margin:0;max-width:70ch;font-size:14px;color:var(--muted);text-wrap:pretty">Build tokens, scales, breakpoints and component contracts for M5. Complements <code style="font-family:var(--mono)">HANDOFF-engineering.md</code>. oklch values shown as <code style="font-family:var(--mono)">L C H</code>; every status color ships a fill token and an AA text token.</p>
+      </header>
+
+      <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Color tokens <span style="font-weight:500;color:var(--subtle);font-size:13px">· dark (default) / light</span></h2>
+      <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);overflow:hidden;margin-bottom:28px">
+        <div style="display:grid;grid-template-columns:1.1fr 1.2fr 1fr 1fr;gap:10px;padding:10px 16px;background:var(--s2);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--subtle)">
+          <span>Token</span><span>Role</span><span>Dark</span><span>Light</span>
+        </div>
+        <sc-for list="{{ rlTokens }}" as="t" hint-placeholder-count="12">
+          <div style="display:grid;grid-template-columns:1.1fr 1.2fr 1fr 1fr;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center">
+            <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text)">{{ t.n }}</span>
+            <span style="font-size:12.5px;color:var(--muted)">{{ t.r }}</span>
+            <span style="font-family:var(--mono);font-size:11.5px;color:var(--subtle)">{{ t.d }}</span>
+            <span style="font-family:var(--mono);font-size:11.5px;color:var(--subtle)">{{ t.l }}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px;margin-bottom:28px">
+        <section>
+          <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Type scale <span style="font-weight:500;color:var(--subtle);font-size:13px">· px / weight</span></h2>
+          <div style="border:1px solid var(--border);background:var(--s1);border-radius:10px;overflow:hidden">
+            <sc-for list="{{ rlType }}" as="t" hint-placeholder-count="8">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 14px;border-bottom:1px solid var(--border)">
+                <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text)">{{ t.s }}</span>
+                <span style="font-size:12.5px;color:var(--muted);text-align:right">{{ t.u }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <p style="margin:12px 0 0;font-size:12px;color:var(--subtle);text-wrap:pretty">Hanken Grotesk for UI; IBM Plex Mono for ids, code, latency &amp; keys.</p>
+        </section>
+        <section>
+          <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Spacing, radii &amp; elevation</h2>
+          <div style="border:1px solid var(--border);background:var(--s1);border-radius:10px;padding:16px;margin-bottom:12px">
+            <div style="font-size:12px;font-weight:600;color:var(--subtle);margin-bottom:8px">Spacing scale (px)</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+              <sc-for list="{{ rlSpace }}" as="s" hint-placeholder-count="12">
+                <span style="font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:6px;background:var(--s2);border:1px solid var(--border);color:var(--text)">{{ s }}</span>
+              </sc-for>
+            </div>
+          </div>
+          <div style="border:1px solid var(--border);background:var(--s1);border-radius:10px;overflow:hidden">
+            <sc-for list="{{ rlRadii }}" as="r" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 14px;border-bottom:1px solid var(--border)">
+                <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text)">{{ r.k }}</span>
+                <span style="font-size:12.5px;color:var(--muted);text-align:right">{{ r.v }}</span>
+              </div>
+            </sc-for>
+            <div style="padding:9px 14px;font-size:12px;color:var(--subtle)">Shadow <span style="font-family:var(--mono)">--shadow</span> on cards &amp; modals only.</div>
+          </div>
+        </section>
+      </div>
+
+      <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Breakpoints</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:28px">
+        <sc-for list="{{ rlBreak }}" as="b" hint-placeholder-count="2">
+          <div style="border:1px solid var(--border);background:var(--s1);border-radius:10px;padding:14px 16px">
+            <div style="font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--accent);margin-bottom:6px">{{ b.b }}</div>
+            <p style="margin:0;font-size:12.5px;color:var(--muted);text-wrap:pretty">{{ b.d }}</p>
+          </div>
+        </sc-for>
+      </div>
+
+      <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Component contracts</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px">
+        <sc-for list="{{ rlComponents }}" as="c" hint-placeholder-count="7">
+          <div style="border:1px solid var(--border);background:var(--s1);border-radius:10px;padding:14px 16px">
+            <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+              <span style="font-size:13.5px;font-weight:700;color:var(--text)">{{ c.n }}</span>
+              <span style="font-family:var(--mono);font-size:11.5px;color:var(--accent)">{{ c.p }}</span>
+            </div>
+            <p style="margin:0;font-size:12px;color:var(--muted);line-height:1.55;text-wrap:pretty">{{ c.note }}</p>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== SHELL-WRAPPED SCREENS ===== -->
+  <sc-if value="{{ inShell }}" hint-placeholder-val="{{ true }}">
+    <div style="{{ shellOuterStyle }}">
+
+      <!-- desktop side nav -->
+      <sc-if value="{{ vpDesktop }}" hint-placeholder-val="{{ true }}">
+        <aside style="width:230px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--s1)">
+          <div style="display:flex;align-items:center;gap:10px;padding:18px 18px">
+            <span style="display:grid;place-items:center;height:32px;width:32px;border-radius:8px;background:var(--accent);color:var(--accent-fg);font-weight:800;font-size:16px">s</span>
+            <span style="font-size:17px;font-weight:800;letter-spacing:-.01em">status</span>
+          </div>
+          <nav style="display:flex;flex-direction:column;gap:2px;padding:6px 12px;flex:1">
+            <button onClick="{{ goBoard }}" style="{{ navBoardStyle }}"><span style="display:inline-flex">{{ iconBoard }}</span>Board</button>
+            <button onClick="{{ goInbox }}" style="{{ navInboxStyle }}"><span style="display:inline-flex">{{ iconMail }}</span><span style="flex:1">Inbox</span><sc-if value="{{ inboxBadge }}" hint-placeholder-val="{{ true }}"><span style="display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--accent);color:var(--accent-fg);font-size:11px;font-weight:800;font-variant-numeric:tabular-nums">{{ inboxBadge }}</span></sc-if></button>
+            <button onClick="{{ goLegend }}" style="{{ navLegendStyle }}"><span style="display:inline-flex">{{ iconGrid }}</span>Status system</button>
+          </nav>
+          <div style="padding:12px;display:flex;flex-direction:column;gap:8px">
+            <div style="padding:0 4px;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">karel@tilcer.cz</div>
+            <button onClick="{{ toggleTheme }}" style="display:flex;align-items:center;justify-content:center;gap:8px;height:36px;border:1px solid var(--border);background:var(--s2);border-radius:8px;color:var(--text);font-size:13px;font-weight:600;cursor:pointer">{{ themeGlyph }}<span>{{ themeLabel }}</span></button>
+            <button onClick="{{ goLogin }}" style="display:flex;align-items:center;justify-content:center;gap:8px;height:36px;border:1px solid var(--border);background:var(--s2);border-radius:8px;color:var(--text);font-size:13px;font-weight:600;cursor:pointer">{{ iconLogout }}<span>Sign out</span></button>
+          </div>
+        </aside>
+      </sc-if>
+
+      <!-- mobile top bar -->
+      <sc-if value="{{ vpMobile }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;align-items:center;gap:12px;height:52px;padding:0 12px;border-bottom:1px solid var(--border);background:var(--s1);flex:none;z-index:5">
+          <button onClick="{{ openDrawer }}" aria-label="Menu" style="height:38px;width:38px;display:grid;place-items:center;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer">{{ iconMenu }}</button>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="display:grid;place-items:center;height:26px;width:26px;border-radius:7px;background:var(--accent);color:var(--accent-fg);font-weight:800;font-size:14px">s</span>
+            <span style="font-size:15px;font-weight:800;letter-spacing:-.01em">status</span>
+          </div>
+          <div style="flex:1"></div>
+          <button onClick="{{ goAdd }}" aria-label="Add site" style="height:38px;width:38px;display:grid;place-items:center;background:var(--accent);border:1px solid var(--accent);border-radius:8px;color:var(--accent-fg);cursor:pointer">{{ iconPlus }}</button>
+        </div>
+      </sc-if>
+
+      <!-- mobile drawer -->
+      <sc-if value="{{ drawerOpen }}" hint-placeholder-val="{{ true }}">
+        <div onClick="{{ closeDrawer }}" style="position:absolute;inset:0;background:oklch(0 0 0 / .45);z-index:30"></div>
+        <div style="position:absolute;top:0;left:0;bottom:0;width:220px;z-index:31;background:var(--s1);border-right:1px solid var(--border);display:flex;flex-direction:column;animation:om-slidein .2s ease">
+          <div style="display:flex;align-items:center;gap:10px;padding:16px 16px">
+            <span style="display:grid;place-items:center;height:30px;width:30px;border-radius:8px;background:var(--accent);color:var(--accent-fg);font-weight:800;font-size:15px">s</span>
+            <span style="font-size:16px;font-weight:800">status</span>
+          </div>
+          <nav style="display:flex;flex-direction:column;gap:2px;padding:6px 12px;flex:1">
+            <button onClick="{{ goBoardM }}" style="{{ navBoardStyle }}"><span style="display:inline-flex">{{ iconBoard }}</span>Board</button>
+            <button onClick="{{ goInboxM }}" style="{{ navInboxStyle }}"><span style="display:inline-flex">{{ iconMail }}</span><span style="flex:1">Inbox</span><sc-if value="{{ inboxBadge }}" hint-placeholder-val="{{ true }}"><span style="display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--accent);color:var(--accent-fg);font-size:11px;font-weight:800;font-variant-numeric:tabular-nums">{{ inboxBadge }}</span></sc-if></button>
+            <button onClick="{{ goLegendM }}" style="{{ navLegendStyle }}"><span style="display:inline-flex">{{ iconGrid }}</span>Status system</button>
+          </nav>
+          <div style="padding:12px;display:flex;flex-direction:column;gap:8px">
+            <div style="padding:0 4px;font-size:12px;color:var(--muted)">karel@tilcer.cz</div>
+            <button onClick="{{ toggleTheme }}" style="display:flex;align-items:center;justify-content:center;gap:8px;height:36px;border:1px solid var(--border);background:var(--s2);border-radius:8px;color:var(--text);font-size:13px;font-weight:600;cursor:pointer">{{ themeGlyph }}<span>{{ themeLabel }}</span></button>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- content -->
+      <main style="{{ mainStyle }}">
+        <div style="{{ contentStyle }}">
+
+          <!-- ---------- BOARD ---------- -->
+          <sc-if value="{{ isBoard }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:6px">
+              <div>
+                <h1 style="margin:0 0 4px;font-size:24px;font-weight:800;letter-spacing:-.01em">Board</h1>
+                <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)">
+                  <span style="height:7px;width:7px;border-radius:50%;background:var(--good);animation:om-live 2s ease-in-out infinite"></span>
+                  Auto-refreshes every 30s · updated 12s ago
+                </div>
+              </div>
+              <sc-if value="{{ vpDesktop }}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{ goAdd }}" style="display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 14px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">{{ iconPlus }}Add site</button>
+              </sc-if>
+            </div>
+
+            <!-- filter chips -->
+            <sc-if value="{{ boardHasData }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 18px">
+                <sc-for list="{{ filterChips }}" as="c" hint-placeholder-count="5">
+                  <button onClick="{{ c.onClick }}" style="{{ c.style }}">
+                    <sc-if value="{{ c.showDot }}" hint-placeholder-val="{{ true }}"><span style="height:8px;width:8px;border-radius:50%;background:{{ c.dot }}"></span></sc-if>
+                    {{ c.label }}<span style="opacity:.6;font-variant-numeric:tabular-nums">{{ c.count }}</span>
+                  </button>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <!-- default: grid -->
+            <sc-if value="{{ boardDefault }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:14px">
+                <sc-for list="{{ sites }}" as="site" hint-placeholder-count="8">
+                  <button onClick="{{ site.onClick }}" style="{{ site.cardStyle }}">
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+                      <div style="min-width:0;text-align:left">
+                        <div style="font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ site.name }}</div>
+                        <div style="font-family:var(--mono);font-size:12px;color:var(--subtle)">{{ site.id }}</div>
+                      </div>
+                      <span style="display:inline-flex;align-items:center;gap:6px;flex:none;padding:3px 9px 3px 5px;border-radius:999px;font-size:11.5px;font-weight:700;border:1px solid {{ site.dot }};color:{{ site.text }};background:{{ site.soft }}">
+                        <span style="position:relative;display:grid;place-items:center;height:15px;width:15px;border-radius:50%;font-size:9px;font-weight:800;color:var(--on-color);background:{{ site.dot }};{{ site.pulse }}">{{ site.cue }}</span>{{ site.stateLabel }}
+                      </span>
+                    </div>
+                    <sc-if value="{{ site.degrading }}" hint-placeholder-val="{{ true }}">
+                      <div style="margin-top:9px;font-size:11.5px;color:var(--warn-text);font-weight:600">1 failed check · re-checking</div>
+                    </sc-if>
+                    <sc-if value="{{ site.hasReports }}" hint-placeholder-val="{{ true }}">
+                      <div style="margin-top:11px">
+                        <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 8px;border-radius:7px;font-size:11.5px;font-weight:700;white-space:nowrap;border:1px solid color-mix(in oklab,var(--accent) 45%,transparent);background:color-mix(in oklab,var(--accent) 14%,transparent);color:var(--accent)">
+                          <span style="display:inline-flex">{{ iconMailSm }}</span>{{ site.reportsLabel }}
+                        </span>
+                      </div>
+                    </sc-if>
+                    <div style="margin-top:14px;display:flex;align-items:center;gap:14px;font-size:12px;color:var(--muted)">
+                      <span style="display:inline-flex;align-items:center;gap:5px">{{ iconClock }}{{ site.relChecked }}</span>
+                      <span style="display:inline-flex;align-items:center;gap:5px;font-variant-numeric:tabular-nums" title="Open crash groups">{{ iconLayers }}{{ site.open_crash_groups }}</span>
+                      <span style="display:inline-flex;align-items:center;gap:5px;font-variant-numeric:tabular-nums" title="Recent crashes">{{ iconBug }}{{ site.recent_crash_count }}</span>
+                    </div>
+                    <div style="margin-top:8px;padding-top:9px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;min-height:20px">
+                      <sc-if value="{{ site.uptimeOff }}" hint-placeholder-val="{{ true }}">
+                        <span style="display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-weight:600"><span style="display:inline-flex;color:var(--subtle)">{{ iconPower }}</span>Monitoring off</span>
+                      </sc-if>
+                      <sc-if value="{{ site.uptimeOn }}" hint-placeholder-val="{{ true }}">
+                        <span style="color:var(--subtle)">Uptime · 90d</span>
+                        <span style="font-variant-numeric:tabular-nums;font-weight:700;color:{{ site.uptimeFig }}">{{ site.uptimeText }}</span>
+                      </sc-if>
+                    </div>
+                  </button>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <!-- loading skeletons -->
+            <sc-if value="{{ boardLoading }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:14px;margin-top:18px">
+                <sc-for list="{{ skeletons }}" as="k" hint-placeholder-count="8">
+                  <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:15px 16px">
+                    <div style="display:flex;justify-content:space-between;gap:10px">
+                      <div style="flex:1">
+                        <div class="om-skel" style="height:14px;width:60%;margin-bottom:8px"></div>
+                        <div class="om-skel" style="height:11px;width:38%"></div>
+                      </div>
+                      <div class="om-skel" style="height:20px;width:72px;border-radius:999px"></div>
+                    </div>
+                    <div class="om-skel" style="height:12px;width:80%;margin-top:18px"></div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <!-- empty -->
+            <sc-if value="{{ boardEmpty }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid;place-items:center;min-height:360px;text-align:center">
+                <div style="max-width:380px">
+                  <div style="margin:0 auto 16px;display:grid;place-items:center;height:56px;width:56px;border-radius:14px;background:var(--accent-soft);color:var(--accent)">{{ iconRadar }}</div>
+                  <div style="font-size:18px;font-weight:700;margin-bottom:6px">No sites yet</div>
+                  <p style="margin:0 0 18px;font-size:13.5px;color:var(--muted);text-wrap:pretty">Add your first site to start watching it. You'll get an ingest key to wire up crash reporting in a couple of minutes.</p>
+                  <button onClick="{{ goAdd }}" style="display:inline-flex;align-items:center;gap:7px;height:40px;padding:0 16px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg);border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">{{ iconPlus }}Add your first site</button>
+                </div>
+              </div>
+            </sc-if>
+
+            <!-- error -->
+            <sc-if value="{{ boardError }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid;place-items:center;min-height:360px;text-align:center">
+                <div style="max-width:380px">
+                  <div style="margin:0 auto 16px;display:grid;place-items:center;height:56px;width:56px;border-radius:14px;background:var(--danger-soft);color:var(--danger-text)">{{ iconAlert }}</div>
+                  <div style="font-size:18px;font-weight:700;margin-bottom:6px">Couldn't load the board</div>
+                  <p style="margin:0 0 18px;font-size:13.5px;color:var(--muted);text-wrap:pretty">The API returned a 503. Your session is still valid — this is on our side.</p>
+                  <button style="display:inline-flex;align-items:center;gap:7px;height:40px;padding:0 16px;border:1px solid var(--border);background:var(--s2);color:var(--text);border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">{{ iconRetry }}Retry</button>
+                </div>
+              </div>
+            </sc-if>
+          </sc-if>
+
+          <!-- ---------- SITE DETAIL ---------- -->
+          <sc-if value="{{ isSite }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ goSiteBack }}" style="display:inline-flex;align-items:center;gap:5px;background:none;border:none;color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;padding:0;margin-bottom:14px;font-family:inherit">{{ iconChevL }}Board</button>
+
+            <sc-if value="{{ siteShowHeader }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px">
+                <div>
+                  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px">
+                    <h1 style="margin:0;font-size:24px;font-weight:800;letter-spacing:-.01em">{{ site.name }}</h1>
+                    <span style="display:inline-flex;align-items:center;gap:7px;padding:4px 11px 4px 6px;border-radius:999px;font-size:12.5px;font-weight:700;border:1px solid {{ site.dot }};color:{{ site.text }};background:{{ site.soft }}">
+                      <span style="display:grid;place-items:center;height:16px;width:16px;border-radius:50%;font-size:10px;font-weight:800;color:var(--on-color);background:{{ site.dot }}">{{ site.cue }}</span>{{ site.stateLabel }}
+                    </span>
+                    <sc-if value="{{ site.monitoringOff }}" hint-placeholder-val="{{ true }}">
+                      <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid var(--border);background:var(--s2);color:var(--muted)"><span style="display:inline-flex;color:var(--subtle)">{{ iconPower }}</span>Monitoring off</span>
+                    </sc-if>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)">
+                    <span style="font-family:var(--mono);color:var(--subtle)">{{ site.id }}</span><span style="opacity:.4">·</span>
+                    <span style="display:inline-flex;align-items:center;gap:5px">{{ iconExt }}{{ site.url }}</span>
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button onClick="{{ askRotate }}" style="display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 13px;border:1px solid var(--border);background:var(--s2);color:var(--text);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">{{ iconRotate }}Rotate key</button>
+                  <button onClick="{{ askDelete }}" style="display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 13px;border:1px solid color-mix(in oklab,var(--danger) 45%,transparent);background:transparent;color:var(--danger-text);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">{{ iconTrash }}Delete</button>
+                </div>
+              </div>
+            </sc-if>
+
+            <!-- default -->
+            <sc-if value="{{ siteDefault }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:16px">
+                <!-- uptime -->
+                <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+                    <h2 style="margin:0;font-size:15px;font-weight:700">Uptime <span style="font-weight:500;color:var(--subtle);font-size:13px">· 90 days</span></h2>
+                    <sc-if value="{{ site.monitoringOn }}" hint-placeholder-val="{{ true }}">
+                      <div style="font-size:12.5px;color:var(--muted)"><b style="color:var(--good-text);font-variant-numeric:tabular-nums">{{ uptime.pct }} up</b> · {{ uptime.failed }} of {{ uptime.total }} checks failed</div>
+                    </sc-if>
+                  </div>
+
+                  <sc-if value="{{ site.monitoringOff }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;align-items:center;gap:14px;padding:16px;border:1px dashed var(--border-strong);border-radius:9px;background:var(--s2)">
+                      <span style="display:grid;place-items:center;height:40px;width:40px;border-radius:10px;background:var(--s3);color:var(--muted);flex:none">{{ iconPower }}</span>
+                      <div>
+                        <div style="font-size:13.5px;font-weight:700;margin-bottom:2px">Monitoring is off</div>
+                        <p style="margin:0;font-size:12.5px;color:var(--muted);text-wrap:pretty">This is a crash-only site — no uptime checks are scheduled, so there's no availability to report. Its status reflects crashes only and it will never go red. Enable monitoring in configuration to start polling.</p>
+                      </div>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ site.monitoringOn }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;gap:2px;align-items:flex-end;height:32px">
+                      <sc-for list="{{ uptimeBars }}" as="b" hint-placeholder-count="60"><div title="{{ b.title }}" style="{{ b.style }}"></div></sc-for>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:12px">
+                      <sc-for list="{{ uptimeLegend }}" as="l" hint-placeholder-count="4">
+                        <span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted)"><span style="{{ l.swatch }}"></span>{{ l.label }}</span>
+                      </sc-for>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:11.5px;color:var(--subtle)">
+                      <span>90 buckets · one bucket = 1 day · a check every 5 min</span>
+                      <span style="font-family:var(--mono)">p50 {{ uptime.p50 }}ms · p95 {{ uptime.p95 }}ms</span>
+                    </div>
+                  </sc-if>
+                </div>
+
+                <!-- crashes -->
+                <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+                    <h2 style="margin:0;font-size:15px;font-weight:700">Crashes</h2>
+                    <div style="display:flex;gap:6px">
+                      <span style="padding:4px 11px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid var(--border-strong);background:var(--s3)">Open</span>
+                      <span style="padding:4px 11px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid var(--border);color:var(--muted)">Resolved</span>
+                      <span style="padding:4px 11px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid var(--border);color:var(--muted)">Ignored</span>
+                    </div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:9px">
+                    <sc-for list="{{ groups }}" as="g" hint-placeholder-count="4">
+                      <button onClick="{{ g.onClick }}" style="{{ g.rowStyle }}">
+                        <div style="display:flex;align-items:center;gap:10px">
+                          <span style="flex:none;display:inline-flex;align-items:center;padding:3px 8px;border-radius:6px;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;{{ g.levelStyle }}">{{ g.levelLabel }}</span>
+                          <span style="flex:1;min-width:0;font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ g.title }}</span>
+                          <span style="flex:none;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;color:{{ g.statusFg }};background:{{ g.statusBg }}">{{ g.statusLabel }}</span>
+                          <span style="flex:none;color:var(--subtle)">{{ iconChevR }}</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:8px;padding-left:2px;font-size:12px;color:var(--muted)">
+                          <span style="font-variant-numeric:tabular-nums;font-weight:600;color:var(--text)">{{ g.count }} events</span>
+                          <span>first {{ g.first }}</span><span>last {{ g.last }}</span>
+                          <span style="font-family:var(--mono);color:var(--subtle)">{{ g.env }}</span>
+                        </div>
+                      </button>
+                    </sc-for>
+                  </div>
+                </div>
+
+                <!-- config + integration -->
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
+                  <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)">
+                    <h2 style="margin:0 0 14px;font-size:15px;font-weight:700">Configuration</h2>
+                    <div style="display:flex;flex-direction:column;gap:12px">
+                      <label style="display:block"><span style="display:block;margin-bottom:5px;font-size:12px;font-weight:600;color:var(--subtle)">Name</span><input value="{{ site.name }}" style="height:36px;width:100%;border:1px solid var(--border);background:var(--s2);border-radius:8px;padding:0 11px;font-size:13px;color:var(--text);font-family:inherit;outline:none"></label>
+                      <label style="display:block"><span style="display:block;margin-bottom:5px;font-size:12px;font-weight:600;color:var(--subtle)">Monitor URL</span><input value="{{ site.url }}" style="height:36px;width:100%;border:1px solid var(--border);background:var(--s2);border-radius:8px;padding:0 11px;font-size:13px;color:var(--text);font-family:var(--mono);outline:none"></label>
+                      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0">
+                        <div><div style="font-size:13px;font-weight:600">Monitoring enabled</div><div style="font-size:11.5px;color:var(--muted)">Poll this URL every 5 min</div></div>
+                        <span style="{{ toggleTrack }}"><span style="{{ toggleKnob }}"></span></span>
+                      </div>
+                      <div style="display:flex;gap:12px">
+                        <label style="flex:1"><span style="display:block;margin-bottom:5px;font-size:12px;font-weight:600;color:var(--subtle)">Expected status</span><input value="200" style="height:36px;width:100%;border:1px solid var(--border);background:var(--s2);border-radius:8px;padding:0 11px;font-size:13px;color:var(--text);font-family:var(--mono);outline:none"></label>
+                        <label style="flex:1"><span style="display:block;margin-bottom:5px;font-size:12px;font-weight:600;color:var(--subtle)">Crash window (h)</span><input value="24" style="height:36px;width:100%;border:1px solid var(--border);background:var(--s2);border-radius:8px;padding:0 11px;font-size:13px;color:var(--text);font-family:var(--mono);outline:none"></label>
+                      </div>
+                      <div style="display:flex;justify-content:flex-end;margin-top:4px"><button onClick="{{ saveConfig }}" style="height:36px;padding:0 16px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Save changes</button></div>
+                    </div>
+                  </div>
+
+                  <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)">
+                    <h2 style="margin:0 0 14px;font-size:15px;font-weight:700">Integration</h2>
+                    <div style="font-size:12px;font-weight:600;color:var(--subtle);margin-bottom:5px">Ingest endpoint</div>
+                    <div style="display:flex;gap:8px;margin-bottom:16px">
+                      <code style="flex:1;min-width:0;font-family:var(--mono);font-size:12px;background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">POST /api/ingest/{{ site.id }}</code>
+                      <button title="Copy" style="flex:none;display:grid;place-items:center;height:36px;width:38px;border:1px solid var(--border);background:var(--s2);border-radius:8px;color:var(--muted);cursor:pointer">{{ iconCopy }}</button>
+                    </div>
+                    <div style="display:flex;gap:4px;margin-bottom:10px">
+                      <sc-for list="{{ snipTabs }}" as="t" hint-placeholder-count="3"><button onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</button></sc-for>
+                    </div>
+                    <div style="position:relative">
+                      <pre style="margin:0;font-family:var(--mono);font-size:11.5px;line-height:1.65;background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:13px;overflow:auto;color:var(--text);white-space:pre">{{ snippetCode }}</pre>
+                      <button title="Copy" style="position:absolute;top:8px;right:8px;display:grid;place-items:center;height:30px;width:32px;border:1px solid var(--border);background:var(--s3);border-radius:7px;color:var(--muted);cursor:pointer">{{ iconCopy }}</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- v3: user feedback -->
+                <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)">
+                  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:4px">
+                    <div>
+                      <h2 style="margin:0 0 3px;font-size:15px;font-weight:700">User feedback</h2>
+                      <p style="margin:0;font-size:12.5px;color:var(--muted);max-width:62ch;text-wrap:pretty">The embedded widget lets people using this site write to you. Reports land in the inbox — they never affect this site's colour.</p>
+                    </div>
+                    <sc-if value="{{ fbHasReports }}" hint-placeholder-val="{{ true }}">
+                      <button onClick="{{ goInbox }}" style="display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 12px;border:1px solid color-mix(in oklab,var(--accent) 45%,transparent);background:color-mix(in oklab,var(--accent) 14%,transparent);color:var(--accent);border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer">{{ iconMailSm }}{{ fbReportsLabel }}</button>
+                    </sc-if>
+                  </div>
+
+                  <sc-if value="{{ fbNoStorage }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;align-items:flex-start;gap:13px;margin-top:14px;padding:14px;border:1px dashed var(--border-strong);border-radius:9px;background:var(--s2)">
+                      <span style="display:grid;place-items:center;height:36px;width:36px;border-radius:9px;background:var(--s3);color:var(--muted);flex:none">{{ iconPower }}</span>
+                      <div>
+                        <div style="font-size:13.5px;font-weight:700;margin-bottom:3px">Feedback can't be turned on here</div>
+                        <p style="margin:0 0 10px;font-size:12.5px;color:var(--muted);max-width:66ch;text-wrap:pretty">This deployment has no object storage configured, so there is nowhere to put attachments — the API answers <code style="font-family:var(--mono)">503</code> to any attempt to enable it. Set <code style="font-family:var(--mono)">STATUS_FEEDBACK_*</code> and redeploy; the switch becomes available on its own.</p>
+                        <span style="display:inline-flex;align-items:center;gap:8px;opacity:.5">
+                          <span style="width:40px;height:23px;border-radius:999px;background:var(--s4);border:1px solid var(--border-strong);position:relative;flex:none"><span style="position:absolute;top:2px;left:2px;height:17px;width:17px;border-radius:50%;background:var(--muted)"></span></span>
+                          <span style="font-size:12.5px;color:var(--muted)">Unavailable</span>
+                        </span>
+                      </div>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ fbAvailable }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;margin-top:14px">
+                      <div style="display:flex;flex-direction:column;gap:14px">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding-top:2px">
+                          <div><div style="font-size:13px;font-weight:600">Feedback enabled</div><div style="font-size:11.5px;color:var(--muted)">Off stops the widget rendering on the next load</div></div>
+                          <span style="{{ fbTrack }}"><span style="{{ fbKnob }}"></span></span>
+                        </div>
+                        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding-top:2px;border-top:1px solid var(--border)">
+                          <div style="margin-top:12px"><div style="font-size:13px;font-weight:600">Send console output</div><div style="font-size:11.5px;color:var(--muted);max-width:44ch;text-wrap:pretty">Attaches the last 50 console lines and the last JS error. Off by default — a console line can carry private content out of the host app. The reporter sees the lines before sending.</div></div>
+                          <span style="margin-top:12px;{{ ccTrack }}"><span style="{{ ccKnob }}"></span></span>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-top:12px;border-top:1px solid var(--border)">
+                          <div>
+                            <div style="font-size:12px;font-weight:600;color:var(--subtle)">Widget key</div>
+                            <div style="font-size:12.5px;color:var(--muted)">Issued {{ fbKeyIssued }} · never shown again</div>
+                          </div>
+                          <button onClick="{{ askRotateWidget }}" style="display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border:1px solid var(--border);background:var(--s2);color:var(--text);border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer">{{ iconRotate }}Rotate widget key</button>
+                        </div>
+                        <p style="margin:0;font-size:11.5px;color:var(--subtle);text-wrap:pretty">Separate from the ingest key on purpose: rotating this one never interrupts crash reporting.</p>
+                      </div>
+                      <div>
+                        <div style="font-size:12px;font-weight:600;color:var(--subtle);margin-bottom:5px">Embed snippet</div>
+                        <div style="position:relative">
+                          <pre style="margin:0;font-family:var(--mono);font-size:11.5px;line-height:1.65;background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:13px;overflow:auto;color:var(--text);white-space:pre">{{ fbSnippet }}</pre>
+                          <button title="Copy" style="position:absolute;top:8px;right:8px;display:grid;place-items:center;height:30px;width:32px;border:1px solid var(--border);background:var(--s3);border-radius:7px;color:var(--muted);cursor:pointer">{{ iconCopy }}</button>
+                        </div>
+                        <p style="margin:10px 0 0;font-size:11.5px;color:var(--subtle);text-wrap:pretty">The key is written into the host page, like an ingest key. <code style="font-family:var(--mono)">data-launcher="none"</code> hides the floating button and leaves <code style="font-family:var(--mono)">StatusFeedback.open()</code> for a host menu item.</p>
+                      </div>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+            </sc-if>
+
+            <!-- empty -->
+            <sc-if value="{{ siteEmpty }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:16px">
+                <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)">
+                  <h2 style="margin:0 0 14px;font-size:15px;font-weight:700">Uptime</h2>
+                  <div style="display:grid;place-items:center;min-height:90px;text-align:center;border:1px dashed var(--border);border-radius:8px;color:var(--muted);font-size:13px">No checks yet — first poll runs within 5 minutes.</div>
+                </div>
+                <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)">
+                  <h2 style="margin:0 0 14px;font-size:15px;font-weight:700">Crashes</h2>
+                  <div style="display:grid;place-items:center;min-height:200px;text-align:center">
+                    <div style="max-width:320px">
+                      <div style="font-size:34px;margin-bottom:8px">🎉</div>
+                      <div style="font-size:16px;font-weight:700;margin-bottom:5px">No crashes</div>
+                      <p style="margin:0;font-size:13px;color:var(--muted);text-wrap:pretty">Nothing's been reported here. Wire up the ingest snippet and this fills in the moment something throws.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <!-- loading -->
+            <sc-if value="{{ siteLoading }}" hint-placeholder-val="{{ true }}">
+              <div class="om-skel" style="height:26px;width:220px;margin-bottom:20px"></div>
+              <div style="display:flex;flex-direction:column;gap:16px">
+                <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:18px"><div class="om-skel" style="height:14px;width:120px;margin-bottom:16px"></div><div class="om-skel" style="height:30px;width:100%"></div></div>
+                <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:18px"><div class="om-skel" style="height:14px;width:120px;margin-bottom:16px"></div><div class="om-skel" style="height:46px;width:100%;margin-bottom:9px"></div><div class="om-skel" style="height:46px;width:100%"></div></div>
+              </div>
+            </sc-if>
+
+            <!-- error -->
+            <sc-if value="{{ siteError }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid;place-items:center;min-height:340px;text-align:center">
+                <div style="max-width:360px">
+                  <div style="margin:0 auto 16px;display:grid;place-items:center;height:56px;width:56px;border-radius:14px;background:var(--danger-soft);color:var(--danger-text)">{{ iconAlert }}</div>
+                  <div style="font-size:18px;font-weight:700;margin-bottom:6px">Site not found</div>
+                  <p style="margin:0 0 18px;font-size:13.5px;color:var(--muted);text-wrap:pretty">This site may have been deleted. Head back to the board to see what's live.</p>
+                  <button onClick="{{ goSiteBack }}" style="height:40px;padding:0 16px;border:1px solid var(--border);background:var(--s2);color:var(--text);border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Back to board</button>
+                </div>
+              </div>
+            </sc-if>
+          </sc-if>
+
+          <!-- ---------- ADD SITE ---------- -->
+          <sc-if value="{{ isAdd }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ goBoard }}" style="display:inline-flex;align-items:center;gap:5px;background:none;border:none;color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;padding:0;margin-bottom:14px;font-family:inherit">{{ iconChevL }}Board</button>
+            <h1 style="margin:0 0 4px;font-size:24px;font-weight:800;letter-spacing:-.01em">Add a site</h1>
+            <p style="margin:0 0 22px;font-size:13.5px;color:var(--muted)">Pick an id you'll use everywhere — in monitoring, in crash reports, in the snippet. It can't change later.</p>
+
+            <div style="max-width:560px;border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:22px;box-shadow:var(--shadow)">
+              <div style="display:flex;flex-direction:column;gap:16px">
+                <label style="display:block">
+                  <span style="display:block;margin-bottom:5px;font-size:12.5px;font-weight:600;color:var(--subtle)">Site id</span>
+                  <input value="yarnlog" style="height:38px;width:100%;border:1px solid {{ addDupBorder }};background:var(--s2);border-radius:8px;padding:0 12px;font-size:13.5px;color:var(--text);font-family:var(--mono);outline:none">
+                  <sc-if value="{{ addDup }}" hint-placeholder-val="{{ true }}"><span style="display:block;margin-top:6px;font-size:12px;color:var(--danger-text)">A site with id "yarnlog" already exists (409). Pick another.</span></sc-if>
+                  <sc-if value="{{ addForm }}" hint-placeholder-val="{{ true }}"><span style="display:block;margin-top:6px;font-size:12px;color:var(--subtle);font-family:var(--mono)">^[a-z0-9][a-z0-9-]&#123;0,62&#125;$ · immutable after create</span></sc-if>
+                </label>
+                <label style="display:block"><span style="display:block;margin-bottom:5px;font-size:12.5px;font-weight:600;color:var(--subtle)">Display name</span><input value="Yarnlog" style="height:38px;width:100%;border:1px solid var(--border);background:var(--s2);border-radius:8px;padding:0 12px;font-size:13.5px;color:var(--text);font-family:inherit;outline:none"></label>
+                <label style="display:block"><span style="display:block;margin-bottom:5px;font-size:12.5px;font-weight:600;color:var(--subtle)">Monitor URL <span style="font-weight:500;color:var(--muted)">— optional, omit for a crash-only site</span></span><input placeholder="https://yarnlog.tilcer.cz/readyz" style="height:38px;width:100%;border:1px solid var(--border);background:var(--s2);border-radius:8px;padding:0 12px;font-size:13.5px;color:var(--text);font-family:var(--mono);outline:none"></label>
+                <div style="display:flex;gap:12px">
+                  <label style="flex:1"><span style="display:block;margin-bottom:5px;font-size:12.5px;font-weight:600;color:var(--subtle)">Expected status</span><input value="200" style="height:38px;width:100%;border:1px solid var(--border);background:var(--s2);border-radius:8px;padding:0 12px;font-size:13.5px;color:var(--text);font-family:var(--mono);outline:none"></label>
+                  <label style="flex:1"><span style="display:block;margin-bottom:5px;font-size:12.5px;font-weight:600;color:var(--subtle)">Crash window (h)</span><input value="24" style="height:38px;width:100%;border:1px solid var(--border);background:var(--s2);border-radius:8px;padding:0 12px;font-size:13.5px;color:var(--text);font-family:var(--mono);outline:none"></label>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:6px">
+                  <button onClick="{{ goBoard }}" style="height:38px;padding:0 15px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Cancel</button>
+                  <button onClick="{{ showKey }}" style="display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 16px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg);border-radius:8px;font-size:13.5px;font-weight:700;cursor:pointer">
+                    <sc-if value="{{ addLoading }}" hint-placeholder-val="{{ true }}"><span style="height:15px;width:15px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:om-spin .7s linear infinite"></span></sc-if>
+                    {{ addBtnLabel }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- ---------- INBOX (v3) ---------- -->
+          <sc-if value="{{ isInbox }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:6px">
+              <div>
+                <h1 style="margin:0 0 4px;font-size:24px;font-weight:800;letter-spacing:-.01em">Inbox</h1>
+                <p style="margin:0;font-size:12.5px;color:var(--muted)">Everything people wrote from inside the apps, newest first.</p>
+              </div>
+            </div>
+
+            <sc-if value="{{ inboxHasData }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:18px 0">
+                <sc-for list="{{ inboxChips }}" as="c" hint-placeholder-count="5">
+                  <button onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.label }}<span style="opacity:.6;font-variant-numeric:tabular-nums">{{ c.count }}</span></button>
+                </sc-for>
+                <div style="flex:1"></div>
+                <sc-for list="{{ inboxSelects }}" as="s" hint-placeholder-count="2">
+                  <button style="display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 11px;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--s2);color:var(--text)">{{ s.label }}<span style="display:inline-flex;color:var(--subtle)">{{ iconChevD }}</span></button>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ inboxDefault }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:9px">
+                <sc-for list="{{ reports }}" as="r" hint-placeholder-count="7">
+                  <button onClick="{{ r.onClick }}" style="{{ r.rowStyle }}">
+                    <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+                      <span style="{{ r.stateStyle }}">{{ r.stateIcon }}{{ r.stateLabel }}</span>
+                      <span style="{{ r.kindStyle }}">{{ r.kindLabel }}</span>
+                      <span style="font-family:var(--mono);font-size:11.5px;color:var(--subtle)">{{ r.site }}</span>
+                      <div style="flex:1"></div>
+                      <sc-if value="{{ r.attachLabel }}" hint-placeholder-val="{{ true }}">
+                        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted)">{{ iconClip }}{{ r.attachLabel }}</span>
+                      </sc-if>
+                      <span style="font-size:11.5px;color:var(--subtle);white-space:nowrap">{{ r.when }}</span>
+                      <span style="display:inline-flex;color:var(--subtle)">{{ iconChevR }}</span>
+                    </div>
+                    <div style="margin-top:9px;font-size:13.5px;font-weight:{{ r.msgWeight }};color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.msg }}</div>
+                    <div style="margin-top:6px;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted);flex-wrap:wrap">
+                      <span>{{ r.reporter }}</span><span style="opacity:.4">·</span>
+                      <span style="font-family:var(--mono);font-size:11.5px;color:var(--subtle)">{{ r.ref }}</span>
+                    </div>
+                  </button>
+                </sc-for>
+                <div style="padding:6px 0 0;text-align:center"><button style="font-size:12.5px;color:var(--accent);background:none;border:none;font-weight:600;cursor:pointer">Load older reports</button></div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ inboxLoading }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:9px;margin-top:18px">
+                <sc-for list="{{ skeletons }}" as="k" hint-placeholder-count="6">
+                  <div style="border:1px solid var(--border);background:var(--s1);border-radius:10px;padding:14px 15px">
+                    <div style="display:flex;gap:9px;align-items:center">
+                      <div class="om-skel" style="height:19px;width:64px;border-radius:999px"></div>
+                      <div class="om-skel" style="height:19px;width:52px;border-radius:6px"></div>
+                      <div style="flex:1"></div>
+                      <div class="om-skel" style="height:11px;width:60px"></div>
+                    </div>
+                    <div class="om-skel" style="height:13px;width:72%;margin-top:12px"></div>
+                    <div class="om-skel" style="height:11px;width:30%;margin-top:9px"></div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ inboxEmpty }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid;place-items:center;min-height:380px;text-align:center">
+                <div style="max-width:400px">
+                  <div style="margin:0 auto 16px;display:grid;place-items:center;height:56px;width:56px;border-radius:14px;background:color-mix(in oklab,var(--accent) 14%,transparent);color:var(--accent)">{{ iconMail }}</div>
+                  <div style="font-size:18px;font-weight:700;margin-bottom:6px">No reports yet</div>
+                  <p style="margin:0 0 18px;font-size:13.5px;color:var(--muted);text-wrap:pretty">Nothing has been written from inside the apps. Turn feedback on for a site and paste its embed snippet — the first report shows up here the moment someone sends one.</p>
+                  <button onClick="{{ goBoard }}" style="height:40px;padding:0 16px;border:1px solid var(--border);background:var(--s2);color:var(--text);border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Pick a site to enable</button>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ inboxError }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid;place-items:center;min-height:380px;text-align:center">
+                <div style="max-width:380px">
+                  <div style="margin:0 auto 16px;display:grid;place-items:center;height:56px;width:56px;border-radius:14px;background:var(--danger-soft);color:var(--danger-text)">{{ iconAlert }}</div>
+                  <div style="font-size:18px;font-weight:700;margin-bottom:6px">Couldn't load the inbox</div>
+                  <p style="margin:0 0 18px;font-size:13.5px;color:var(--muted);text-wrap:pretty">The request failed before any page of reports came back. Nothing has been lost — reports are stored the moment they arrive.</p>
+                  <button style="display:inline-flex;align-items:center;gap:7px;height:40px;padding:0 16px;border:1px solid var(--border);background:var(--s2);color:var(--text);border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">{{ iconRetry }}Retry</button>
+                </div>
+              </div>
+            </sc-if>
+          </sc-if>
+
+          <!-- ---------- REPORT DETAIL (v3) ---------- -->
+          <sc-if value="{{ isReport }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ goInbox }}" style="display:inline-flex;align-items:center;gap:5px;background:none;border:none;color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;padding:0;margin-bottom:14px;font-family:inherit">{{ iconChevL }}Inbox</button>
+
+            <sc-if value="{{ reportLoading }}" hint-placeholder-val="{{ true }}">
+              <div class="om-skel" style="height:26px;width:180px;margin-bottom:14px"></div>
+              <div class="om-skel" style="height:13px;width:42%;margin-bottom:24px"></div>
+              <div class="om-skel" style="height:120px;width:100%;margin-bottom:12px"></div>
+              <div class="om-skel" style="height:180px;width:100%"></div>
+            </sc-if>
+
+            <sc-if value="{{ reportError }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid;place-items:center;min-height:340px;text-align:center">
+                <div style="max-width:380px">
+                  <div style="margin:0 auto 16px;display:grid;place-items:center;height:56px;width:56px;border-radius:14px;background:var(--danger-soft);color:var(--danger-text)">{{ iconAlert }}</div>
+                  <div style="font-size:18px;font-weight:700;margin-bottom:6px">No report with that reference</div>
+                  <p style="margin:0 0 18px;font-size:13.5px;color:var(--muted);text-wrap:pretty">The reference <code style="font-family:var(--mono)">R-7QK2</code> doesn't match a stored report. It may have been deleted, or misheard — the alphabet has no I, L, O or U, so a <b style="color:var(--text)">0</b> is never an <b style="color:var(--text)">O</b>.</p>
+                  <button onClick="{{ goInbox }}" style="height:40px;padding:0 16px;border:1px solid var(--border);background:var(--s2);color:var(--text);border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Back to inbox</button>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ reportShow }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
+                <div>
+                  <div style="display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-bottom:7px">
+                    <h1 style="margin:0;font-family:var(--mono);font-size:22px;font-weight:600;letter-spacing:.06em">{{ rep.ref }}</h1>
+                    <span style="{{ rep.stateStyle }}">{{ rep.stateIcon }}{{ rep.stateLabel }}</span>
+                    <span style="{{ rep.kindStyle }}">{{ rep.kindLabel }}</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)">
+                    <span style="font-family:var(--mono);color:var(--subtle)">{{ rep.site }}</span><span style="opacity:.4">·</span>
+                    <span>{{ rep.reporter }}</span><span style="opacity:.4">·</span>
+                    <span>{{ rep.created }}</span>
+                  </div>
+                </div>
+                <button onClick="{{ askDeleteReport }}" style="display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 13px;border:1px solid color-mix(in oklab,var(--danger) 45%,transparent);background:transparent;color:var(--danger-text);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">{{ iconTrash }}Delete</button>
+              </div>
+
+              <div style="{{ repGridStyle }}">
+                <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+                  <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)">
+                    <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Message</h2>
+                    <p style="margin:0;font-size:14.5px;line-height:1.6;color:var(--text);text-wrap:pretty;white-space:pre-wrap">{{ rep.message }}</p>
+                    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:12px;color:var(--subtle);text-wrap:pretty">Written in {{ rep.locale }} · the name is a label the host app supplied, not a verified identity.</div>
+                  </div>
+
+                  <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+                      <h2 style="margin:0;font-size:15px;font-weight:700">Attachments <span style="font-weight:500;color:var(--subtle);font-size:13px">· {{ rep.attachCount }}</span></h2>
+                      <span style="font-size:11.5px;color:var(--subtle)">View links are minted on demand and expire in 5 min</span>
+                    </div>
+                    <sc-if value="{{ rep.noAttach }}" hint-placeholder-val="{{ true }}">
+                      <div style="display:grid;place-items:center;min-height:88px;border:1px dashed var(--border);border-radius:9px;color:var(--muted);font-size:13px;text-align:center;padding:14px">Nothing attached. Most reports are text only — that is the normal case, not a missing step.</div>
+                    </sc-if>
+                    <sc-if value="{{ rep.hasAttach }}" hint-placeholder-val="{{ true }}">
+                      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px">
+                        <sc-for list="{{ attachments }}" as="a" hint-placeholder-count="3">
+                          <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--s2)">
+                            <div style="{{ a.thumbStyle }}">
+                              <sc-if value="{{ a.glyph }}" hint-placeholder-val="{{ true }}">
+                                <span style="display:grid;place-items:center;height:38px;width:38px;border-radius:50%;background:{{ a.glyphBg }};color:{{ a.glyphFg }}">{{ a.glyph }}</span>
+                              </sc-if>
+                              <span style="font-family:var(--mono);font-size:10.5px;color:{{ a.capColor }};text-align:center;padding:0 10px;text-wrap:pretty">{{ a.caption }}</span>
+                            </div>
+                            <div style="padding:9px 11px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px">
+                              <span style="font-family:var(--mono);font-size:11px;color:var(--subtle)">{{ a.meta }}</span>
+                              <span style="{{ a.stateStyle }}">{{ a.stateLabel }}</span>
+                            </div>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </sc-if>
+                  </div>
+
+                  <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)">
+                    <h2 style="margin:0 0 4px;font-size:15px;font-weight:700">Context</h2>
+                    <p style="margin:0 0 14px;font-size:12px;color:var(--muted);max-width:70ch;text-wrap:pretty">Sent by the widget, shown as received. Nothing here was typed by the reporter.</p>
+                    <div style="border:1px solid var(--border);border-radius:9px;overflow:hidden">
+                      <div style="display:flex;align-items:flex-start;gap:12px;padding:11px 13px;background:var(--s2);border-bottom:1px solid var(--border);flex-wrap:wrap">
+                        <span style="flex:none;width:88px;font-size:12px;color:var(--subtle);padding-top:2px">page url</span>
+                        <code style="flex:1;min-width:200px;font-family:var(--mono);font-size:11.5px;color:var(--text);word-break:break-all">{{ rep.pageUrl }}</code>
+                        <button style="flex:none;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--border-strong);background:var(--s3);color:var(--text);border-radius:7px;font-size:11.5px;font-weight:600;cursor:pointer">{{ iconExt }}Open</button>
+                      </div>
+                      <div style="display:flex;align-items:flex-start;gap:9px;padding:10px 13px;border-bottom:1px solid var(--border);background:color-mix(in oklab,var(--warn) 8%,transparent)">
+                        <span style="color:var(--warn-text);flex:none;margin-top:1px">{{ iconAlertSm }}</span>
+                        <div style="font-size:11.5px;color:var(--muted);text-wrap:pretty">Deliberately not a link. A host app can put a token in a query string, and a stray click would send it to whatever sits at the other end. <b style="color:var(--text)">Open</b> is the explicit action.</div>
+                      </div>
+                      <sc-for list="{{ repContext }}" as="c" hint-placeholder-count="5">
+                        <div style="display:flex;align-items:flex-start;gap:12px;padding:9px 13px;border-bottom:1px solid var(--border)">
+                          <span style="flex:none;width:88px;font-size:12px;color:var(--subtle)">{{ c.k }}</span>
+                          <span style="flex:1;min-width:0;font-family:var(--mono);font-size:11.5px;color:var(--text);word-break:break-word">{{ c.v }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+
+                    <sc-if value="{{ rep.hasConsole }}" hint-placeholder-val="{{ true }}">
+                      <div style="margin-top:14px">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:7px">
+                          <div style="font-size:12.5px;font-weight:700">Console tail <span style="font-weight:500;color:var(--subtle)">· last 50 lines, shown to the reporter before sending</span></div>
+                          <span style="font-family:var(--mono);font-size:11px;color:var(--subtle)">console_capture on</span>
+                        </div>
+                        <pre style="margin:0 0 12px;font-family:var(--mono);font-size:11px;line-height:1.7;background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;color:var(--muted);white-space:pre">{{ rep.consoleTail }}</pre>
+                        <div style="font-size:12px;font-weight:700;margin-bottom:6px">Last JavaScript error</div>
+                        <pre style="margin:0;font-family:var(--mono);font-size:11px;line-height:1.7;background:var(--s2);border:1px solid color-mix(in oklab,var(--err-orange) 40%,transparent);border-radius:8px;padding:12px;overflow:auto;color:var(--err-orange-text);white-space:pre">{{ rep.lastError }}</pre>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ rep.noConsole }}" hint-placeholder-val="{{ true }}">
+                      <div style="margin-top:14px;display:flex;align-items:flex-start;gap:11px;padding:12px 13px;border:1px dashed var(--border);border-radius:9px;background:var(--s2)">
+                        <span style="color:var(--subtle);flex:none;margin-top:1px">{{ iconPower }}</span>
+                        <div style="font-size:12.5px;color:var(--muted);text-wrap:pretty">No console output — <code style="font-family:var(--mono)">console_capture</code> is off for this site, which is the default. Turn it on in the site's feedback panel if this app needs it.</div>
+                      </div>
+                    </sc-if>
+                  </div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+                  <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)">
+                    <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Triage</h2>
+                    <div style="display:flex;flex-direction:column;gap:7px">
+                      <sc-for list="{{ triage }}" as="t" hint-placeholder-count="4">
+                        <button onClick="{{ t.onClick }}" style="{{ t.style }}">
+                          <span style="display:inline-flex;color:{{ t.iconColor }}">{{ t.icon }}</span>
+                          <span style="flex:1;text-align:left"><span style="display:block;font-size:13px;font-weight:700">{{ t.label }}</span><span style="display:block;font-size:11.5px;font-weight:500;color:var(--muted)">{{ t.note }}</span></span>
+                          <sc-if value="{{ t.on }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex;color:var(--accent)">{{ iconCheck }}</span></sc-if>
+                        </button>
+                      </sc-for>
+                    </div>
+                    <p style="margin:12px 0 0;font-size:11.5px;color:var(--subtle);text-wrap:pretty">Only <b style="color:var(--text)">new</b> counts toward the board badge. Moving a report to open clears the badge without deciding anything.</p>
+                  </div>
+
+                  <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                      <h2 style="margin:0;font-size:15px;font-weight:700">Internal note</h2>
+                      <span style="font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:5px;background:var(--s3);color:var(--subtle)">private</span>
+                    </div>
+                    <p style="margin:0 0 10px;font-size:12px;color:var(--muted);text-wrap:pretty">Never leaves the dashboard and never reaches the reporter.</p>
+                    <textarea rows="4" value="{{ rep.note }}" style="display:block;width:100%;resize:vertical;border:1px solid var(--border);background:var(--s2);border-radius:8px;padding:10px 11px;font-family:inherit;font-size:13px;line-height:1.5;color:var(--text);outline:none"></textarea>
+                    <div style="display:flex;justify-content:flex-end;margin-top:10px"><button onClick="{{ saveNote }}" style="height:34px;padding:0 14px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg);border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer">Save note</button></div>
+                  </div>
+
+                  <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow)">
+                    <div style="font-size:12.5px;font-weight:700;margin-bottom:8px">What the reporter sees</div>
+                    <p style="margin:0;font-size:12px;color:var(--muted);text-wrap:pretty">Nothing after sending. There is no reply channel, no status lookup and no notification — the reference code is the whole of their side of this.</p>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+          </sc-if>
+
+          <!-- ---------- CRASH GROUP ---------- -->
+          <sc-if value="{{ isGroup }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ goGroupBack }}" style="display:inline-flex;align-items:center;gap:5px;background:none;border:none;color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;padding:0;margin-bottom:14px;font-family:inherit">{{ iconChevL }}Finance</button>
+
+            <sc-if value="{{ groupError }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid;place-items:center;min-height:340px;text-align:center"><div style="max-width:360px"><div style="margin:0 auto 16px;display:grid;place-items:center;height:56px;width:56px;border-radius:14px;background:var(--danger-soft);color:var(--danger-text)">{{ iconAlert }}</div><div style="font-size:18px;font-weight:700;margin-bottom:6px">Couldn't load this group</div><p style="margin:0 0 18px;font-size:13.5px;color:var(--muted)">The request failed. It may have been purged by 90-day retention.</p><button style="height:40px;padding:0 16px;border:1px solid var(--border);background:var(--s2);color:var(--text);border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">{{ iconRetry }} Retry</button></div></div>
+            </sc-if>
+
+            <sc-if value="{{ groupLoading }}" hint-placeholder-val="{{ true }}">
+              <div class="om-skel" style="height:28px;width:70%;margin-bottom:12px"></div><div class="om-skel" style="height:14px;width:40%;margin-bottom:24px"></div>
+              <div class="om-skel" style="height:120px;width:100%;margin-bottom:12px"></div><div class="om-skel" style="height:90px;width:100%"></div>
+            </sc-if>
+
+            <sc-if value="{{ groupShow }}" hint-placeholder-val="{{ true }}">
+              <sc-if value="{{ grpResolved }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;align-items:center;gap:9px;padding:11px 14px;border-radius:9px;background:var(--good-soft);border:1px solid color-mix(in oklab,var(--good) 40%,transparent);margin-bottom:18px"><span style="color:var(--good-text)">{{ iconCheck }}</span><div style="font-size:13px;color:var(--text)"><b>Resolved.</b> This group no longer counts toward Finance's orange signal. A new event will reopen it.</div></div>
+              </sc-if>
+              <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:6px">
+                <span style="flex:none;margin-top:3px;display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;{{ grpLevelStyle }}">{{ grpLevelLabel }}</span>
+                <h1 style="margin:0;font-size:20px;font-weight:700;line-height:1.35;font-family:var(--mono);letter-spacing:-.01em">{{ grp.title }}</h1>
+              </div>
+              <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:12px 0 20px;font-size:12.5px;color:var(--muted)">
+                <span style="padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:700;color:{{ grpStatusFg }};background:{{ grpStatusBg }}">{{ grpStatusLabel }}</span>
+                <span style="font-variant-numeric:tabular-nums;font-weight:700;color:var(--text)">{{ grp.count }} events</span>
+                <span>first seen {{ grp.first }}</span><span>last seen {{ grp.last }}</span>
+                <span style="font-family:var(--mono);color:var(--subtle)">{{ grp.env }}</span>
+                <div style="flex:1"></div>
+                <div style="display:flex;gap:8px">
+                  <button onClick="{{ resolveGroup }}" style="height:34px;padding:0 13px;border:1px solid var(--good);background:transparent;color:var(--good-text);border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer">Resolve</button>
+                  <button onClick="{{ ignoreGroup }}" style="height:34px;padding:0 13px;border:1px solid var(--border);background:var(--s2);color:var(--muted);border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer">Ignore</button>
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr;gap:16px">
+                <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:0;box-shadow:var(--shadow);overflow:hidden">
+                  <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)"><h2 style="margin:0;font-size:14px;font-weight:700">Latest event</h2><span style="font-size:12px;color:var(--muted)">{{ eventLatest }}</span></div>
+                  <div style="padding:16px">
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+                      <span style="font-size:11.5px;padding:4px 10px;border-radius:7px;background:var(--s2);border:1px solid var(--border);font-family:var(--mono)"><span style="color:var(--subtle)">env</span> prod</span>
+                      <span style="font-size:11.5px;padding:4px 10px;border-radius:7px;background:var(--s2);border:1px solid var(--border);font-family:var(--mono)"><span style="color:var(--subtle)">release</span> fin@2026.31.2</span>
+                      <span style="font-size:11.5px;padding:4px 10px;border-radius:7px;background:var(--s2);border:1px solid var(--border);font-family:var(--mono)"><span style="color:var(--subtle)">route</span> /api/summary</span>
+                      <span style="font-size:11.5px;padding:4px 10px;border-radius:7px;background:var(--s2);border:1px solid var(--border);font-family:var(--mono)"><span style="color:var(--subtle)">method</span> GET</span>
+                    </div>
+                    <div style="font-size:12px;font-weight:600;color:var(--subtle);margin-bottom:6px">Stack trace</div>
+                    <pre style="margin:0;font-family:var(--mono);font-size:11.5px;line-height:1.7;background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:14px;overflow:auto;color:var(--text);white-space:pre">{{ jsStack }}</pre>
+                  </div>
+                </div>
+                <div style="border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden">
+                  <div style="padding:13px 16px;border-bottom:1px solid var(--border)"><h2 style="margin:0;font-size:14px;font-weight:700">Event stream</h2></div>
+                  <sc-for list="{{ events }}" as="e" hint-placeholder-count="3">
+                    <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)">
+                      <span style="flex:none;width:70px;font-size:12px;color:var(--muted)">{{ e.when }}</span>
+                      <span style="flex:1;min-width:0;font-size:12.5px;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">{{ e.msg }}</span>
+                      <span style="flex:none;font-size:11px;font-family:var(--mono);color:var(--subtle)">{{ e.release }}</span>
+                    </div>
+                  </sc-for>
+                  <div style="padding:12px 16px;text-align:center"><button style="font-size:12.5px;color:var(--accent);background:none;border:none;font-weight:600;cursor:pointer">Load older events</button></div>
+                </div>
+              </div>
+            </sc-if>
+          </sc-if>
+
+        </div>
+      </main>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:880},&quot;initialTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;'dark' | 'light'&quot;,&quot;section&quot;:&quot;Review&quot;},&quot;initialScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;login&quot;,&quot;board&quot;,&quot;site&quot;,&quot;add&quot;,&quot;group&quot;,&quot;legend&quot;,&quot;a11y&quot;,&quot;redline&quot;],&quot;default&quot;:&quot;board&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Review&quot;}}">
+class Component extends DCLogic {
+  state = { screen:this.props.initialScreen||'board', theme:this.props.initialTheme||'dark',
+    v:{ board:'default', site:'default', add:'default', group:'default', login:'default', inbox:'default', report:'default' },
+    selectedSite:'fin', selectedGroup:1, snipTab:'curl', selectedReport:'R-7QK2', repState:'new',
+    vp:'desktop', drawer:false, overlay:null, toast:null };
+
+  rootRef = React.createRef();
+
+  componentDidMount(){ if((this.props.initialTheme||'dark')==='light'){ const el=this.rootRef.current; if(el) el.classList.add('light'); } }
+  componentWillUnmount(){ clearTimeout(this._t); }
+
+  // ---- mock fleet (SiteSummary shape: monitor_enabled + uptime_pct) ----
+  sitesRaw = [
+    {id:'home',name:'Home',color:'green',rel:'12s ago',groups:0,crashes:0,uptime:99.98,monitor:true,reports:2},
+    {id:'auth',name:'Auth',color:'green',rel:'22s ago',groups:0,crashes:0,uptime:100.00,monitor:true,reports:0},
+    {id:'status',name:'Status',color:'green',rel:'8s ago',groups:0,crashes:0,uptime:99.95,monitor:true,reports:0},
+    {id:'fin',name:'Finance',color:'orange',rel:'30s ago',groups:2,crashes:14,uptime:99.87,monitor:true,reports:1},
+    {id:'jidlo',name:'Jídlo',color:'orange',rel:'41s ago',groups:1,crashes:3,uptime:99.72,monitor:true,reports:0},
+    {id:'cyberdough',name:'Cyberdough',color:'red',rel:'3m ago',groups:1,crashes:6,streak:3,uptime:96.40,monitor:true,reports:0},
+    {id:'everydice',name:'Everydice',color:'green',rel:'now',groups:0,crashes:0,degrading:true,uptime:99.91,monitor:true,reports:0},
+    {id:'maptoposter',name:'MapToPoster',color:'green',rel:'18s ago',groups:0,crashes:0,uptime:99.99,monitor:true,reports:0},
+    {id:'skein',name:'Skein',color:'green',rel:'27s ago',groups:0,crashes:0,uptime:99.96,monitor:true,reports:0},
+    {id:'system',name:'System',color:'unknown',rel:'awaiting',groups:0,crashes:0,uptime:null,monitor:true,reports:null},
+    {id:'yarnlog',name:'Yarnlog',color:'green',rel:'crash-only',groups:0,crashes:0,crashOnly:true,uptime:null,monitor:false,reports:null},
+  ];
+
+  COLOR = {
+    green:{name:'green',label:'Healthy',cue:'✓',v:'--good',soft:'--good-soft',tv:'--good-text'},
+    orange:{name:'orange',label:'Noisy',cue:'!',v:'--warn',soft:'--warn-soft',tv:'--warn-text'},
+    red:{name:'red',label:'Down',cue:'✕',v:'--danger',soft:'--danger-soft',tv:'--danger-text'},
+    unknown:{name:'unknown',label:'No data',cue:'–',v:'--subtle',soft:'--s3',tv:'--subtle'},
+  };
+
+  LEVEL = {
+    fatal:{label:'fatal', style:'background:var(--danger);color:var(--on-color);border:1px solid var(--danger)'},
+    error:{label:'error', style:'background:color-mix(in oklab,var(--err-orange) 16%,transparent);color:var(--err-orange-text);border:1px solid color-mix(in oklab,var(--err-orange) 50%,transparent)'},
+    warning:{label:'warning', style:'background:color-mix(in oklab,var(--warn) 14%,transparent);color:var(--warn-text);border:1px solid color-mix(in oklab,var(--warn) 45%,transparent)'},
+  };
+
+  // GET /api/sites/{id}/uptime → UptimeSummary { uptime_pct, latency_p50_ms, latency_p95_ms, buckets[] }
+  buildUptime(){
+    const B=[];
+    for(let i=0;i<90;i++){
+      let ok=100;
+      if(i>=20&&i<=24) ok=null;      // gap: monitoring paused, no checks (ok_pct null)
+      else if(i===40) ok=66.6;       // partial degradation
+      else if(i===58) ok=0;          // full outage day
+      else if(i===59) ok=0;
+      else if(i===60) ok=41.2;       // recovering
+      else if(i===75) ok=91.4;       // brief partial
+      const checks = ok==null?0:288;
+      const failed = ok==null?0:Math.round(288*(100-ok)/100);
+      B.push({ok,checks,failed});
+    }
+    const failedTotal=B.reduce((a,b)=>a+b.failed,0);
+    const total=B.reduce((a,b)=>a+b.checks,0);
+    return {buckets:B, uptime_pct:99.87, p50:96, p95:240, failed:failedTotal, total};
+  }
+
+  groupsRaw = [
+    {id:1,title:"TypeError: Cannot read properties of undefined (reading 'total')",level:'error',count:128,status:'open',first:'2 d ago',last:'4 m ago',env:'prod'},
+    {id:2,title:'panic: runtime error: invalid memory address or nil pointer dereference',level:'fatal',count:12,status:'open',first:'6 h ago',last:'22 m ago',env:'prod'},
+    {id:3,title:'Request timeout after 10000ms calling payments upstream',level:'warning',count:40,status:'open',first:'1 d ago',last:'1 h ago',env:'prod'},
+    {id:4,title:'context deadline exceeded',level:'error',count:57,status:'resolved',first:'5 d ago',last:'2 d ago',env:'prod'},
+    {id:5,title:'ResizeObserver loop completed with undelivered notifications',level:'warning',count:214,status:'ignored',first:'12 d ago',last:'3 h ago',env:'prod'},
+  ];
+
+  eventsRaw = [
+    {when:'4 m ago', release:'fin@2026.31.2', env:'prod', msg:"TypeError: Cannot read properties of undefined (reading 'total')"},
+    {when:'19 m ago', release:'fin@2026.31.2', env:'prod', msg:"TypeError: Cannot read properties of undefined (reading 'total')"},
+    {when:'1 h ago', release:'fin@2026.31.1', env:'prod', msg:"TypeError: Cannot read properties of undefined (reading 'total')"},
+  ];
+  jsStack = `TypeError: Cannot read properties of undefined (reading 'total')
+    at renderSummary (SummaryCard.tsx:42:18)
+    at commitHookEffectListMount (react-dom.js:23189:26)
+    at Object.invokeGuardedCallback (react-dom.js:4213:16)
+    at flushPassiveEffects (react-dom.js:23930:9)
+    at fetchSummary (api/summary.ts:17:9)`;
+
+  snippets = {
+    curl:`curl -X POST https://status.tilcer.cz/api/ingest/fin \\
+  -H "X-Ingest-Key: $STATUS_INGEST_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"message":"it broke","level":"error"}'`,
+    go:`import "tilcer.cz/status/clients/go/status"
+
+status.Init("fin", os.Getenv("STATUS_INGEST_KEY"))
+
+defer status.Recover()            // report panics
+status.Report(err, status.Opts{   // report handled errors
+    Level: "error",
+    Context: map[string]any{"route": "/api/summary"},
+})`,
+    js:`import { initStatus } from "./status.js"
+
+initStatus({
+  site: "fin",
+  key: "ik_live_…",   // public by design, like a Sentry DSN
+})
+// hooks window.onerror + unhandledrejection automatically`,
+  };
+
+  // ---- engineering redline data ----
+  rlTokens = [
+    {n:'--bg',r:'App background',d:'.165 .008 264',l:'.975 .004 264'},
+    {n:'--s1 … s4',r:'Card → deep fills',d:'.198 → .310',l:'1.00 → .930'},
+    {n:'--border / -strong',r:'Hairlines, dividers',d:'.320 / .400',l:'.905 / .840'},
+    {n:'--text',r:'Primary text',d:'.945 .006 264',l:'.240 .014 264'},
+    {n:'--muted / --subtle',r:'Secondary / tertiary',d:'.740 / .660',l:'.470 / .545'},
+    {n:'--accent / -fg',r:'Primary action / on-accent',d:'.680 256 / dark',l:'.530 256 / white'},
+    {n:'--good / -text',r:'Healthy · fill / AA text',d:'.740 / .780',l:'.520 / .500'},
+    {n:'--warn / -text',r:'Noisy · fill / AA text',d:'.800 / .820',l:'.600 / .520'},
+    {n:'--danger / -text',r:'Down · fill / AA text',d:'.700 / .760',l:'.550 / .525'},
+    {n:'--err-orange / -text',r:'Error badge · fill / text',d:'.760 / .790',l:'.590 / .560'},
+    {n:'--on-color',r:'Glyph on a status dot',d:'.205 .020 264',l:'.205 .020 264'},
+    {n:'--focus',r:'Focus-visible ring',d:'.780 .130 256',l:'.550 .150 256'},
+  ];
+  rlType = [
+    {s:'26 / 800',u:'Page title (H1)'},
+    {s:'24 / 800',u:'Screen title'},
+    {s:'18 / 700',u:'Empty-state / modal heading'},
+    {s:'15 / 700',u:'Card / section heading (H2)'},
+    {s:'13.5 / 600',u:'Row title, body'},
+    {s:'12.5 / 400',u:'Meta, secondary'},
+    {s:'11.5 / 700',u:'Pill / badge label (min)'},
+    {s:'mono 11.5–13',u:'ids, code, latency, keys'},
+  ];
+  rlSpace = ['2','4','6','8','10','12','14','16','18','22','28','32'];
+  rlRadii = [
+    {k:'6–8px',v:'inputs, chips, level badges'},
+    {k:'10px (--radius)',v:'cards, rows'},
+    {k:'14px',v:'modals, empty-state icon'},
+    {k:'999px',v:'status pills, filter chips'},
+  ];
+  rlBreak = [
+    {b:'≥ 820px — desktop',d:'Fixed 230px side nav + fluid content (max 1120px). Board grid auto-fill minmax(258px). Config + integration sit two-up.'},
+    {b:'< 820px — mobile',d:'Side nav collapses to a 52px top bar + slide-in drawer. Board and every two-up grid collapse to one column. 14px gutters, touch targets ≥ 38px.'},
+  ];
+  rlComponents = [
+    {n:'StatusPill',p:'state · size',note:'Dot-glyph + text label always. Text = --{state}-text (AA); border + glyph bg = --{state}; glyph fg = --on-color. Never color-only.'},
+    {n:'SiteCard',p:'SiteSummary',note:'name, id (mono), pill, last_checked, open_crash_groups, recent_crash_count, uptime row. uptime_pct null + monitor_enabled=false → “Monitoring off” (neutral), never a percentage.'},
+    {n:'UptimeStrip',p:'buckets[], p50, p95',note:'One bar per bucket, oldest→newest. ok_pct 100→good · 0<ok<100→warn · 0→danger · null→hatched “no data” (shorter, dashed). p50/p95 straight from the endpoint.'},
+    {n:'LevelBadge',p:'level',note:'fatal→solid danger · error→err-orange tint · warning→warn tint. Uppercase 11px, --*-text for AA.'},
+    {n:'KeyModal',p:'mode: created|rotated',note:'Show-once. Prominent key, one-click copy, irreversibility warning, ready-to-paste snippet. One component, reused for create + rotate.'},
+    {n:'ConfirmDialog',p:'kind: delete|rotate',note:'Delete → warns cascade (checks, rollups, groups, events). Rotate → warns old key dies immediately. Destructive confirm styled danger/warn.'},
+    {n:'Toast',p:'message',note:'Non-destructive confirms (save config, resolve/ignore). Bottom-center, auto-dismiss ~2.6s, check glyph, role="status".'},
+    {n:'UnreadBadge',p:'open_reports',note:'v3. Envelope glyph + “N new report(s)” in accent, in the card’s meta row — never in the header row beside the status pill. null (module absent) and 0 both render nothing; there is no zero state.'},
+    {n:'ReportRow',p:'ReportSummary',note:'v3. State chip · kind chip · site id · attachment count · relative time, then one clamped line of the message and the reporter label + ref. new gets an accent-tinted border and 600-weight message; resolved/declined drop to 78% opacity.'},
+    {n:'ReportStateChip',p:'state (4)',note:'v3. new = solid accent · open = 12% accent tint · resolved = neutral --s3 with check · declined = dashed border with ×. Deliberately outside the red/orange/green vocabulary: a report state is not a health state.'},
+    {n:'AttachmentGallery',p:'attachments[]',note:'v3. image inline, <video> for clips, and explicit pending (“waiting on claim”) and missing (“never uploaded or swept”) tiles — both expected states, neither an error. View URLs are minted per click and expire in 5 min.'},
+    {n:'ContextBlock',p:'Report context',note:'v3. page_url is text plus an explicit Open button, never an anchor — it can carry query-string secrets. Console tail renders as mono behind its own heading; console_capture off gets a neutral “not captured” note rather than an empty box.'},
+    {n:'FeedbackPanel',p:'FeedbackConfig',note:'v3. enabled + console_capture switches, key issue date, rotate (reuses KeyModal with the widget-key copy), and the embed snippet prefilled with the site id. A 503 deployment renders the switch as Unavailable with the reason, never a control that fails on click.'},
+  ];
+
+  // ---- accessibility review data (measured sRGB → WCAG) ----
+  a11ySummary = [
+    {n:'7', label:'Fails found', color:'var(--danger-text)'},
+    {n:'7', label:'Fixed → AA', color:'var(--good-text)'},
+    {n:'0', label:'Remaining', color:'var(--muted)'},
+  ];
+  a11yFixed = [
+    {area:'Warn pill text on soft (light)', before:'3.44', after:'4.71', fix:'--warn-text .52L'},
+    {area:'Warn uptime figure on card (light)', before:'4.08', after:'5.58', fix:'--warn-text'},
+    {area:'Good pill text on soft (light)', before:'4.29', after:'4.67', fix:'--good-text .50L'},
+    {area:'Danger pill text on soft (light)', before:'4.23', after:'4.67', fix:'--danger-text .525L'},
+    {area:'Error level badge on card (light)', before:'4.37', after:'4.67', fix:'--err-orange-text .56L'},
+    {area:'Subtle micro-labels on bg (light)', before:'4.00', after:'4.62', fix:'--subtle → .545L'},
+    {area:'Down pill text on soft (dark)', before:'3.95', after:'4.60', fix:'--danger-text .76L'},
+  ];
+  a11yPass = [
+    {area:'Body text on card (dark / light)', v:'15.5 / 16.5'},
+    {area:'Muted text on bg', v:'8.4 / 6.4'},
+    {area:'Accent button label', v:'6.0 / 5.2'},
+    {area:'Green pill text (dark)', v:'4.8'},
+    {area:'Warn pill text (dark)', v:'5.4'},
+  ];
+
+  setScreen(s){ this.setState({screen:s, drawer:false, overlay:null}); }
+  setVar(v){ const screen=this.state.screen; this.setState(st=>({v:{...st.v,[screen]:v}})); }
+  toggleTheme(){ const t=this.state.theme==='dark'?'light':'dark'; this.setState({theme:t});
+    const el=this.rootRef.current; if(el) el.classList.toggle('light', t==='light'); }
+  setSnip(t){ this.setState({snipTab:t}); }
+  setVp(v){ this.setState({vp:v, drawer:false, overlay:null}); }
+  fireToast(msg){ clearTimeout(this._t); this.setState({toast:msg}); this._t=setTimeout(()=>this.setState({toast:null}),2600); }
+  openOverlay(o){ this.setState({overlay:o}); }
+  closeOverlay(){ this.setState({overlay:null}); }
+  confirmDelete(){ this.setState({overlay:null,screen:'board'}); this.fireToast('Finance deleted — checks, rollups & crashes purged'); }
+  confirmRotate(){ this.setState({overlay:'rotated'}); }
+  confirmRotateWidget(){ this.setState({overlay:'wkrotated'}); }
+  confirmDeleteReport(){ this.setState({overlay:null,screen:'inbox'}); this.fireToast('Report deleted \u2014 stored files removed'); }
+  siteConfig(id){ const m={fin:{name:'Finance',url:'https://fin.tilcer.cz/readyz'},home:{name:'Home',url:'https://home.tilcer.cz/readyz'},cyberdough:{name:'Cyberdough',url:'https://cyberdough.tilcer.cz/readyz'},yarnlog:{name:'Yarnlog',url:'—'},system:{name:'System',url:'https://system.tilcer.cz/readyz'}}; return m[id]||{name:id,url:'https://'+id+'.tilcer.cz/readyz'}; }
+
+  icon(name,size){
+    const p={
+      board:'<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+      grid:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
+      logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+      plus:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+      clock:'<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
+      layers:'<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+      bug:'<path d="M8 2l1.5 1.5"/><path d="M16 2l-1.5 1.5"/><path d="M9 7h6a3 3 0 0 1 3 3v3a6 6 0 0 1-12 0v-3a3 3 0 0 1 3-3Z"/><path d="M12 20v-9"/><path d="M6 13H3"/><path d="M21 13h-3"/><path d="M6 9L3.5 7"/><path d="M18 9l2.5-2"/><path d="M6 17l-2.5 2"/><path d="M18 17l2.5 2"/>',
+      radar:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/>',
+      alert:'<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+      retry:'<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>',
+      copy:'<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+      key:'<circle cx="7.5" cy="15.5" r="4.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
+      rotate:'<path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>',
+      trash:'<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>',
+      chevL:'<polyline points="15 18 9 12 15 6"/>',
+      chevR:'<polyline points="9 18 15 12 9 6"/>',
+      check:'<polyline points="20 6 9 17 4 12"/>',
+      x:'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+      ext:'<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
+      menu:'<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
+      power:'<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
+      mail:'<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 6 10-6"/>',
+      clip:'<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+      play:'<polygon points="6 4 20 12 6 20 6 4"/>',
+      slash:'<circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/>',
+      image:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+      circle:'<circle cx="12" cy="12" r="8"/>',
+      dot:'<circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/>',
+      chevD:'<polyline points="6 9 12 15 18 9"/>',
+    }[name]||'';
+    const s=size||15;
+    return React.createElement('svg',{width:s,height:s,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','strokeWidth':2,'strokeLinecap':'round','strokeLinejoin':'round','aria-hidden':true,style:{flex:'none'}},React.createElement('g',{dangerouslySetInnerHTML:{__html:p}}));
+  }
+
+  tabStyle(active){ return `padding:5px 11px;border-radius:7px;font-size:12.5px;font-weight:600;cursor:pointer;border:1px solid ${active?'var(--border-strong)':'transparent'};background:${active?'var(--s3)':'transparent'};color:${active?'var(--text)':'var(--muted)'}`; }
+  segStyle(active){ return `padding:3px 10px;border-radius:6px;font-size:11.5px;font-weight:600;cursor:pointer;border:none;background:${active?'var(--accent)':'transparent'};color:${active?'var(--accent-fg)':'var(--muted)'}`; }
+  navStyle(active){ return `display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;font-size:13.5px;font-weight:600;cursor:pointer;border:none;text-align:left;background:${active?'var(--s2)':'transparent'};color:${active?'var(--accent)':'var(--muted)'};font-family:inherit`; }
+  chipStyle(active){ return `display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 12px;border-radius:999px;font-size:12.5px;font-weight:600;cursor:pointer;border:1px solid ${active?'var(--border-strong)':'var(--border)'};background:${active?'var(--s3)':'var(--s1)'};color:var(--text)`; }
+
+  // ---- v3 feedback data ----
+  reportsRaw = [
+    {ref:'R-7QK2', site:'home', kind:'bug', state:'new', when:'12 min ago', reporter:'K\u00e1ja', attach:3,
+     msg:'Kdy\u017e v N\u00e1kupech ma\u017eu polo\u017eku, zmiz\u00ed jin\u00e1 ne\u017e ta, kterou jsem vybrala. Stalo se to u\u017e t\u0159ikr\u00e1t.'},
+    {ref:'R-4M8D', site:'home', kind:'idea', state:'new', when:'2 h ago', reporter:'K\u00e1ja', attach:0,
+     msg:'\u0160lo by u n\u00e1kupu \u0159adit polo\u017eky podle uli\u010dek v obchod\u011b? Te\u010f pob\u00edh\u00e1m tam a zp\u00e1tky.'},
+    {ref:'R-9XB3', site:'fin', kind:'bug', state:'new', when:'5 h ago', reporter:null, attach:1,
+     msg:'Souhrn za srpen uk\u00e1\u017ee pr\u00e1zdn\u00fd graf, dokud str\u00e1nku nena\u010dtu dvakr\u00e1t.'},
+    {ref:'R-2TQ7', site:'home', kind:'other', state:'open', when:'yesterday', reporter:'K\u00e1ja', attach:0,
+     msg:'Nev\u00edm, jestli je to chyba \u2014 kalend\u00e1\u0159 mi ukazuje jin\u00fd \u010das ne\u017e telefon.'},
+    {ref:'R-6DPV', site:'jidlo', kind:'bug', state:'open', when:'2 d ago', reporter:'babi\u010dka', attach:2,
+     msg:'Recept se mi ulo\u017eil dvakr\u00e1t a jeden nejde smazat.'},
+    {ref:'R-3HKS', site:'home', kind:'bug', state:'resolved', when:'4 d ago', reporter:'K\u00e1ja', attach:1,
+     msg:'Fotka u pozn\u00e1mky se nenahr\u00e1la, po\u0159\u00e1d se to jen to\u010dilo.'},
+    {ref:'R-8ZNQ', site:'fin', kind:'idea', state:'resolved', when:'6 d ago', reporter:'Karel (mobil)', attach:0,
+     msg:'P\u0159idat filtr na platby kartou.'},
+    {ref:'R-5WJ4', site:'home', kind:'other', state:'declined', when:'last week', reporter:null, attach:0,
+     msg:'Zkou\u0161\u00edm, jak to funguje.'},
+  ];
+
+  REPSTATE = {
+    new:{label:'new', icon:'dot', style:'background:var(--accent);color:var(--accent-fg);border:1px solid var(--accent)'},
+    open:{label:'open', icon:'circle', style:'background:color-mix(in oklab,var(--accent) 14%,transparent);color:var(--accent);border:1px solid color-mix(in oklab,var(--accent) 45%,transparent)'},
+    resolved:{label:'resolved', icon:'check', style:'background:var(--s3);color:var(--muted);border:1px solid var(--border-strong)'},
+    declined:{label:'declined', icon:'x', style:'background:transparent;color:var(--subtle);border:1px dashed var(--border-strong)'},
+  };
+
+  a11yV3 = [
+    {area:'Unread badge \u00b7 accent on 14% accent fill', d:'4.9', l:'4.8', v:'AA — 11.5px bold + glyph'},
+    {area:'State chip “new” \u00b7 --accent-fg on --accent', d:'6.0', l:'5.2', v:'AA'},
+    {area:'State chip “open” \u00b7 accent on 14% tint', d:'4.9', l:'4.8', v:'AA'},
+    {area:'State chip “resolved/declined” \u00b7 muted on --s3', d:'6.2', l:'5.4', v:'AA'},
+    {area:'Kind chip \u00b7 mono 10.5px on --s3', d:'8.1', l:'6.0', v:'AA — above the 4.5 floor'},
+    {area:'Attachment “missing” label \u00b7 warn-text on --s2', d:'6.7', l:'5.1', v:'AA'},
+    {area:'Console tail \u00b7 muted mono on --s2', d:'7.9', l:'6.0', v:'AA'},
+  ];
+  a11yV3Cards = [
+    {tag:'1.4.1', title:'The badge is not colour', body:'It carries an envelope glyph and the words “2 new reports”. In greyscale it still reads as a count of messages, and it sits in the card’s meta row rather than beside the status pill — the separation is spatial first, chromatic second.'},
+    {tag:'2.1.1 \u00b7 2.4.7', title:'Inbox rows are buttons', body:'Each row is a real button with a visible focus ring; its accessible name begins with the state (“new, bug, home — Když v Nákupech…”) so a screen-reader user hears the triage state before the text. Filters are buttons with aria-pressed, not links.'},
+    {tag:'3.2.5', title:'The page URL is not a link', body:'It renders as text; an adjacent Open button is the only navigation, keyboard-reachable and labelled with the destination host. Nothing navigates from Enter on a focused URL, because the URL can carry a token from the host app.'},
+    {tag:'4.1.2 \u00b7 4.1.3', title:'Triage announces itself', body:'The four states are one radio group; the current state carries a check glyph as well as accent. Changing it fires a polite live region (“R-7QK2 moved to open”) and the same toast pattern v2 uses for resolve/ignore.'},
+  ];
+
+  stateChipStyle(k){ return `display:inline-flex;align-items:center;gap:5px;padding:3px 9px 3px 7px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;white-space:nowrap;${this.REPSTATE[k].style}`; }
+  kindChipStyle(){ return 'display:inline-flex;align-items:center;padding:2px 8px;border-radius:6px;font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;background:var(--s3);border:1px solid var(--border);color:var(--muted)'; }
+
+  v3(screen, cur, isMobile, site){
+    const S=this.REPSTATE;
+    const counts={all:this.reportsRaw.length,new:0,open:0,resolved:0,declined:0};
+    this.reportsRaw.forEach(r=>counts[r.state]++);
+
+    const reports=this.reportsRaw.map(r=>{
+      const s=S[r.state];
+      const fresh=r.state==='new';
+      const dim=r.state==='resolved'||r.state==='declined';
+      return {
+        ref:r.ref, site:r.site, when:r.when, msg:r.msg,
+        reporter:r.reporter||'no name given',
+        attachLabel:r.attach?String(r.attach):null,
+        stateStyle:this.stateChipStyle(r.state), stateLabel:s.label, stateIcon:this.icon(s.icon,10),
+        kindStyle:this.kindChipStyle(), kindLabel:r.kind,
+        msgWeight:fresh?'600':'500',
+        rowStyle:`display:block;width:100%;text-align:left;border:1px solid ${fresh?'color-mix(in oklab,var(--accent) 38%,var(--border))':'var(--border)'};background:var(--s1);border-radius:10px;padding:13px 15px;cursor:pointer;font-family:inherit;color:var(--text);box-shadow:var(--shadow);${dim?'opacity:.78':''}`,
+        onClick:()=>{ this.setState({selectedReport:r.ref, repState:r.state, screen:'report'}); },
+      };
+    });
+
+    const inboxChips=[['all','All'],['new','New'],['open','Open'],['resolved','Resolved'],['declined','Declined']]
+      .map(([id,label],i)=>({label, count:counts[id], style:this.chipStyle(i===0), onClick:()=>{}}));
+
+    // ---- report detail ----
+    const bare=cur==='bare';
+    const base=this.reportsRaw.find(r=>r.ref===(bare?'R-4M8D':this.state.selectedReport))||this.reportsRaw[0];
+    const st=this.state.repState in S ? this.state.repState : base.state;
+    const rep={
+      ref:base.ref, site:base.site, kind:base.kind, message:base.msg,
+      reporter:base.reporter?base.reporter:'no name given',
+      created:base.when, locale:'cs-CZ',
+      stateStyle:this.stateChipStyle(st), stateLabel:S[st].label, stateIcon:this.icon(S[st].icon,10),
+      kindStyle:this.kindChipStyle(), kindLabel:base.kind,
+      attachCount:bare?'none':'3 files',
+      hasAttach:!bare, noAttach:bare,
+      hasConsole:!bare, noConsole:bare,
+      pageUrl:bare?'https://home.tilcer.cz/nakupy':'https://home.tilcer.cz/nakupy/sobota?share=eyJ0IjoiYWJjMTIzIn0',
+      consoleTail:['[home] POST /api/shopping/items/48 \u2192 500 (Internal Server Error)',
+        'TypeError: t.items is undefined \u2014 ShoppingList.tsx:88:14',
+        '[home] retry sync (2/3)',
+        '[home] retry sync (3/3) \u2014 giving up',
+        '\u2026 45 earlier lines'].join('\n'),
+      lastError:'TypeError: t.items is undefined\n    at ShoppingList (ShoppingList.tsx:88:14)\n    at commitHookEffectListMount (react-dom.js:23189:26)',
+      note:'Reproduced on iOS Safari only \u2014 optimistic delete uses the index, not the id. Same root cause as fin R-9XB3?',
+    };
+
+    const repContext=[
+      {k:'referrer', v:'https://home.tilcer.cz/poznamky'},
+      {k:'user agent', v:'Mozilla/5.0 (iPhone; CPU iPhone OS 19_2 like Mac OS X) AppleWebKit/620.1 Safari/620.1'},
+      {k:'viewport', v:'375 \u00d7 812'},
+      {k:'locale', v:'cs-CZ'},
+      {k:'release', v:'home@2026.35.1'},
+    ];
+
+    const thumbBase='height:126px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:12px';
+    const attState=(kind)=>({
+      stored:'display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--muted)',
+      missing:'display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--warn-text)',
+      pending:'display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--subtle)',
+    })[kind];
+    const attachments=[
+      {thumbStyle:`${thumbBase};background-color:var(--s3);background-image:repeating-linear-gradient(135deg,color-mix(in oklab,var(--border-strong) 55%,transparent) 0 6px,transparent 6px 12px)`,
+       glyph:this.icon('image',18), glyphBg:'var(--s1)', glyphFg:'var(--muted)',
+       caption:'reporter\u2019s screenshot \u00b7 1170\u00d72532', capColor:'var(--muted)',
+       meta:'PNG \u00b7 420 kB', stateStyle:attState('stored'), stateLabel:'stored'},
+      {thumbStyle:`${thumbBase};background-color:oklch(0.230 0.010 264);background-image:repeating-linear-gradient(135deg,color-mix(in oklab,var(--border-strong) 40%,transparent) 0 6px,transparent 6px 12px)`,
+       glyph:this.icon('play',16), glyphBg:'var(--accent)', glyphFg:'var(--accent-fg)',
+       caption:'screen recording \u00b7 0:12', capColor:'var(--muted)',
+       meta:'MP4 \u00b7 18.4 MB', stateStyle:attState('stored'), stateLabel:'stored'},
+      {thumbStyle:`${thumbBase};background:var(--s2);border-bottom:1px dashed var(--border-strong)`,
+       glyph:this.icon('slash',18), glyphBg:'var(--s3)', glyphFg:'var(--warn-text)',
+       caption:'file missing \u2014 never uploaded, or swept after 24 h', capColor:'var(--subtle)',
+       meta:'PNG \u00b7 size unknown', stateStyle:attState('missing'), stateLabel:'missing'},
+    ];
+
+    const triage=[['new','Unread. The only state that counts toward the board badge.'],
+      ['open','Seen, not decided. Clears the badge without judging it.'],
+      ['resolved','Done. Stamps resolved_at.'],
+      ['declined','Not doing it. Nothing goes back to the reporter.']]
+      .map(([k,note])=>{
+        const on=st===k;
+        return {label:S[k].label, note, on, icon:this.icon(S[k].icon,13), iconColor:on?'var(--accent)':'var(--subtle)',
+          style:`display:flex;align-items:center;gap:11px;width:100%;text-align:left;padding:10px 12px;border-radius:9px;cursor:pointer;font-family:inherit;color:var(--text);border:1px solid ${on?'color-mix(in oklab,var(--accent) 45%,transparent)':'var(--border)'};background:${on?'color-mix(in oklab,var(--accent) 10%,transparent)':'var(--s2)'}`,
+          onClick:()=>{ this.setState({repState:k}); this.fireToast(`${rep.ref} moved to ${k}`); }};
+      });
+
+    // ---- site-detail feedback panel ----
+    const srec=this.sitesRaw.find(x=>x.id===this.state.selectedSite)||{};
+    const noStorage=screen==='site'&&cur==='no-storage';
+    const fbOn=true, ccOn=false;
+    const track=(on)=>`width:40px;height:23px;border-radius:999px;position:relative;flex:none;background:${on?'var(--accent)':'var(--s4)'};border:1px solid ${on?'var(--accent)':'var(--border-strong)'}`;
+    const knob=(on)=>`position:absolute;top:2px;${on?'right:2px':'left:2px'};height:17px;width:17px;border-radius:50%;background:${on?'var(--accent-fg)':'var(--muted)'}`;
+
+    return {
+      isInbox:screen==='inbox', isReport:screen==='report',
+      inboxDefault:screen==='inbox'&&cur==='default', inboxEmpty:screen==='inbox'&&cur==='empty',
+      inboxLoading:screen==='inbox'&&cur==='loading', inboxError:screen==='inbox'&&cur==='error',
+      inboxHasData:screen==='inbox'&&cur==='default',
+      reports, inboxChips, inboxSelects:[{label:'All sites'},{label:'All kinds'}],
+      inboxBadge:String(counts.new),
+      goInbox:()=>this.setScreen('inbox'), goInboxM:()=>this.setScreen('inbox'),
+      navInboxStyle:this.navStyle(screen==='inbox'||screen==='report'),
+      reportShow:screen==='report'&&(cur==='default'||cur==='bare'),
+      reportLoading:screen==='report'&&cur==='loading', reportError:screen==='report'&&cur==='error',
+      rep, repContext, attachments, triage,
+      repGridStyle:isMobile?'display:flex;flex-direction:column;gap:16px':'display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;align-items:start',
+      askDeleteReport:()=>this.openOverlay('deleteReport'),
+      saveNote:()=>this.fireToast('Internal note saved'),
+      askRotateWidget:()=>this.openOverlay('wkrotate'),
+      fbNoStorage:noStorage, fbAvailable:!noStorage,
+      fbHasReports:!!srec.reports, fbReportsLabel:srec.reports===1?'1 new report':srec.reports+' new reports',
+      fbTrack:track(fbOn), fbKnob:knob(fbOn), ccTrack:track(ccOn), ccKnob:knob(ccOn),
+      fbKeyIssued:'12 Aug 2026',
+      fbSnippet:`<script src="https://status.tilcer.cz/widget/v1.js"\n        data-site="${site.id}" data-key="wk_\u2026"\n        data-lang="cs" data-reporter="K\u00e1ja"\n        data-position="bottom-right" defer><\/script>`,
+      a11yV3:this.a11yV3, a11yV3Cards:this.a11yV3Cards,
+      iconMail:this.icon('mail'), iconMailSm:this.icon('mail',13), iconClip:this.icon('clip',13),
+      iconChevD:this.icon('chevD',13), iconAlertSm:this.icon('alert',13),
+    };
+  }
+
+  renderVals(){
+    const {screen,theme}=this.state;
+    const cur=this.state.v[screen];
+    const isMobile=this.state.vp==='mobile';
+    const screensWithStates={login:1,board:1,site:1,add:1,group:1,inbox:1,report:1};
+
+    const screenList=[['login','Login'],['board','Board'],['site','Site detail'],['add','Add site'],['group','Crash group'],['inbox','Inbox'],['report','Report'],['legend','Status system'],['a11y','Accessibility'],['redline','Redline']];
+    const screenTabs=screenList.map(([id,label])=>({label,style:this.tabStyle(screen===id),onClick:()=>this.setScreen(id)}));
+
+    const stateDefs={
+      login:[['default','Default'],['loading','Loading'],['error','Error']],
+      board:[['default','Default'],['empty','Empty'],['loading','Loading'],['error','Error']],
+      site:[['default','Default'],['empty','Empty'],['no-storage','No storage (503)'],['loading','Loading'],['error','Error']],
+      inbox:[['default','Default'],['empty','Empty'],['loading','Loading'],['error','Error']],
+      report:[['default','Default'],['bare','Text only'],['loading','Loading'],['error','Not found']],
+      add:[['default','Form'],['key','Key shown'],['dup','Duplicate id'],['loading','Saving']],
+      group:[['default','Default'],['resolved','Resolved'],['loading','Loading'],['error','Error']],
+    };
+    const defs=stateDefs[screen]||[];
+    const stateTabs=defs.map(([id,label])=>({label,style:this.segStyle(cur===id),onClick:()=>this.setVar(id)}));
+
+    const isShellScreen=screen==='board'||screen==='site'||screen==='add'||screen==='group'||screen==='inbox'||screen==='report';
+    const vpTabs=[['desktop','Desktop'],['mobile','Mobile']].map(([id,label])=>({label,style:this.segStyle(this.state.vp===id),onClick:()=>this.setVp(id)}));
+
+    const sites=this.sitesRaw.map(s=>{
+      const m=this.COLOR[s.color];
+      const off=s.monitor===false;
+      const on=!off;
+      let uptimeText, uptimeFig;
+      if(s.uptime==null){ uptimeText='No checks yet'; uptimeFig='var(--muted)'; }
+      else { uptimeText=s.uptime.toFixed(2)+'%'; uptimeFig=`var(${m.tv})`; }
+      return {...s, id:s.id, name:s.name, open_crash_groups:s.groups, recent_crash_count:s.crashes,
+        relChecked:s.rel, stateLabel:m.name, cue:m.cue, dot:`var(${m.v})`, soft:`var(${m.soft})`, text:`var(${m.tv})`,
+        uptimeOff:off, uptimeOn:on, uptimeText, uptimeFig,
+        degrading:!!s.degrading,
+        hasReports:!!s.reports, reportsLabel:s.reports===1?'1 new report':(s.reports+' new reports'),
+        pulse:s.degrading?'box-shadow:0 0 0 0 var(--warn);animation:om-pulse-ring 1.6s ease-out infinite':'',
+        cardStyle:`display:block;text-align:left;border:1px solid var(--border);background:var(--s1);border-radius:var(--radius);padding:15px 16px;cursor:pointer;box-shadow:var(--shadow);font-family:inherit;color:var(--text)`,
+        onClick:()=>{ this.setState({selectedSite:s.id}); this.setScreen('site'); } };
+    });
+
+    const counts={all:this.sitesRaw.length,green:0,orange:0,red:0,unknown:0};
+    this.sitesRaw.forEach(s=>counts[s.color]++);
+    const chipDefs=[['all','All',null,true],['green','Healthy','--good',false],['orange','Noisy','--warn',false],['red','Down','--danger',false],['unknown','No data','--subtle',false]];
+    const filterChips=chipDefs.map(([id,label,v,active])=>({label,count:id==='all'?counts.all:counts[id],showDot:!!v,dot:v?`var(${v})`:'',style:this.chipStyle(active),onClick:()=>{}}));
+
+    const legendStates=['green','orange','red','unknown'].map(k=>{
+      const m=this.COLOR[k];
+      const desc={green:'Reachable and no crashes in the recent window. The quiet default — most of the board should look like this.',
+        orange:'Reachable, but ≥1 crash in an open group within the window. Something is throwing, but it is still up.',
+        red:'Failed health checks — declared only after 2 consecutive failures, so brief blips never cry wolf.',
+        unknown:'Monitored but not checked yet, and no crashes. A fresh site before its first poll.'}[k];
+      return {name:m.name,label:m.label,cue:m.cue,desc,color:`var(${m.v})`,soft:`var(${m.soft})`,textColor:`var(${m.tv})`,token:`--${k==='green'?'good':k==='orange'?'warn':k==='red'?'danger':'subtle'}`};
+    });
+
+    // ---- site detail ----
+    const sc=this.siteConfig(this.state.selectedSite);
+    const srec=this.sitesRaw.find(x=>x.id===this.state.selectedSite)||{color:'orange',uptime:99.87,monitor:true};
+    const smeta=this.COLOR[srec.color];
+    const monitoringOff=srec.monitor===false;
+    const site={ id:this.state.selectedSite, name:sc.name, url:sc.url, cue:smeta.cue, dot:`var(${smeta.v})`, soft:`var(${smeta.soft})`, text:`var(${smeta.tv})`, stateLabel:smeta.name,
+      monitoringOff, monitoringOn:!monitoringOff };
+    const U=this.buildUptime();
+    const uptime={ pct:U.uptime_pct.toFixed(2)+'%', failed:U.failed, total:U.total.toLocaleString(), p50:U.p50, p95:U.p95 };
+    const uptimeBars=U.buckets.map((b,i)=>{
+      let style, title;
+      if(b.ok==null){
+        style='flex:1;min-width:0;height:16px;align-self:flex-end;border-radius:2px;background-color:var(--s2);background-image:repeating-linear-gradient(135deg,var(--border-strong) 0 1.5px,transparent 1.5px 4px);border:1px solid var(--border)';
+        title=`${90-i}d ago · no data (monitoring gap)`;
+      } else {
+        const c=b.ok>=100?'var(--good)':(b.ok>0?'var(--warn)':'var(--danger)');
+        style=`flex:1;min-width:0;height:30px;border-radius:2px;background:${c}`;
+        title=`${90-i}d ago · ${b.ok}% up · ${b.failed}/${b.checks} failed`;
+      }
+      return {style,title};
+    });
+    const uptimeLegend=[
+      {label:'Up',swatch:'display:inline-block;height:10px;width:10px;border-radius:2px;background:var(--good)'},
+      {label:'Partial',swatch:'display:inline-block;height:10px;width:10px;border-radius:2px;background:var(--warn)'},
+      {label:'Down',swatch:'display:inline-block;height:10px;width:10px;border-radius:2px;background:var(--danger)'},
+      {label:'No data',swatch:'display:inline-block;height:10px;width:10px;border-radius:2px;background-color:var(--s2);background-image:repeating-linear-gradient(135deg,var(--border-strong) 0 1.5px,transparent 1.5px 4px);border:1px solid var(--border)'},
+    ];
+    const toggleOn=srec.monitor!==false;
+    const toggleTrack=`width:40px;height:23px;border-radius:999px;position:relative;flex:none;background:${toggleOn?'var(--accent)':'var(--s4)'};border:1px solid ${toggleOn?'var(--accent)':'var(--border-strong)'}`;
+    const toggleKnob=`position:absolute;top:2px;${toggleOn?'right:2px':'left:2px'};height:17px;width:17px;border-radius:50%;background:${toggleOn?'var(--accent-fg)':'var(--muted)'}`;
+
+    const statusPill=(st)=>{ const m={open:['var(--muted)','var(--s3)','Open'],resolved:['var(--good-text)','var(--good-soft)','Resolved'],ignored:['var(--subtle)','var(--s3)','Ignored']}[st]; return {fg:m[0],bg:m[1],label:m[2]}; };
+    const groups=this.groupsRaw.map(g=>{ const lv=this.LEVEL[g.level]; const sp=statusPill(g.status);
+      return {...g, levelStyle:lv.style, levelLabel:lv.label, statusFg:sp.fg, statusBg:sp.bg, statusLabel:sp.label,
+        rowStyle:`display:block;width:100%;text-align:left;border:1px solid var(--border);background:var(--s1);border-radius:10px;padding:13px 15px;cursor:pointer;font-family:inherit;color:var(--text);${g.status!=='open'?'opacity:.62':''}`,
+        onClick:()=>{ this.setState({selectedGroup:g.id}); this.setScreen('group'); } }; });
+
+    const snipTabs=['curl','go','js'].map(t=>({ id:t, label:t==='js'?'JavaScript':t==='go'?'Go':'curl',
+      style:`padding:5px 12px;border-radius:7px;font-size:12.5px;font-weight:600;cursor:pointer;border:1px solid ${this.state.snipTab===t?'var(--border-strong)':'transparent'};background:${this.state.snipTab===t?'var(--s3)':'transparent'};color:${this.state.snipTab===t?'var(--text)':'var(--muted)'};font-family:var(--mono)`,
+      onClick:()=>this.setSnip(t) }));
+
+    // ---- crash group ----
+    const grp=this.groupsRaw.find(g=>g.id===this.state.selectedGroup)||this.groupsRaw[0];
+    const grpLv=this.LEVEL[grp.level]; const grpSp=statusPill(cur==='resolved'?'resolved':grp.status);
+
+    // ---- overlays / modals ----
+    const overlay=this.state.overlay;
+    const cfDefs={
+      delete:{ icon:this.icon('trash',18), icon2:null, iconBg:'var(--danger-soft)', iconFg:'var(--danger-text)', title:`Delete ${site.name}?`,
+        body:'This permanently deletes the site and cascades everything tied to it — all check history, uptime rollups, crash groups and their events. This can\u2019t be undone.',
+        confirmLabel:'Delete site', confirmStyle:'display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 16px;white-space:nowrap;border:1px solid var(--danger);background:var(--danger);color:var(--on-color);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer', onConfirm:()=>this.confirmDelete() },
+      rotate:{ icon:this.icon('rotate',18), icon2:null, iconBg:'color-mix(in oklab,var(--warn) 18%,transparent)', iconFg:'var(--warn-text)', title:'Rotate ingest key?',
+        body:'This generates a new key and invalidates the current one immediately. Any service still sending with the old key will start getting 401s until you paste in the new one. You\u2019ll see the new key only once.',
+        confirmLabel:'Rotate key', confirmStyle:'display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 16px;white-space:nowrap;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer', onConfirm:()=>this.confirmRotate() },
+      wkrotate:{ icon:this.icon('rotate',18), icon2:null, iconBg:'color-mix(in oklab,var(--warn) 18%,transparent)', iconFg:'var(--warn-text)', title:'Rotate the widget key?',
+        body:`A new widget key is issued and the current one stops working immediately. Until you paste the new key into ${site.name}\u2019s embed snippet, the widget stops rendering there \u2014 people simply see no button. Crash ingest is untouched.`,
+        confirmLabel:'Rotate widget key', confirmStyle:'display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 16px;white-space:nowrap;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer', onConfirm:()=>this.confirmRotateWidget() },
+      deleteReport:{ icon:this.icon('trash',18), icon2:null, iconBg:'var(--danger-soft)', iconFg:'var(--danger-text)', title:`Delete ${this.state.selectedReport}?`,
+        body:'This deletes the report and the files stored with it. The reporter is never told, and the reference code they were given stops resolving. This can\u2019t be undone.',
+        confirmLabel:'Delete report', confirmStyle:'display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 16px;white-space:nowrap;border:1px solid var(--danger);background:var(--danger);color:var(--on-color);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer', onConfirm:()=>this.confirmDeleteReport() },
+    };
+    const cf=cfDefs[overlay]||cfDefs.delete;
+    const confirmOpen=overlay==='delete'||overlay==='rotate'||overlay==='wkrotate'||overlay==='deleteReport';
+
+    const keyModalOpen=(screen==='add'&&cur==='key')||overlay==='rotated'||overlay==='wkrotated';
+    let km;
+    if(overlay==='wkrotated'){
+      km={ title:'Widget key rotated \u2014 here\u2019s your new key', subtitle:`The previous widget key for ${site.name} stopped working just now.`,
+        warnBold:'Copy it now \u2014 you won\u2019t see it again.', warnRest:`Paste it into ${site.id}\u2019s embed snippet. Crash ingest uses a different key and is unaffected.`,
+        key:'wk_7Q3dA1f8c2b45e90d7a6f31bc84e2059',
+        snippet:`<script src="https://status.tilcer.cz/widget/v1.js"\n        data-site="${site.id}" data-key="wk_7Q3dA1f8c2b45e90d7a6f31bc84e2059"\n        data-lang="cs" data-position="bottom-right" defer><\/script>`,
+        closeLabel:'I\u2019ve updated the embed \u2014 done', onClose:()=>this.closeOverlay() };
+    } else if(overlay==='rotated'){
+      km={ title:'Key rotated — here\u2019s your new key', subtitle:`The previous key for ${site.name} stopped working just now.`,
+        warnBold:'Copy it now — you won\u2019t see it again.', warnRest:'We only store a hash. Update every service that ingests to this site.',
+        key:'ik_4b7e0d92a1f6c8305e9d7742ab13ff60',
+        snippet:`curl -X POST https://status.tilcer.cz/api/ingest/${site.id} \\\n  -H "X-Ingest-Key: ik_4b7e0d92a1f6c8305e9d7742ab13ff60" \\\n  -d '{"message":"hello from ${site.id}"}'`,
+        closeLabel:'I\u2019ve updated it — done', onClose:()=>this.closeOverlay() };
+    } else {
+      km={ title:'Site created — here\u2019s your ingest key', subtitle:'yarnlog is on the board.',
+        warnBold:'Copy it now — you won\u2019t see it again.', warnRest:'We only store a hash. Lost it? Rotate to a new key from the site anytime.',
+        key:'ik_9f2c7a4e1b8d5063fa21c9e77b4460d2',
+        snippet:`curl -X POST https://status.tilcer.cz/api/ingest/yarnlog \\\n  -H "X-Ingest-Key: ik_9f2c7a4e1b8d5063fa21c9e77b4460d2" \\\n  -d '{"message":"hello from yarnlog"}'`,
+        closeLabel:'I\u2019ve stored it — done', onClose:()=>this.setScreen('board') };
+    }
+
+    // ---- shell layout (desktop vs mobile frame) ----
+    const inShell=isShellScreen;
+    const shellOuterStyle=isMobile
+      ? 'position:relative;width:404px;height:772px;margin:22px auto;border:1px solid var(--border-strong);border-radius:30px;overflow:hidden;background:var(--bg);box-shadow:0 30px 70px -24px oklch(0 0 0 / .55);display:flex;flex-direction:column'
+      : 'display:flex;min-height:calc(100vh - 47px)';
+    const mainStyle='flex:1;min-width:0;overflow:auto';
+    const contentStyle=isMobile?'padding:16px 14px 40px':'max-width:1120px;margin:0 auto;padding:28px 32px 56px';
+
+    return {
+      ...this.v3(screen,cur,isMobile,site),
+      rootRef:this.rootRef,
+      screenTabs, stateTabs, hasStates:!!screensWithStates[screen],
+      isShellScreen, vpTabs,
+      toggleTheme:()=>this.toggleTheme(), themeGlyph:theme==='dark'?'☾':'☀', themeLabel:theme==='dark'?'Dark':'Light',
+      isLogin:screen==='login', isLegend:screen==='legend', isBoard:screen==='board',
+      isA11y:screen==='a11y', isRedline:screen==='redline',
+      inShell, shellOuterStyle, mainStyle, contentStyle,
+      vpDesktop:inShell&&!isMobile, vpMobile:inShell&&isMobile,
+      drawerOpen:inShell&&isMobile&&this.state.drawer,
+      openDrawer:()=>this.setState({drawer:true}), closeDrawer:()=>this.setState({drawer:false}),
+      goBoardM:()=>this.setScreen('board'), goLegendM:()=>this.setScreen('legend'),
+      preventSubmit:(e)=>e.preventDefault(),
+      // redline + a11y data
+      rlTokens:this.rlTokens, rlType:this.rlType, rlSpace:this.rlSpace, rlRadii:this.rlRadii, rlBreak:this.rlBreak, rlComponents:this.rlComponents,
+      a11ySummary:this.a11ySummary, a11yFixed:this.a11yFixed, a11yPass:this.a11yPass,
+      // login
+      vError:screen==='login'&&cur==='error', vLoading:screen==='login'&&cur==='loading',
+      loginBtnLabel:(screen==='login'&&cur==='loading')?'Signing in…':'Sign in',
+      // nav
+      goBoard:()=>this.setScreen('board'), goLegend:()=>this.setScreen('legend'),
+      goAdd:()=>this.setScreen('add'), goLogin:()=>this.setScreen('login'),
+      navBoardStyle:this.navStyle(screen==='board'), navLegendStyle:this.navStyle(screen==='legend'),
+      iconBoard:this.icon('board'), iconGrid:this.icon('grid'), iconLogout:this.icon('logout'),
+      iconPlus:this.icon('plus'), iconClock:this.icon('clock'), iconLayers:this.icon('layers'),
+      iconBug:this.icon('bug'), iconRadar:this.icon('radar'), iconAlert:this.icon('alert'), iconRetry:this.icon('retry'),
+      iconMenu:this.icon('menu',18), iconPower:this.icon('power',13), iconCheckSm:this.icon('check',12),
+      // board
+      sites, filterChips, skeletons:[1,2,3,4,5,6,7,8],
+      boardHasData:screen==='board'&&(cur==='default'),
+      boardDefault:screen==='board'&&cur==='default',
+      boardLoading:screen==='board'&&cur==='loading',
+      boardEmpty:screen==='board'&&cur==='empty',
+      boardError:screen==='board'&&cur==='error',
+      legendStates,
+      // icons
+      iconCopy:this.icon('copy'), iconKey:this.icon('key'), iconRotate:this.icon('rotate'),
+      iconTrash:this.icon('trash'), iconChevL:this.icon('chevL'), iconChevR:this.icon('chevR'),
+      iconExt:this.icon('ext'), iconCheck:this.icon('check'), iconX:this.icon('x'),
+      // site detail
+      isSite:screen==='site', site, uptimeBars, uptime, uptimeLegend, groups, snipTabs,
+      toggleTrack, toggleKnob,
+      snippetCode:this.snippets[this.state.snipTab],
+      siteDefault:screen==='site'&&(cur==='default'||cur==='no-storage'), siteEmpty:screen==='site'&&cur==='empty',
+      siteLoading:screen==='site'&&cur==='loading', siteError:screen==='site'&&cur==='error',
+      siteShowHeader:screen==='site'&&(cur==='default'||cur==='empty'||cur==='no-storage'),
+      goSiteBack:()=>this.setScreen('board'),
+      askRotate:()=>this.openOverlay('rotate'), askDelete:()=>this.openOverlay('delete'),
+      saveConfig:()=>this.fireToast('Configuration saved'),
+      // overlays / toast
+      confirmOpen, cf, closeOverlay:()=>this.closeOverlay(),
+      keyModalOpen, km, toastMsg:this.state.toast,
+      // add site
+      isAdd:screen==='add', addForm:screen==='add'&&cur==='default',
+      addDup:screen==='add'&&cur==='dup', addLoading:screen==='add'&&cur==='loading',
+      showKey:()=>this.setVar('key'),
+      addBtnLabel:(screen==='add'&&cur==='loading')?'Creating…':'Create site',
+      addDupBorder:(screen==='add'&&cur==='dup')?'var(--danger)':'var(--border)',
+      // crash group
+      isGroup:screen==='group', grp, grpLevelStyle:grpLv.style, grpLevelLabel:grpLv.label,
+      grpStatusFg:grpSp.fg, grpStatusBg:grpSp.bg, grpStatusLabel:grpSp.label,
+      grpResolved:screen==='group'&&cur==='resolved',
+      resolveGroup:()=>this.fireToast('Group resolved — removed from Finance\u2019s orange signal'),
+      ignoreGroup:()=>this.fireToast('Group ignored'),
+      events:this.eventsRaw, jsStack:this.jsStack,
+      groupLoading:screen==='group'&&cur==='loading', groupError:screen==='group'&&cur==='error',
+      groupShow:screen==='group'&&(cur==='default'||cur==='resolved'),
+      eventLatest:'4 m ago · prod',
+      goGroupBack:()=>this.setScreen('site'),
+    };
+  }
+}
+</script>
+</body>
+</html>

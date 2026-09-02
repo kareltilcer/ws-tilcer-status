@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* review chrome only — status's own language, so the widget's tokens below stay visibly separate */
+  --rbg:oklch(0.165 0.008 264);--rs1:oklch(0.198 0.010 264);--rs2:oklch(0.232 0.012 264);--rs3:oklch(0.270 0.013 264);
+  --rborder:oklch(0.320 0.012 264);--rborder-strong:oklch(0.400 0.014 264);
+  --rtext:oklch(0.945 0.006 264);--rmuted:oklch(0.740 0.010 264);--rsubtle:oklch(0.660 0.012 264);
+  --raccent:oklch(0.680 0.120 256);--raccent-fg:oklch(0.220 0.040 256);
+  --rgood:oklch(0.780 0.090 150);--rwarn:oklch(0.820 0.100 78);--rdanger:oklch(0.760 0.130 22);
+  --rfont:'Hanken Grotesk',system-ui,sans-serif;--rmono:'IBM Plex Mono',ui-monospace,monospace;
+
+  /* ---- widget token set (V3-D55) — sRGB hex, system fonts, one accent, one radius.
+         Deliberately NOT derived from status's oklch tokens and not host-themeable. ---- */
+  --sfb-surface:#FFFFFF;
+  --sfb-surface-2:#F4F6F7;
+  --sfb-ink:#17191C;
+  --sfb-muted:#5A6169;
+  --sfb-hairline:#DDE1E4;
+  --sfb-hairline-strong:#9AA2A9;
+  --sfb-accent:#17514B;
+  --sfb-accent-ink:#FFFFFF;
+  --sfb-accent-soft:#E6EFED;
+  --sfb-danger:#A0321F;
+  --sfb-danger-soft:#FBEDEA;
+  --sfb-warn:#7A4C00;
+  --sfb-warn-soft:#FBF2E2;
+  --sfb-radius:12px;
+  --sfb-radius-sm:8px;
+  --sfb-shadow:0 12px 32px -10px rgba(16,22,28,.30), 0 2px 6px rgba(16,22,28,.10);
+  --sfb-font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  --sfb-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--rbg);color:var(--rtext);font-family:var(--rfont);line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:var(--raccent);text-decoration:none}
+a:hover{text-decoration:underline}
+button{font-family:inherit}
+*:focus-visible{outline:2px solid var(--raccent)!important;outline-offset:2px!important}
+@keyframes om-spin{to{transform:rotate(360deg)}}
+@keyframes om-fadein{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes om-sheetin{from{transform:translateY(100%)}to{transform:none}}
+@keyframes om-live{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</helmet>
+<div ref="{{ rootRef }}" style="min-height:100vh;background:var(--rbg);color:var(--rtext);font-family:var(--rfont)">
+
+  <!-- ===== DESIGN-REVIEW CONTROL BAR ===== -->
+  <div style="position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:8px 16px;background:var(--rs1);border-bottom:1px solid var(--rborder)">
+    <div style="display:flex;align-items:center;gap:8px;padding-right:12px;border-right:1px solid var(--rborder)">
+      <span style="font-family:var(--rmono);font-size:12px;color:var(--rsubtle)">design review</span>
+      <span style="font-family:var(--rmono);font-size:12px;font-weight:600;color:var(--rtext)">feedback widget · v3</span>
+    </div>
+    <div style="display:flex;gap:2px;flex-wrap:wrap">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="9">
+        <button onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</button>
+      </sc-for>
+    </div>
+    <div style="flex:1"></div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <sc-if value="{{ isStage }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-family:var(--rmono);font-size:11px;color:var(--rsubtle)">host page</span>
+          <div style="display:flex;gap:2px;padding:2px;background:var(--rs2);border:1px solid var(--rborder);border-radius:8px">
+            <sc-for list="{{ hostTabs }}" as="h" hint-placeholder-count="2">
+              <button onClick="{{ h.onClick }}" style="{{ h.style }}">{{ h.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-family:var(--rmono);font-size:11px;color:var(--rsubtle)">view</span>
+          <div style="display:flex;gap:2px;padding:2px;background:var(--rs2);border:1px solid var(--rborder);border-radius:8px">
+            <sc-for list="{{ vpTabs }}" as="v" hint-placeholder-count="2">
+              <button onClick="{{ v.onClick }}" style="{{ v.style }}">{{ v.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ hasStates }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-family:var(--rmono);font-size:11px;color:var(--rsubtle)">state</span>
+          <div style="display:flex;gap:2px;padding:2px;background:var(--rs2);border:1px solid var(--rborder);border-radius:8px;flex-wrap:wrap">
+            <sc-for list="{{ stateTabs }}" as="s" hint-placeholder-count="4">
+              <button onClick="{{ s.onClick }}" style="{{ s.style }}">{{ s.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+      <div style="display:flex;gap:2px;padding:2px;background:var(--rs2);border:1px solid var(--rborder);border-radius:8px">
+        <sc-for list="{{ langTabs }}" as="l" hint-placeholder-count="2">
+          <button onClick="{{ l.onClick }}" style="{{ l.style }}">{{ l.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== STAGE: widget over a host page ===== -->
+  <sc-if value="{{ isStage }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:20px;padding:26px 20px 56px;animation:om-fadein .2s ease">
+
+      <div style="{{ frameStyle }}">
+        <!-- ---- host page (light) ---- -->
+        <sc-if value="{{ hostLight }}" hint-placeholder-val="{{ true }}">
+          <div style="position:absolute;inset:0;background:#FBFBFA;color:#1E2024;font-family:'Hanken Grotesk',system-ui,sans-serif;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid #E8E8E5;background:#FFFFFF">
+              <span style="font-size:15px;font-weight:800;letter-spacing:-.01em">domácnost</span>
+              <div style="display:flex;gap:14px;font-size:13px;color:#6B6F76">
+                <span style="color:#1E2024;font-weight:600">Poznámky</span><span>Nákupy</span><span>Kalendář</span>
+              </div>
+              <div style="flex:1"></div>
+              <span style="display:grid;place-items:center;height:28px;width:28px;border-radius:50%;background:#E9EBEE;font-size:12px;font-weight:700;color:#4A4F56">K</span>
+            </div>
+            <div style="padding:22px 18px">
+              <div style="font-size:20px;font-weight:800;margin-bottom:14px">Poznámky</div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <sc-for list="{{ hostRows }}" as="h" hint-placeholder-count="4">
+                  <div style="border:1px solid #E8E8E5;background:#FFFFFF;border-radius:10px;padding:13px 14px">
+                    <div style="font-size:13.5px;font-weight:600;margin-bottom:4px">{{ h.t }}</div>
+                    <div style="font-size:12.5px;color:#6B6F76">{{ h.s }}</div>
+                  </div>
+                </sc-for>
+                <div style="height:96px;border:1px solid #E8E8E5;border-radius:10px;display:grid;place-items:center;background-image:repeating-linear-gradient(135deg,#EFEFEC 0 6px,#F8F8F6 6px 12px)">
+                  <span style="font-family:var(--rmono);font-size:11px;color:#8A8F96">obsah hostitelské aplikace</span>
+                </div>
+              </div>
+            </div>
+            <sc-if value="{{ vpMobile }}" hint-placeholder-val="{{ true }}">
+              <div style="position:absolute;left:0;right:0;bottom:0;height:58px;display:flex;align-items:center;justify-content:space-around;border-top:1px solid #E8E8E5;background:#FFFFFF;font-size:11px;color:#8A8F96">
+                <span style="color:#1E2024;font-weight:600">Poznámky</span><span>Nákupy</span><span>Kalendář</span><span>Já</span>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <!-- ---- host page (dark) ---- -->
+        <sc-if value="{{ hostDark }}" hint-placeholder-val="{{ true }}">
+          <div style="position:absolute;inset:0;background:#14161A;color:#ECEDEF;font-family:'Hanken Grotesk',system-ui,sans-serif;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid #262A30;background:#191C21">
+              <span style="font-size:15px;font-weight:800;letter-spacing:-.01em">domácnost</span>
+              <div style="display:flex;gap:14px;font-size:13px;color:#9AA1AA">
+                <span style="color:#ECEDEF;font-weight:600">Poznámky</span><span>Nákupy</span><span>Kalendář</span>
+              </div>
+              <div style="flex:1"></div>
+              <span style="display:grid;place-items:center;height:28px;width:28px;border-radius:50%;background:#262A30;font-size:12px;font-weight:700;color:#C3C8CE">K</span>
+            </div>
+            <div style="padding:22px 18px">
+              <div style="font-size:20px;font-weight:800;margin-bottom:14px">Poznámky</div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <sc-for list="{{ hostRows }}" as="h" hint-placeholder-count="4">
+                  <div style="border:1px solid #262A30;background:#191C21;border-radius:10px;padding:13px 14px">
+                    <div style="font-size:13.5px;font-weight:600;margin-bottom:4px">{{ h.t }}</div>
+                    <div style="font-size:12.5px;color:#9AA1AA">{{ h.s }}</div>
+                  </div>
+                </sc-for>
+                <div style="height:96px;border:1px solid #262A30;border-radius:10px;display:grid;place-items:center;background-image:repeating-linear-gradient(135deg,#1D2126 0 6px,#191C21 6px 12px)">
+                  <span style="font-family:var(--rmono);font-size:11px;color:#767D85">obsah hostitelské aplikace</span>
+                </div>
+              </div>
+            </div>
+            <sc-if value="{{ vpMobile }}" hint-placeholder-val="{{ true }}">
+              <div style="position:absolute;left:0;right:0;bottom:0;height:58px;display:flex;align-items:center;justify-content:space-around;border-top:1px solid #262A30;background:#191C21;font-size:11px;color:#767D85">
+                <span style="color:#ECEDEF;font-weight:600">Poznámky</span><span>Nákupy</span><span>Kalendář</span><span>Já</span>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <!-- ---- launcher ---- -->
+        <sc-if value="{{ showLauncher }}" hint-placeholder-val="{{ true }}">
+          <button aria-label="{{ L.title }}" style="{{ launcherStyle }}">
+            <span style="display:inline-flex;color:var(--sfb-accent)">{{ iconBubble }}</span>
+            <sc-if value="{{ launcherLabelled }}" hint-placeholder-val="{{ true }}">
+              <span style="font-size:14px;font-weight:600;color:var(--sfb-ink);white-space:nowrap">{{ L.title }}</span>
+            </sc-if>
+          </button>
+        </sc-if>
+
+        <!-- ---- dialog / sheet ---- -->
+        <sc-if value="{{ dialogOpen }}" hint-placeholder-val="{{ true }}">
+          <div style="position:absolute;inset:0;background:rgba(12,16,20,.44);z-index:20"></div>
+          <div style="{{ dialogWrapStyle }}">
+            <div role="dialog" aria-modal="true" aria-label="{{ L.title }}" style="{{ dialogStyle }}">
+
+              <div style="display:flex;align-items:center;gap:12px;padding:16px 16px 14px;border-bottom:1px solid var(--sfb-hairline)">
+                <span style="display:grid;place-items:center;height:32px;width:32px;border-radius:var(--sfb-radius-sm);background:var(--sfb-accent-soft);color:var(--sfb-accent);flex:none">{{ iconBubble }}</span>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:16px;font-weight:600;color:var(--sfb-ink);letter-spacing:-.01em">{{ dialogTitle }}</div>
+                  <div style="font-size:12.5px;color:var(--sfb-muted)">{{ dialogSub }}</div>
+                </div>
+                <button aria-label="{{ L.close }}" style="flex:none;display:grid;place-items:center;height:44px;width:44px;margin:-6px -6px -6px 0;border:none;background:transparent;border-radius:var(--sfb-radius-sm);color:var(--sfb-muted);cursor:pointer">{{ iconX }}</button>
+              </div>
+
+              <!-- ===== FORM ===== -->
+              <sc-if value="{{ showForm }}" hint-placeholder-val="{{ true }}">
+                <div style="padding:16px;display:flex;flex-direction:column;gap:16px;overflow:auto">
+                  <div>
+                    <label style="display:block;font-size:13px;font-weight:600;color:var(--sfb-ink);margin-bottom:6px">{{ L.msgLabel }}</label>
+                    <div style="position:relative">
+                      <textarea rows="4" placeholder="{{ L.msgPlaceholder }}" value="{{ msgFieldValue }}" style="display:block;width:100%;resize:vertical;min-height:96px;border:1px solid var(--sfb-hairline-strong);background:var(--sfb-surface);border-radius:var(--sfb-radius-sm);padding:11px 12px;font-family:var(--sfb-font);font-size:15px;line-height:1.45;color:var(--sfb-ink);outline:none"></textarea>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;gap:10px;margin-top:5px">
+                      <span style="font-size:12px;color:var(--sfb-muted)">{{ L.msgHint }}</span>
+                      <span style="font-family:var(--sfb-mono);font-size:11.5px;color:var(--sfb-muted)">{{ charCount }}</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style="font-size:13px;font-weight:600;color:var(--sfb-ink);margin-bottom:6px">{{ L.kindLabel }}</div>
+                    <div role="radiogroup" style="display:flex;gap:8px;flex-wrap:wrap">
+                      <sc-for list="{{ kinds }}" as="k" hint-placeholder-count="3">
+                        <button role="radio" aria-checked="{{ k.checked }}" style="{{ k.style }}">
+                          <sc-if value="{{ k.on }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex">{{ iconCheckSm }}</span></sc-if>
+                          {{ k.label }}
+                        </button>
+                      </sc-for>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style="display:flex;flex-direction:column;gap:8px">
+                      <sc-for list="{{ files }}" as="f" hint-placeholder-count="1">
+                        <div style="display:flex;align-items:center;gap:10px;border:1px solid var(--sfb-hairline);background:var(--sfb-surface-2);border-radius:var(--sfb-radius-sm);padding:8px 8px 8px 11px">
+                          <span style="display:inline-flex;color:var(--sfb-muted);flex:none">{{ f.icon }}</span>
+                          <div style="flex:1;min-width:0">
+                            <div style="font-size:13px;font-weight:600;color:var(--sfb-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.name }}</div>
+                            <div style="font-family:var(--sfb-mono);font-size:11.5px;color:var(--sfb-muted)">{{ f.size }}</div>
+                          </div>
+                          <button aria-label="{{ f.removeLabel }}" style="flex:none;display:grid;place-items:center;height:44px;width:44px;border:none;background:transparent;border-radius:var(--sfb-radius-sm);color:var(--sfb-muted);cursor:pointer">{{ iconX }}</button>
+                        </div>
+                      </sc-for>
+                      <sc-if value="{{ attachOpen }}" hint-placeholder-val="{{ true }}">
+                        <button style="display:flex;align-items:center;justify-content:center;gap:9px;min-height:48px;width:100%;border:1px dashed var(--sfb-hairline-strong);background:var(--sfb-surface);border-radius:var(--sfb-radius-sm);color:var(--sfb-ink);font-size:14px;font-weight:600;cursor:pointer">
+                          <span style="display:inline-flex;color:var(--sfb-muted)">{{ iconClip }}</span>{{ L.attach }}
+                        </button>
+                      </sc-if>
+                      <sc-if value="{{ attachFull }}" hint-placeholder-val="{{ true }}">
+                        <button disabled="{{ true }}" style="display:flex;align-items:center;justify-content:center;gap:9px;min-height:48px;width:100%;border:1px dashed var(--sfb-hairline);background:var(--sfb-surface-2);border-radius:var(--sfb-radius-sm);color:var(--sfb-muted);font-size:14px;font-weight:600;cursor:not-allowed">
+                          <span style="display:inline-flex">{{ iconClip }}</span>{{ L.attachFullBtn }}
+                        </button>
+                      </sc-if>
+                      <div style="font-size:12px;color:var(--sfb-muted);text-wrap:pretty">{{ attachHint }}</div>
+                    </div>
+                  </div>
+
+                  <!-- disclosure (V3 §5.3) -->
+                  <div style="border:1px solid var(--sfb-hairline);background:var(--sfb-surface-2);border-radius:var(--sfb-radius-sm);overflow:hidden">
+                    <div style="display:flex;align-items:flex-start;gap:10px;padding:11px 12px">
+                      <span style="display:inline-flex;color:var(--sfb-muted);flex:none;margin-top:2px">{{ iconInfo }}</span>
+                      <div style="flex:1;min-width:0">
+                        <div style="font-size:12.5px;color:var(--sfb-ink);text-wrap:pretty"><b style="font-weight:600">{{ L.discLead }}</b> {{ discSummary }}</div>
+                        <button style="margin-top:6px;display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0;border:none;background:transparent;color:var(--sfb-accent);font-size:12.5px;font-weight:600;text-decoration:underline;cursor:pointer">
+                          {{ discToggleLabel }}<span style="display:inline-flex">{{ discChevron }}</span>
+                        </button>
+                      </div>
+                    </div>
+                    <sc-if value="{{ discOpen }}" hint-placeholder-val="{{ true }}">
+                      <div style="border-top:1px solid var(--sfb-hairline);background:var(--sfb-surface);padding:12px">
+                        <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:12px">
+                          <sc-for list="{{ discKv }}" as="d" hint-placeholder-count="5">
+                            <div style="display:flex;gap:10px;align-items:baseline">
+                              <span style="flex:none;width:96px;font-size:12px;color:var(--sfb-muted)">{{ d.k }}</span>
+                              <span style="flex:1;min-width:0;font-family:var(--sfb-mono);font-size:11.5px;color:var(--sfb-ink);word-break:break-all">{{ d.v }}</span>
+                            </div>
+                          </sc-for>
+                        </div>
+                        <sc-if value="{{ hasConsole }}" hint-placeholder-val="{{ true }}">
+                          <div style="border:1px solid var(--sfb-hairline);border-radius:var(--sfb-radius-sm);overflow:hidden">
+                            <div style="padding:9px 11px;border-bottom:1px solid var(--sfb-hairline);background:var(--sfb-surface-2)">
+                              <div style="font-size:12px;font-weight:600;color:var(--sfb-ink)">{{ L.consoleLead }}</div>
+                              <div style="font-size:11.5px;color:var(--sfb-muted);text-wrap:pretty">{{ L.consoleNote }}</div>
+                            </div>
+                            <div style="padding:9px 11px;display:flex;flex-direction:column;gap:3px;max-height:118px;overflow:auto">
+                              <sc-for list="{{ consoleLines }}" as="c" hint-placeholder-count="4">
+                                <div style="font-family:var(--sfb-mono);font-size:11px;line-height:1.5;color:var(--sfb-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c }}</div>
+                              </sc-for>
+                            </div>
+                            <label style="display:flex;align-items:center;gap:10px;min-height:44px;padding:0 11px;border-top:1px solid var(--sfb-hairline);cursor:pointer">
+                              <span style="display:grid;place-items:center;height:20px;width:20px;border:1px solid var(--sfb-hairline-strong);border-radius:5px;background:var(--sfb-surface);flex:none"></span>
+                              <span style="font-size:12.5px;font-weight:600;color:var(--sfb-ink)">{{ L.consoleOptOut }}</span>
+                            </label>
+                          </div>
+                        </sc-if>
+                      </div>
+                    </sc-if>
+                  </div>
+                </div>
+
+                <div style="padding:14px 16px;border-top:1px solid var(--sfb-hairline);background:var(--sfb-surface)">
+                  <button style="display:flex;align-items:center;justify-content:center;gap:9px;min-height:48px;width:100%;border:1px solid var(--sfb-accent);background:var(--sfb-accent);color:var(--sfb-accent-ink);border-radius:var(--sfb-radius-sm);font-size:15px;font-weight:600;cursor:pointer">{{ L.send }}</button>
+                </div>
+              </sc-if>
+
+              <!-- ===== UPLOADING ===== -->
+              <sc-if value="{{ showUploading }}" hint-placeholder-val="{{ true }}">
+                <div style="padding:16px;display:flex;flex-direction:column;gap:14px">
+                  <div style="border:1px solid var(--sfb-hairline);background:var(--sfb-surface-2);border-radius:var(--sfb-radius-sm);padding:11px 12px">
+                    <div style="font-size:12px;font-weight:600;color:var(--sfb-muted);margin-bottom:3px">{{ L.yourReport }}</div>
+                    <div style="font-size:13px;color:var(--sfb-ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{{ msgValue }}</div>
+                  </div>
+                  <div role="status" aria-live="polite" style="display:flex;align-items:center;gap:9px">
+                    <span style="height:16px;width:16px;border:2px solid var(--sfb-accent);border-right-color:transparent;border-radius:50%;display:inline-block;animation:om-spin .8s linear infinite;flex:none"></span>
+                    <span style="font-size:13.5px;font-weight:600;color:var(--sfb-ink)">{{ L.uploadingN }}</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:8px">
+                    <sc-for list="{{ upFiles }}" as="f" hint-placeholder-count="3">
+                      <div style="border:1px solid var(--sfb-hairline);background:var(--sfb-surface);border-radius:var(--sfb-radius-sm);padding:9px 11px">
+                        <div style="display:flex;align-items:center;gap:10px">
+                          <span style="display:inline-flex;flex:none;color:{{ f.tone }}">{{ f.icon }}</span>
+                          <div style="flex:1;min-width:0">
+                            <div style="font-size:13px;font-weight:600;color:var(--sfb-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.name }}</div>
+                            <div style="font-family:var(--sfb-mono);font-size:11.5px;color:var(--sfb-muted)">{{ f.size }}</div>
+                          </div>
+                          <span style="flex:none;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:{{ f.tone }}">{{ f.stateIcon }}{{ f.stateLabel }}</span>
+                        </div>
+                        <sc-if value="{{ f.showBar }}" hint-placeholder-val="{{ true }}">
+                          <div style="margin-top:8px;height:4px;border-radius:999px;background:var(--sfb-surface-2);overflow:hidden">
+                            <div style="{{ f.barStyle }}"></div>
+                          </div>
+                        </sc-if>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="font-size:12px;color:var(--sfb-muted);text-wrap:pretty">{{ L.uploadNote }}</div>
+                </div>
+              </sc-if>
+
+              <!-- ===== SUCCESS ===== -->
+              <sc-if value="{{ showSuccess }}" hint-placeholder-val="{{ true }}">
+                <div style="padding:24px 16px 16px;text-align:center">
+                  <div style="margin:0 auto 14px;display:grid;place-items:center;height:52px;width:52px;border-radius:50%;background:var(--sfb-accent-soft);color:var(--sfb-accent)">{{ iconCheckLg }}</div>
+                  <div style="font-size:18px;font-weight:600;color:var(--sfb-ink);margin-bottom:6px;letter-spacing:-.01em">{{ L.successTitle }}</div>
+                  <p style="margin:0 auto 20px;max-width:34ch;font-size:13.5px;color:var(--sfb-muted);text-wrap:pretty">{{ L.successBody }}</p>
+                  <div style="border:1px solid var(--sfb-hairline);background:var(--sfb-surface-2);border-radius:var(--sfb-radius);padding:16px;margin-bottom:16px">
+                    <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sfb-muted);margin-bottom:8px">{{ L.refLabel }}</div>
+                    <div style="font-family:var(--sfb-mono);font-size:32px;font-weight:600;letter-spacing:.10em;color:var(--sfb-ink);margin-bottom:12px">R-7QK2</div>
+                    <button style="display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 16px;border:1px solid var(--sfb-hairline-strong);background:var(--sfb-surface);color:var(--sfb-ink);border-radius:var(--sfb-radius-sm);font-size:13.5px;font-weight:600;cursor:pointer">{{ iconCopy }}{{ L.copy }}</button>
+                  </div>
+                  <p style="margin:0 auto 20px;max-width:36ch;font-size:12.5px;color:var(--sfb-muted);text-wrap:pretty">{{ L.refHelp }}</p>
+                  <button style="min-height:48px;width:100%;border:1px solid var(--sfb-accent);background:var(--sfb-accent);color:var(--sfb-accent-ink);border-radius:var(--sfb-radius-sm);font-size:15px;font-weight:600;cursor:pointer">{{ L.close }}</button>
+                </div>
+              </sc-if>
+
+            </div>
+          </div>
+        </sc-if>
+      </div>
+
+      <!-- ---- launcher specimens ---- -->
+      <sc-if value="{{ isLauncherTab }}" hint-placeholder-val="{{ true }}">
+        <div style="width:100%;max-width:1120px;display:flex;flex-direction:column;gap:16px">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px">
+            <sc-for list="{{ launcherSpecs }}" as="s" hint-placeholder-count="4">
+              <div style="border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;padding:14px">
+                <div style="font-family:var(--rmono);font-size:11px;color:var(--rsubtle);margin-bottom:12px">{{ s.cap }}</div>
+                <div style="{{ s.padStyle }}">
+                  <span style="{{ s.style }}">
+                    <span style="display:inline-flex;color:var(--sfb-accent)">{{ iconBubble }}</span>
+                    <sc-if value="{{ s.labelled }}" hint-placeholder-val="{{ true }}"><span style="font-size:14px;font-weight:600;color:var(--sfb-ink);white-space:nowrap">{{ L.title }}</span></sc-if>
+                  </span>
+                </div>
+                <p style="margin:12px 0 0;font-size:12px;color:var(--rmuted);text-wrap:pretty">{{ s.note }}</p>
+              </div>
+            </sc-for>
+          </div>
+          <div style="border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;padding:16px">
+            <div style="font-size:13.5px;font-weight:700;margin-bottom:4px">data-position — four corners</div>
+            <p style="margin:0 0 14px;font-size:12.5px;color:var(--rmuted);max-width:74ch;text-wrap:pretty">Inset is 16px on desktop and 16px plus the host's own bottom bar on a phone (58px here), so the launcher never sits on top of host navigation. The label expands toward the middle of the screen, never off the edge.</p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
+              <sc-for list="{{ posSpecs }}" as="p" hint-placeholder-count="4">
+                <div>
+                  <div style="font-family:var(--rmono);font-size:11px;color:var(--rsubtle);margin-bottom:6px">{{ p.cap }}</div>
+                  <div style="position:relative;height:112px;border:1px solid var(--rborder-strong);border-radius:9px;background:#FBFBFA;overflow:hidden">
+                    <div style="position:absolute;inset:0;background-image:repeating-linear-gradient(135deg,#EFEFEC 0 6px,#F8F8F6 6px 12px)"></div>
+                    <span style="{{ p.style }}">{{ iconBubbleSm }}</span>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ---- stage annotation ---- -->
+      <div style="width:100%;max-width:1120px;border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;padding:14px 16px">
+        <div style="font-family:var(--rmono);font-size:11px;color:var(--rsubtle);margin-bottom:6px">why it looks like this</div>
+        <p style="margin:0;font-size:13px;color:var(--rmuted);max-width:88ch;text-wrap:pretty">{{ stageNote }}</p>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== FAILURES ===== -->
+  <sc-if value="{{ isFailures }}" hint-placeholder-val="{{ true }}">
+    <div style="max-width:1180px;margin:0 auto;padding:28px 24px 64px;animation:om-fadein .2s ease">
+      <header style="margin-bottom:22px">
+        <div style="font-family:var(--rmono);font-size:12px;color:var(--rsubtle);margin-bottom:6px">§4.5 · all six</div>
+        <h1 style="margin:0 0 6px;font-size:24px;font-weight:800;letter-spacing:-.01em">Failure states</h1>
+        <p style="margin:0;max-width:76ch;font-size:14px;color:var(--rmuted);text-wrap:pretty">Rendered at the widget's own 360px content width. Two rules run through all of them: a file problem never blocks the report, and nothing here blames the reporter.</p>
+      </header>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(342px,1fr));gap:16px">
+        <sc-for list="{{ failures }}" as="f" hint-placeholder-count="6">
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:baseline;gap:8px">
+              <span style="font-family:var(--rmono);font-size:11px;color:var(--rsubtle)">{{ f.n }}</span>
+              <span style="font-size:13.5px;font-weight:700;color:var(--rtext)">{{ f.cap }}</span>
+            </div>
+            <div style="border-radius:var(--sfb-radius);background:var(--sfb-surface);border:1px solid var(--sfb-hairline);box-shadow:var(--sfb-shadow);padding:14px;font-family:var(--sfb-font);display:flex;flex-direction:column;gap:12px">
+              <sc-if value="{{ f.isNone }}" hint-placeholder-val="{{ true }}">
+                <div style="position:relative;height:150px;border:1px dashed var(--sfb-hairline-strong);border-radius:var(--sfb-radius-sm);background-image:repeating-linear-gradient(135deg,#F2F3F4 0 6px,#FAFBFB 6px 12px);display:grid;place-items:center;text-align:center;padding:16px">
+                  <div>
+                    <div style="font-size:13px;font-weight:600;color:var(--sfb-ink);margin-bottom:4px">{{ f.head }}</div>
+                    <div style="font-size:12px;color:var(--sfb-muted);text-wrap:pretty">{{ f.body }}</div>
+                  </div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ f.chipName }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;align-items:center;gap:10px;border:1px solid {{ f.chipBorder }};background:{{ f.chipBg }};border-radius:var(--sfb-radius-sm);padding:8px 8px 8px 11px">
+                  <span style="display:inline-flex;flex:none;color:{{ f.chipTone }}">{{ f.chipIcon }}</span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:600;color:var(--sfb-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.chipName }}</div>
+                    <div style="font-family:var(--sfb-mono);font-size:11.5px;color:{{ f.chipTone }}">{{ f.chipSize }}</div>
+                  </div>
+                  <button aria-label="{{ L.remove }}" style="flex:none;display:grid;place-items:center;height:44px;width:44px;border:none;background:transparent;border-radius:var(--sfb-radius-sm);color:var(--sfb-muted);cursor:pointer">{{ iconX }}</button>
+                </div>
+              </sc-if>
+              <sc-if value="{{ f.head2 }}" hint-placeholder-val="{{ true }}">
+                <div role="alert" style="display:flex;align-items:flex-start;gap:10px;border:1px solid {{ f.border }};background:{{ f.bg }};border-radius:var(--sfb-radius-sm);padding:11px 12px">
+                  <span style="display:inline-flex;flex:none;margin-top:1px;color:{{ f.tone }}">{{ f.icon }}</span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:600;color:{{ f.tone }};margin-bottom:3px">{{ f.head2 }}</div>
+                    <div style="font-size:12.5px;color:var(--sfb-ink);line-height:1.5;text-wrap:pretty">{{ f.body }}</div>
+                  </div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ f.refCode }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--sfb-hairline);background:var(--sfb-surface-2);border-radius:var(--sfb-radius-sm);padding:10px 12px">
+                  <span style="font-size:12px;font-weight:600;color:var(--sfb-muted)">{{ L.refLabel }}</span>
+                  <span style="font-family:var(--sfb-mono);font-size:18px;font-weight:600;letter-spacing:.08em;color:var(--sfb-ink)">{{ f.refCode }}</span>
+                </div>
+              </sc-if>
+              <sc-if value="{{ f.action }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;gap:8px">
+                  <button style="flex:1;min-height:48px;border:1px solid var(--sfb-accent);background:var(--sfb-accent);color:var(--sfb-accent-ink);border-radius:var(--sfb-radius-sm);font-size:14.5px;font-weight:600;cursor:pointer">{{ f.action }}</button>
+                  <sc-if value="{{ f.action2 }}" hint-placeholder-val="{{ true }}">
+                    <button style="flex:none;min-height:48px;padding:0 14px;border:1px solid var(--sfb-hairline-strong);background:var(--sfb-surface);color:var(--sfb-ink);border-radius:var(--sfb-radius-sm);font-size:14.5px;font-weight:600;cursor:pointer">{{ f.action2 }}</button>
+                  </sc-if>
+                </div>
+              </sc-if>
+            </div>
+            <p style="margin:0;font-size:12px;color:var(--rmuted);text-wrap:pretty">{{ f.why }}</p>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== TOKENS ===== -->
+  <sc-if value="{{ isTokens }}" hint-placeholder-val="{{ true }}">
+    <div style="max-width:1080px;margin:0 auto;padding:28px 24px 64px;animation:om-fadein .2s ease">
+      <header style="margin-bottom:22px">
+        <div style="font-family:var(--rmono);font-size:12px;color:var(--rsubtle);margin-bottom:6px">deliverable 3 · widget token set</div>
+        <h1 style="margin:0 0 6px;font-size:24px;font-weight:800;letter-spacing:-.01em">Its own quiet language</h1>
+        <p style="margin:0;max-width:76ch;font-size:14px;color:var(--rmuted);text-wrap:pretty">Plain sRGB hex, a system font stack, one accent, one radius pair. Nothing here is computed from status's oklch tokens and nothing is exposed for host theming (V3-D55) — the widget ships one appearance and asserts it on every host.</p>
+      </header>
+
+      <div style="border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;overflow:hidden;margin-bottom:24px">
+        <div style="display:grid;grid-template-columns:44px 1.1fr 1fr 1.4fr;gap:12px;padding:10px 16px;background:var(--rs2);border-bottom:1px solid var(--rborder);font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--rsubtle)">
+          <span></span><span>Token</span><span>Value</span><span>Role</span>
+        </div>
+        <sc-for list="{{ tokenRows }}" as="t" hint-placeholder-count="13">
+          <div style="display:grid;grid-template-columns:44px 1.1fr 1fr 1.4fr;gap:12px;padding:9px 16px;border-bottom:1px solid var(--rborder);align-items:center">
+            <span style="{{ t.swatch }}"></span>
+            <span style="font-family:var(--rmono);font-size:12px;font-weight:600;color:var(--rtext)">{{ t.n }}</span>
+            <span style="font-family:var(--rmono);font-size:11.5px;color:var(--rsubtle)">{{ t.v }}</span>
+            <span style="font-size:12.5px;color:var(--rmuted)">{{ t.r }}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px">
+        <section>
+          <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Type scale <span style="font-weight:500;color:var(--rsubtle);font-size:13px">· system stack</span></h2>
+          <div style="border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;overflow:hidden">
+            <sc-for list="{{ typeRows }}" as="t" hint-placeholder-count="6">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 14px;border-bottom:1px solid var(--rborder)">
+                <span style="font-family:var(--rmono);font-size:12px;font-weight:600;color:var(--rtext)">{{ t.s }}</span>
+                <span style="font-size:12.5px;color:var(--rmuted);text-align:right">{{ t.u }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <p style="margin:12px 0 0;font-size:12px;color:var(--rsubtle);text-wrap:pretty">Body copy is 15px, not 13px: the reporter is on a phone, annoyed, and reading Czech sentences rather than scanning a dashboard.</p>
+        </section>
+        <section>
+          <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Geometry &amp; targets</h2>
+          <div style="border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;overflow:hidden;margin-bottom:12px">
+            <sc-for list="{{ geoRows }}" as="g" hint-placeholder-count="6">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 14px;border-bottom:1px solid var(--rborder)">
+                <span style="font-family:var(--rmono);font-size:12px;font-weight:600;color:var(--rtext)">{{ g.k }}</span>
+                <span style="font-size:12.5px;color:var(--rmuted);text-align:right">{{ g.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;padding:14px 16px">
+            <div style="font-size:13px;font-weight:700;margin-bottom:6px">Separate from status, on purpose</div>
+            <p style="margin:0;font-size:12.5px;color:var(--rmuted);text-wrap:pretty">Status's panel is <code style="font-family:var(--rmono)">oklch(0.198 0.010 264)</code> on <code style="font-family:var(--rmono)">oklch(0.165 …)</code> with a light-blue accent. Dropping that onto a light host page reads as breakage. The widget's surface is <code style="font-family:var(--rmono)">#FFFFFF</code> with a deep teal accent — no shared value, no shared variable, no runtime bridge.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== COMPONENTS ===== -->
+  <sc-if value="{{ isComponents }}" hint-placeholder-val="{{ true }}">
+    <div style="max-width:1080px;margin:0 auto;padding:28px 24px 64px;animation:om-fadein .2s ease">
+      <header style="margin-bottom:22px">
+        <div style="font-family:var(--rmono);font-size:12px;color:var(--rsubtle);margin-bottom:6px">deliverable 4 · §8 widget inventory</div>
+        <h1 style="margin:0 0 6px;font-size:24px;font-weight:800;letter-spacing:-.01em">Component specs</h1>
+        <p style="margin:0;max-width:76ch;font-size:14px;color:var(--rmuted);text-wrap:pretty">Vanilla DOM in a closed shadow root, no framework. Each component is one function that returns an element and one update path — there is no state library to lean on.</p>
+      </header>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(324px,1fr));gap:12px">
+        <sc-for list="{{ components }}" as="c" hint-placeholder-count="10">
+          <div style="border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;padding:14px 16px">
+            <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+              <span style="font-size:13.5px;font-weight:700;color:var(--rtext)">{{ c.n }}</span>
+              <span style="font-family:var(--rmono);font-size:11.5px;color:var(--raccent)">{{ c.p }}</span>
+            </div>
+            <p style="margin:0;font-size:12px;color:var(--rmuted);line-height:1.55;text-wrap:pretty">{{ c.note }}</p>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== COPY DECK ===== -->
+  <sc-if value="{{ isCopy }}" hint-placeholder-val="{{ true }}">
+    <div style="max-width:1120px;margin:0 auto;padding:28px 24px 64px;animation:om-fadein .2s ease">
+      <header style="margin-bottom:22px">
+        <div style="font-family:var(--rmono);font-size:12px;color:var(--rsubtle);margin-bottom:6px">design:ux-copy · both string sets ship in the bundle</div>
+        <h1 style="margin:0 0 6px;font-size:24px;font-weight:800;letter-spacing:-.01em">Copy deck — Czech &amp; English</h1>
+        <p style="margin:0;max-width:78ch;font-size:14px;color:var(--rmuted);text-wrap:pretty">Czech is the default and the common case; it was written first and the English is the translation, not the other way round. Rows marked <span style="font-family:var(--rmono);color:var(--rgood)">new</span> are the strings §6 left to be written.</p>
+      </header>
+      <div style="border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;overflow:hidden;margin-bottom:20px">
+        <div style="display:grid;grid-template-columns:0.7fr 1.25fr 1.25fr;gap:14px;padding:10px 16px;background:var(--rs2);border-bottom:1px solid var(--rborder);font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--rsubtle)">
+          <span>Key</span><span>Čeština</span><span>English</span>
+        </div>
+        <sc-for list="{{ copyRows }}" as="r" hint-placeholder-count="24">
+          <div style="display:grid;grid-template-columns:0.7fr 1.25fr 1.25fr;gap:14px;padding:10px 16px;border-bottom:1px solid var(--rborder);align-items:start">
+            <span style="display:flex;flex-direction:column;gap:4px">
+              <span style="font-family:var(--rmono);font-size:11.5px;font-weight:600;color:var(--rtext);word-break:break-all">{{ r.k }}</span>
+              <sc-if value="{{ r.isNew }}" hint-placeholder-val="{{ true }}"><span style="font-family:var(--rmono);font-size:10px;color:var(--rgood)">new</span></sc-if>
+            </span>
+            <span style="font-size:12.5px;color:var(--rtext);text-wrap:pretty">{{ r.cs }}</span>
+            <span style="font-size:12.5px;color:var(--rmuted);text-wrap:pretty">{{ r.en }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">
+        <div style="border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;padding:16px">
+          <div style="font-size:13.5px;font-weight:700;margin-bottom:8px">Plurals</div>
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <sc-for list="{{ plurals }}" as="p" hint-placeholder-count="2">
+              <div style="font-size:12.5px;color:var(--rmuted)"><span style="font-family:var(--rmono);font-size:11.5px;color:var(--rtext)">{{ p.k }}</span> — {{ p.v }}</div>
+            </sc-for>
+          </div>
+          <p style="margin:10px 0 0;font-size:12px;color:var(--rsubtle);text-wrap:pretty">Three Czech forms: 1 / 2–4 / 5+ and 0. MB and kB never inflect. English needs one plural rule and no cases.</p>
+        </div>
+        <div style="border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;padding:16px">
+          <div style="font-size:13.5px;font-weight:700;margin-bottom:8px">Tone rules</div>
+          <ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px">
+            <sc-for list="{{ toneRules }}" as="t" hint-placeholder-count="4">
+              <li style="font-size:12.5px;color:var(--rmuted);text-wrap:pretty">{{ t }}</li>
+            </sc-for>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== ACCESSIBILITY ===== -->
+  <sc-if value="{{ isA11y }}" hint-placeholder-val="{{ true }}">
+    <div style="max-width:1040px;margin:0 auto;padding:28px 24px 64px;animation:om-fadein .2s ease">
+      <header style="margin-bottom:22px">
+        <div style="font-family:var(--rmono);font-size:12px;color:var(--rsubtle);margin-bottom:6px">deliverable 5 · design:accessibility-review · widget</div>
+        <h1 style="margin:0 0 6px;font-size:24px;font-weight:800;letter-spacing:-.01em">Accessibility review — WCAG 2.1 AA</h1>
+        <p style="margin:0;max-width:78ch;font-size:14px;color:var(--rmuted);text-wrap:pretty">The widget is the only surface in the fleet used by people who did not choose to use it, on a page nobody here controls. Contrast measured by converting each hex to sRGB relative luminance and computing the WCAG ratio against the widget's own opaque surface — never against the host's.</p>
+      </header>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px">
+        <sc-for list="{{ a11ySummary }}" as="c" hint-placeholder-count="4">
+          <div style="border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;padding:14px 16px">
+            <div style="font-size:24px;font-weight:800;color:{{ c.color }};font-variant-numeric:tabular-nums">{{ c.n }}</div>
+            <div style="font-size:12.5px;color:var(--rmuted);text-wrap:pretty">{{ c.label }}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <h2 style="margin:0 0 12px;font-size:15px;font-weight:700">Measured contrast</h2>
+      <div style="border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;overflow:hidden;margin-bottom:24px">
+        <div style="display:grid;grid-template-columns:1.5fr 1fr 74px 1fr;gap:12px;padding:10px 16px;background:var(--rs2);border-bottom:1px solid var(--rborder);font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--rsubtle)">
+          <span>Pair</span><span>Against</span><span style="text-align:right">Ratio</span><span>Verdict</span>
+        </div>
+        <sc-for list="{{ contrastRows }}" as="r" hint-placeholder-count="9">
+          <div style="display:grid;grid-template-columns:1.5fr 1fr 74px 1fr;gap:12px;padding:10px 16px;border-bottom:1px solid var(--rborder);align-items:center">
+            <span style="font-size:12.5px;color:var(--rtext)">{{ r.pair }}</span>
+            <span style="font-family:var(--rmono);font-size:11.5px;color:var(--rsubtle)">{{ r.on }}</span>
+            <span style="text-align:right;font-family:var(--rmono);font-size:12px;font-weight:600;color:{{ r.color }}">{{ r.ratio }}</span>
+            <span style="font-size:12px;color:var(--rmuted)">{{ r.verdict }}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:16px">
+        <sc-for list="{{ a11yCards }}" as="c" hint-placeholder-count="6">
+          <div style="border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;padding:16px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              <span style="font-family:var(--rmono);font-size:11px;color:var(--rsubtle)">{{ c.tag }}</span>
+              <span style="font-size:13.5px;font-weight:700;color:var(--rtext)">{{ c.title }}</span>
+            </div>
+            <p style="margin:0;font-size:12.5px;color:var(--rmuted);line-height:1.55;text-wrap:pretty">{{ c.body }}</p>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="border:1px solid var(--rborder);background:var(--rs1);border-radius:10px;padding:16px">
+        <div style="font-size:13.5px;font-weight:700;margin-bottom:10px">Focus ring on an unknown background</div>
+        <p style="margin:0 0 14px;font-size:12.5px;color:var(--rmuted);max-width:78ch;text-wrap:pretty">A single-colour ring disappears against a host page of the same colour. Every focusable element in the widget carries a two-part ring — 2px accent with a 2px white halo outside it — so one half always contrasts, whatever is behind.</p>
+        <div style="display:flex;gap:20px;flex-wrap:wrap">
+          <div style="padding:18px;border-radius:10px;background:#FBFBFA;border:1px solid var(--rborder)">
+            <span style="display:inline-flex;align-items:center;gap:9px;min-height:48px;padding:0 16px;border-radius:var(--sfb-radius-sm);background:var(--sfb-accent);color:var(--sfb-accent-ink);font-family:var(--sfb-font);font-size:15px;font-weight:600;box-shadow:0 0 0 2px #FFFFFF, 0 0 0 4px var(--sfb-accent)">{{ L.send }}</span>
+          </div>
+          <div style="padding:18px;border-radius:10px;background:#14161A;border:1px solid var(--rborder)">
+            <span style="display:inline-flex;align-items:center;gap:9px;min-height:48px;padding:0 16px;border-radius:var(--sfb-radius-sm);background:var(--sfb-accent);color:var(--sfb-accent-ink);font-family:var(--sfb-font);font-size:15px;font-weight:600;box-shadow:0 0 0 2px #FFFFFF, 0 0 0 4px var(--sfb-accent)">{{ L.send }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1240,&quot;height&quot;:940},&quot;lang&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;cs&quot;,&quot;en&quot;],&quot;default&quot;:&quot;cs&quot;,&quot;tsType&quot;:&quot;'cs' | 'en'&quot;,&quot;section&quot;:&quot;Widget&quot;},&quot;hostTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light' | 'dark'&quot;,&quot;section&quot;:&quot;Widget&quot;},&quot;viewport&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;mobile&quot;,&quot;desktop&quot;],&quot;default&quot;:&quot;mobile&quot;,&quot;tsType&quot;:&quot;'mobile' | 'desktop'&quot;,&quot;section&quot;:&quot;Widget&quot;},&quot;launcherLabelled&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Widget&quot;},&quot;initialTab&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;launcher&quot;,&quot;dialog&quot;,&quot;uploading&quot;,&quot;success&quot;,&quot;failures&quot;,&quot;tokens&quot;,&quot;components&quot;,&quot;copy&quot;,&quot;a11y&quot;],&quot;default&quot;:&quot;launcher&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Review&quot;}}">
+class Component extends DCLogic {
+  state = {
+    tab: this.props.initialTab || 'launcher',
+    host: this.props.hostTheme || 'light',
+    vp: this.props.viewport || 'mobile',
+    lang: this.props.lang || 'cs',
+    dlg: 'empty',
+  };
+  rootRef = React.createRef();
+
+  STR = {
+    cs: {
+      title:'Nahlásit problém', close:'Zavřít', remove:'Odebrat soubor',
+      msgLabel:'Co se pokazilo?',
+      msgPlaceholder:'Napište, co jste dělali a co se stalo. Klidně vlastními slovy.',
+      msgHint:'Stačí pár vět. Ostatní je nepovinné.',
+      kindLabel:'O co jde?', kinds:['Chyba','Nápad','Něco jiného'],
+      attach:'Přiložit snímek nebo video', attachFullBtn:'Víc souborů už nejde',
+      attachHint:'Až 3 soubory · obrázek do 10 MB, video do 50 MB',
+      attachHintFull:'Máte přiložené 3 soubory — to je maximum.',
+      discLead:'Odešle se také', discSummary:'adresa stránky, prohlížeč a velikost okna',
+      discSummaryConsole:'adresa stránky, prohlížeč, velikost okna a výpis z konzole',
+      discShow:'Zobrazit, co se odešle', discHide:'Skrýt',
+      consoleLead:'Posledních 50 řádků z konzole prohlížeče',
+      consoleNote:'Pomáhá najít příčinu. Když v něm uvidíte něco osobního, nechte ho doma.',
+      consoleOptOut:'Výpis z konzole neposílat',
+      send:'Odeslat', sending:'Odesílám…',
+      yourReport:'Vaše hlášení',
+      uploadingN:'Nahrávám soubor 2 ze 3',
+      uploadNote:'Soubory se nahrávají po jednom. Zavřít můžete až po dokončení — text už je odeslaný.',
+      successTitle:'Děkujeme — hlášení dorazilo',
+      successBody:'Karel ho uvidí ve svém přehledu. Odpověď sem nepřijde.',
+      refLabel:'Číslo hlášení', copy:'Zkopírovat',
+      refHelp:'Uschovejte si ho. Když se budete chtít na hlášení zeptat, stačí říct tohle číslo.',
+    },
+    en: {
+      title:'Report a problem', close:'Close', remove:'Remove file',
+      msgLabel:'What went wrong?',
+      msgPlaceholder:'Tell us what you were doing and what happened. Your own words are fine.',
+      msgHint:'A couple of sentences is plenty. Everything else is optional.',
+      kindLabel:'What kind of thing is this?', kinds:['Bug','Idea','Something else'],
+      attach:'Attach a screenshot or video', attachFullBtn:'No more files',
+      attachHint:'Up to 3 files · images to 10 MB, video to 50 MB',
+      attachHintFull:'Three files attached — that is the limit.',
+      discLead:'This will also send', discSummary:'the page address, your browser and window size',
+      discSummaryConsole:'the page address, your browser, window size and console output',
+      discShow:'Show what will be sent', discHide:'Hide',
+      consoleLead:'The last 50 lines of browser console output',
+      consoleNote:'It helps find the cause. If you see anything private in it, leave it out.',
+      consoleOptOut:'Don’t send the console output',
+      send:'Send', sending:'Sending…',
+      yourReport:'Your report',
+      uploadingN:'Uploading file 2 of 3',
+      uploadNote:'Files upload one at a time. You can close once they finish — the text is already sent.',
+      successTitle:'Thanks — your report reached us',
+      successBody:'Karel will see it in his dashboard. No reply arrives here.',
+      refLabel:'Reference', copy:'Copy',
+      refHelp:'Keep it. If you want to ask about the report, this number is all you need.',
+    },
+  };
+
+  MSG = {
+    cs:'Když v Nákupech mažu položku, zmizí jiná než ta, kterou jsem vybrala. Stalo se to už třikrát.',
+    en:'When I delete an item in Shopping, a different one disappears instead of the one I picked. It has happened three times.',
+  };
+
+  hostRows = [
+    {t:'Nákup na sobotu', s:'aktualizováno včera · 12 položek'},
+    {t:'Servis kola', s:'aktualizováno v pátek'},
+    {t:'Dovolená — co zabalit', s:'aktualizováno 24. 8.'},
+  ];
+
+  FAIL = {
+    cs: [
+      {n:'01', cap:'Soubor je příliš velký', head2:'Soubor je příliš velký', tone:'var(--sfb-danger)', bg:'var(--sfb-danger-soft)', border:'#EFCFC7',
+       body:'Obrázek může mít nejvýš 10 MB, tenhle má 14,2 MB. Zkuste menší snímek — hlášení jde odeslat i bez něj.',
+       chip:{name:'snimek-obrazovky.png', size:'14,2 MB · nelze přiložit', tone:'var(--sfb-danger)', bg:'var(--sfb-danger-soft)', border:'#EFCFC7', icon:'image'},
+       why:'Names the file, states the limit, and says the report still works. The chip stays visible so the person can see which one to swap.'},
+      {n:'02', cap:'Nepodporovaný typ souboru', head2:'Tenhle soubor přiložit neumíme', tone:'var(--sfb-warn)', bg:'var(--sfb-warn-soft)', border:'#E9D6AE',
+       body:'Přiložte obrázek (PNG, JPG, WebP, GIF) nebo video (MP4, WebM). Dokumenty a archivy neprojdou.',
+       chip:{name:'hlaseni.pdf', size:'PDF · nepodporovaný typ', tone:'var(--sfb-warn)', bg:'var(--sfb-warn-soft)', border:'#E9D6AE', icon:'file'},
+       why:'The allow-list in plain words, not MIME types. Warning tone, not danger — nothing was lost.'},
+      {n:'03', cap:'Příliš mnoho pokusů (429)', head2:'Příliš mnoho pokusů, zkuste to později', tone:'var(--sfb-warn)', bg:'var(--sfb-warn-soft)', border:'#E9D6AE',
+       body:'Za pár minut to půjde znovu. Není to nic, co byste udělali špatně — jen jsme za chvíli dostali hodně hlášení.',
+       action:'Zkusit znovu za 5 minut',
+       why:'Explicitly not the reporter’s fault, and it names a wait rather than an abstract limit. The button is the Retry-After the server sent.'},
+      {n:'04', cap:'Odeslání se nepovedlo (síť, 5xx)', head2:'Odeslání se nepovedlo', tone:'var(--sfb-danger)', bg:'var(--sfb-danger-soft)', border:'#EFCFC7',
+       body:'Spojení se přerušilo. Text zůstal vyplněný, nic jste neztratili.',
+       action:'Odeslat znovu', action2:'Zavřít',
+       why:'The retry is the primary action and the dialog keeps its state. Closing is possible but secondary — losing the text is the real failure here.'},
+      {n:'05', cap:'Soubor se nenahrál, hlášení dorazilo', head2:'Hlášení dorazilo', tone:'var(--sfb-accent)', bg:'var(--sfb-accent-soft)', border:'#C7DBD7',
+       body:'Video video-chyba.mp4 se nahrát nepovedlo, ale text i ostatní soubory dorazily. Karel hlášení uvidí.',
+       refCode:'R-7QK2', action:'Zavřít',
+       why:'Accent, not red: the report exists. The reference code appears exactly as in the normal success screen, so this reads as a variant of success rather than a failure.'},
+      {n:'06', cap:'Zpětná vazba je vypnutá', isNone:true, head:'Nic se nevykreslí', body:'Widget nejdřív načte konfiguraci. Když odpoví enabled:false, neznámý klíč, nebo se dotaz nepovede, nevznikne žádné tlačítko.',
+       why:'V3-D35. There is no screen here, and that is the design: no launcher that fails when pressed. The host page is untouched.'},
+    ],
+    en: [
+      {n:'01', cap:'File too large', head2:'That file is too large', tone:'var(--sfb-danger)', bg:'var(--sfb-danger-soft)', border:'#EFCFC7',
+       body:'Images can be up to 10 MB; this one is 14.2 MB. Try a smaller screenshot — you can send the report without it.',
+       chip:{name:'screenshot.png', size:'14.2 MB · cannot attach', tone:'var(--sfb-danger)', bg:'var(--sfb-danger-soft)', border:'#EFCFC7', icon:'image'},
+       why:'Names the file, states the limit, and says the report still works. The chip stays visible so the person can see which one to swap.'},
+      {n:'02', cap:'Wrong file type', head2:'We can’t attach that file', tone:'var(--sfb-warn)', bg:'var(--sfb-warn-soft)', border:'#E9D6AE',
+       body:'Attach an image (PNG, JPG, WebP, GIF) or a video (MP4, WebM). Documents and archives won’t go through.',
+       chip:{name:'report.pdf', size:'PDF · unsupported type', tone:'var(--sfb-warn)', bg:'var(--sfb-warn-soft)', border:'#E9D6AE', icon:'file'},
+       why:'The allow-list in plain words, not MIME types. Warning tone, not danger — nothing was lost.'},
+      {n:'03', cap:'Too many attempts (429)', head2:'Too many attempts, try again later', tone:'var(--sfb-warn)', bg:'var(--sfb-warn-soft)', border:'#E9D6AE',
+       body:'It will work again in a few minutes. Nothing you did was wrong — we just took a lot of reports at once.',
+       action:'Try again in 5 minutes',
+       why:'Explicitly not the reporter’s fault, and it names a wait rather than an abstract limit. The button is the Retry-After the server sent.'},
+      {n:'04', cap:'Send failed (network, 5xx)', head2:'Sending didn’t work', tone:'var(--sfb-danger)', bg:'var(--sfb-danger-soft)', border:'#EFCFC7',
+       body:'The connection dropped. Your text is still here — nothing was lost.',
+       action:'Send again', action2:'Close',
+       why:'The retry is the primary action and the dialog keeps its state. Closing is possible but secondary — losing the text is the real failure here.'},
+      {n:'05', cap:'Upload failed, report sent', head2:'Your report reached us', tone:'var(--sfb-accent)', bg:'var(--sfb-accent-soft)', border:'#C7DBD7',
+       body:'The video bug-clip.mp4 didn’t upload, but the text and your other file did. Karel will see the report.',
+       refCode:'R-7QK2', action:'Close',
+       why:'Accent, not red: the report exists. The reference code appears exactly as in the normal success screen, so this reads as a variant of success rather than a failure.'},
+      {n:'06', cap:'Feedback turned off', isNone:true, head:'Nothing renders', body:'The widget fetches config first. On enabled:false, an unknown key, or a failed request, no button is ever created.',
+       why:'V3-D35. There is no screen here, and that is the design: no launcher that fails when pressed. The host page is untouched.'},
+    ],
+  };
+
+  tokenRows = [
+    {n:'--sfb-surface', v:'#FFFFFF', r:'Panel, launcher, inputs — opaque, never translucent', sw:'#FFFFFF'},
+    {n:'--sfb-surface-2', v:'#F4F6F7', r:'Chips, disclosure, quiet fills', sw:'#F4F6F7'},
+    {n:'--sfb-ink', v:'#17191C', r:'All primary text and icons', sw:'#17191C'},
+    {n:'--sfb-muted', v:'#5A6169', r:'Hints, file sizes, secondary labels', sw:'#5A6169'},
+    {n:'--sfb-hairline', v:'#DDE1E4', r:'Dividers and quiet borders', sw:'#DDE1E4'},
+    {n:'--sfb-hairline-strong', v:'#9AA2A9', r:'Input and control borders (3:1)', sw:'#9AA2A9'},
+    {n:'--sfb-accent', v:'#17514B', r:'Send, links, focus ring, success mark', sw:'#17514B'},
+    {n:'--sfb-accent-soft', v:'#E6EFED', r:'Selected kind, success halo', sw:'#E6EFED'},
+    {n:'--sfb-danger', v:'#A0321F', r:'Blocking file and send errors', sw:'#A0321F'},
+    {n:'--sfb-warn', v:'#7A4C00', r:'Non-blocking errors — type, rate limit', sw:'#7A4C00'},
+    {n:'--sfb-radius', v:'12px', r:'Panel and sheet', sw:'#FFFFFF'},
+    {n:'--sfb-radius-sm', v:'8px', r:'Everything inside it', sw:'#F4F6F7'},
+    {n:'--sfb-shadow', v:'0 12px 32px -10px …', r:'Panel and launcher lift — the only elevation', sw:'#DDE1E4'},
+  ];
+  typeRows = [
+    {s:'18 / 600', u:'Success headline'},
+    {s:'16 / 600', u:'Dialog title'},
+    {s:'15 / 400', u:'Message field, buttons'},
+    {s:'13.5 / 600', u:'Field labels, file names'},
+    {s:'12.5 / 400', u:'Hints, disclosure body'},
+    {s:'mono 32 / 600', u:'Reference code'},
+    {s:'mono 11 / 400', u:'Console lines, sizes'},
+  ];
+  geoRows = [
+    {k:'Launcher', v:'48 × 48 at rest; auto × 48 labelled'},
+    {k:'Inset', v:'16px, plus host bottom bar on phones'},
+    {k:'Sheet', v:'100% width, 12px top corners, ≤ 92vh'},
+    {k:'Dialog', v:'460px wide, centred, ≤ 84vh'},
+    {k:'Targets', v:'≥ 44px; primary actions 48px'},
+    {k:'Bundle', v:'target < 15 kB gzipped, closed shadow root'},
+  ];
+  components = [
+    {n:'Launcher', p:'position · label · lang', note:'Real <button> with an accessible name in the site language. 48px icon-only at rest; expands to a labelled pill on hover and focus. Suppressed entirely by data-launcher="none" — StatusFeedback.open() still works.'},
+    {n:'DialogShell', p:'mode: sheet | dialog', note:'Bottom sheet under 480px, centred dialog above. Focus trap, Escape closes and returns focus to the launcher, scrim click closes when the form is untouched and confirms when it is not.'},
+    {n:'KindSelector', p:'value · options', note:'role="radiogroup" over three buttons; defaults to bug. Selection carries a check glyph as well as accent fill, so it is not colour-only.'},
+    {n:'FilePick', p:'accept · max · remaining', note:'Wraps a hidden <input type="file"> — file picker only, no capture API. Disabled with its own copy at three files rather than vanishing.'},
+    {n:'FileChip', p:'state: ready | waiting | uploading | done | failed', note:'Name, size, and one right-hand slot: remove button when idle, state label when in flight. Progress bar appears only in uploading. Failed keeps the remove button so the person can retry or drop it.'},
+    {n:'Progress', p:'index · total · pct', note:'Sequential, one file at a time, with a live region reading "file 2 of 3". The dialog is never blank while a 50 MB video moves.'},
+    {n:'Disclosure', p:'fields · consoleTail · optOut', note:'Always-visible one-line summary; expands in place to the actual key/value list and the real console lines. The opt-out checkbox drops the console tail from the payload before submit.'},
+    {n:'RefCode', p:'ref', note:'Crockford base32, 32px mono, letter-spaced, with a copy button. Reads aloud unambiguously — no I, L, O or U in the alphabet.'},
+    {n:'Alert', p:'tone: danger | warn | accent', note:'role="alert", icon plus heading plus one sentence of plain-language cause. Accent tone is the "report landed, file did not" case.'},
+    {n:'Toast-free', p:'—', note:'No toasts: the widget owns a modal surface, so every message lands inside it. Nothing is announced in a corner the reporter may have scrolled past.'},
+  ];
+  plurals = [
+    {k:'soubor', v:'1 soubor · 2 soubory · 5 souborů · 0 souborů'},
+    {k:'hlášení', v:'1 hlášení · 2 hlášení · 5 hlášení'},
+    {k:'minuta', v:'za 1 minutu · za 2 minuty · za 5 minut'},
+  ];
+  toneRules = [
+    'Say what happened, then what the person can do. Never why the server thinks it happened.',
+    'A file problem is never phrased as a failed report: “hlášení jde odeslat i bez něj”.',
+    'No apologies with the word “omlouváme se” — it implies a relationship the widget does not have.',
+    'No jargon: no MIME types, no status codes, no “validation”. “Obrázek nebo video” is the allow-list.',
+  ];
+  a11ySummary = [
+    {n:'0', label:'Contrast failures at AA', color:'var(--rgood)'},
+    {n:'48px', label:'Smallest touch target', color:'var(--rtext)'},
+    {n:'2', label:'Live regions — upload progress, file failed', color:'var(--rtext)'},
+    {n:'cs / en', label:'Accessible names follow data-lang', color:'var(--rtext)'},
+  ];
+  contrastRows = [
+    {pair:'Ink text', on:'#FFFFFF', ratio:'17.6:1', verdict:'AA + AAA', color:'var(--rgood)'},
+    {pair:'Muted hints', on:'#FFFFFF', ratio:'6.3:1', verdict:'AA + AAA', color:'var(--rgood)'},
+    {pair:'Accent link / label', on:'#FFFFFF', ratio:'9.0:1', verdict:'AA + AAA', color:'var(--rgood)'},
+    {pair:'White label on accent button', on:'#17514B', ratio:'9.0:1', verdict:'AA + AAA', color:'var(--rgood)'},
+    {pair:'Danger heading', on:'#FBEDEA', ratio:'6.5:1', verdict:'AA', color:'var(--rgood)'},
+    {pair:'Warn heading', on:'#FBF2E2', ratio:'6.4:1', verdict:'AA', color:'var(--rgood)'},
+    {pair:'Input border', on:'#FFFFFF', ratio:'3.1:1', verdict:'AA non-text (1.4.11)', color:'var(--rgood)'},
+    {pair:'Console lines (muted mono)', on:'#FFFFFF', ratio:'6.3:1', verdict:'AA', color:'var(--rgood)'},
+    {pair:'Disabled pick control', on:'#F4F6F7', ratio:'5.9:1', verdict:'AA — disabled still readable', color:'var(--rgood)'},
+  ];
+  a11yCards = [
+    {tag:'2.4.3 · 2.1.2', title:'Focus trap and return', body:'Opening moves focus to the message field. Tab cycles inside the dialog only. Escape closes and returns focus to the launcher — or to the host’s own menu item when the dialog was opened by StatusFeedback.open(), which the host passes as the return target.'},
+    {tag:'4.1.2', title:'The launcher is a button', body:'A real <button type="button"> with aria-label from the site language ("Nahlásit problém" / "Report a problem"), aria-haspopup="dialog", and aria-expanded reflecting the open state. Not a div, not an anchor.'},
+    {tag:'2.5.5', title:'Touch targets', body:'48px launcher, 48px primary actions, 44px for remove and close. The close button is padded outward rather than enlarged visually, so a 44px target sits behind a 24px glyph.'},
+    {tag:'4.1.3', title:'Announcements, not just pixels', body:'Upload progress is a polite live region reading "Nahrávám soubor 2 ze 3". A failed file and the report-sent-but-file-failed state are assertive — the §4.5 requirement that they be announced, not only shown.'},
+    {tag:'1.4.1', title:'Never colour alone', body:'Selected kind carries a check glyph. Each file state carries an icon and a word ("nahráno", "nepovedlo se"). Every alert has an icon and a heading, so the tone survives greyscale and a red-green deficiency.'},
+    {tag:'1.4.3 · unknown host', title:'Its own opaque surface', body:'The panel never relies on the host’s background: white fill, hairline border, and a shadow that reads on both light and dark pages. All ratios above are measured against the widget’s own surfaces, which is the only background it can guarantee.'},
+  ];
+
+  icon(name, size){
+    const p = {
+      bubble:'<path d="M8 2l1.5 1.5"/><path d="M16 2l-1.5 1.5"/><path d="M9 7h6a3 3 0 0 1 3 3v3a6 6 0 0 1-12 0v-3a3 3 0 0 1 3-3Z"/><path d="M12 20v-9"/><path d="M6 13H3"/><path d="M21 13h-3"/><path d="M6 9L3.5 7"/><path d="M18 9l2.5-2"/><path d="M6 17l-2.5 2"/><path d="M18 17l2.5 2"/>',
+      x:'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+      clip:'<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+      image:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+      video:'<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/>',
+      file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+      check:'<polyline points="20 6 9 17 4 12"/>',
+      alert:'<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+      info:'<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
+      copy:'<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+      chevD:'<polyline points="6 9 12 15 18 9"/>',
+      chevU:'<polyline points="18 15 12 9 6 15"/>',
+      clock:'<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
+    }[name] || '';
+    const s = size || 18;
+    return React.createElement('svg', {width:s, height:s, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:1.8, strokeLinecap:'round', strokeLinejoin:'round', 'aria-hidden':true, style:{flex:'none'}},
+      React.createElement('g', {dangerouslySetInnerHTML:{__html:p}}));
+  }
+
+  tabStyle(a){ return `padding:5px 11px;border-radius:7px;font-size:12.5px;font-weight:600;cursor:pointer;border:1px solid ${a?'var(--rborder-strong)':'transparent'};background:${a?'var(--rs3)':'transparent'};color:${a?'var(--rtext)':'var(--rmuted)'}`; }
+  segStyle(a){ return `padding:3px 10px;border-radius:6px;font-size:11.5px;font-weight:600;cursor:pointer;border:none;background:${a?'var(--raccent)':'transparent'};color:${a?'var(--raccent-fg)':'var(--rmuted)'}`; }
+
+  renderVals(){
+    const st = this.state;
+    const L = this.STR[st.lang];
+    const F = this.FAIL[st.lang];
+    const mobile = st.vp === 'mobile';
+    const tab = st.tab;
+
+    const tabDefs = [['launcher','Launcher'],['dialog','Dialog'],['uploading','Uploading'],['success','Success'],['failures','Failures'],['tokens','Tokens'],['components','Components'],['copy','Copy'],['a11y','Accessibility']];
+    const tabs = tabDefs.map(([id,label]) => ({label, style:this.tabStyle(tab===id), onClick:()=>this.setState({tab:id})}));
+
+    const isStage = tab==='launcher'||tab==='dialog'||tab==='uploading'||tab==='success';
+    const stateDefs = tab==='dialog'
+      ? [['empty','Empty'],['filled','Filled'],['full','3 files'],['disclosure','Disclosure open']]
+      : (tab==='launcher' ? [['rest','At rest'],['open','Dialog open']] : []);
+    const dlgState = stateDefs.some(([id])=>id===st.dlg) ? st.dlg : stateDefs.length ? stateDefs[0][0] : st.dlg;
+    const stateTabs = stateDefs.map(([id,label]) => ({label, style:this.segStyle(dlgState===id), onClick:()=>this.setState({dlg:id})}));
+
+    const hostTabs = [['light','Light'],['dark','Dark']].map(([id,label])=>({label, style:this.segStyle(st.host===id), onClick:()=>this.setState({host:id})}));
+    const vpTabs = [['mobile','375 px'],['desktop','Desktop']].map(([id,label])=>({label, style:this.segStyle(st.vp===id), onClick:()=>this.setState({vp:id})}));
+    const langTabs = [['cs','Čeština'],['en','English']].map(([id,label])=>({label, style:this.segStyle(st.lang===id), onClick:()=>this.setState({lang:id})}));
+
+    // ---- stage geometry ----
+    const frameStyle = mobile
+      ? 'position:relative;width:375px;height:760px;flex:none;border:1px solid var(--rborder-strong);border-radius:26px;overflow:hidden;background:#FBFBFA;box-shadow:0 30px 70px -24px rgba(0,0,0,.55)'
+      : 'position:relative;width:100%;max-width:1120px;height:660px;flex:none;border:1px solid var(--rborder-strong);border-radius:12px;overflow:hidden;background:#FBFBFA;box-shadow:0 30px 70px -30px rgba(0,0,0,.5)';
+
+    const launcherBottom = mobile ? 70 : 16;
+    const launcherLabelled = !mobile && (this.props.launcherLabelled ?? false);
+    const launcherStyle = `position:absolute;right:16px;bottom:${launcherBottom}px;z-index:10;display:inline-flex;align-items:center;gap:9px;height:48px;${launcherLabelled?'padding:0 16px 0 14px':'width:48px;justify-content:center;padding:0'};border:1px solid var(--sfb-hairline);background:var(--sfb-surface);border-radius:${launcherLabelled?'24px':'50%'};box-shadow:var(--sfb-shadow);cursor:pointer;font-family:var(--sfb-font)`;
+
+    const dialogOpen = tab==='dialog' || tab==='uploading' || tab==='success' || (tab==='launcher' && dlgState==='open');
+    const showForm = (tab==='dialog') || (tab==='launcher' && dlgState==='open');
+    const dialogWrapStyle = mobile
+      ? 'position:absolute;left:0;right:0;bottom:0;z-index:30;display:flex;justify-content:center'
+      : 'position:absolute;inset:0;z-index:30;display:grid;place-items:center;padding:24px';
+    const dialogStyle = mobile
+      ? 'width:100%;max-height:92%;display:flex;flex-direction:column;background:var(--sfb-surface);border-top-left-radius:var(--sfb-radius);border-top-right-radius:var(--sfb-radius);box-shadow:var(--sfb-shadow);font-family:var(--sfb-font);overflow:hidden;animation:om-sheetin .22s ease'
+      : 'width:460px;max-height:100%;display:flex;flex-direction:column;background:var(--sfb-surface);border:1px solid var(--sfb-hairline);border-radius:var(--sfb-radius);box-shadow:var(--sfb-shadow);font-family:var(--sfb-font);overflow:hidden;animation:om-fadein .18s ease';
+
+    // ---- form content per state ----
+    const filled = dlgState==='filled' || dlgState==='full' || dlgState==='disclosure' || tab==='launcher';
+    const msg = filled ? this.MSG[st.lang] : '';
+    const fileDefs = {
+      cs:[{name:'snimek-obrazovky.png', size:'420 kB', kind:'image'},{name:'video-chyba.mp4', size:'18,4 MB', kind:'video'},{name:'snimek-2.png', size:'380 kB', kind:'image'}],
+      en:[{name:'screenshot.png', size:'420 kB', kind:'image'},{name:'bug-clip.mp4', size:'18.4 MB', kind:'video'},{name:'screenshot-2.png', size:'380 kB', kind:'image'}],
+    }[st.lang];
+    const nFiles = dlgState==='full' ? 3 : (dlgState==='filled' || dlgState==='disclosure') ? 1 : 0;
+    const files = fileDefs.slice(0, nFiles).map(f => ({...f, icon:this.icon(f.kind==='video'?'video':'image',17), removeLabel:L.remove}));
+    const attachFull = nFiles >= 3;
+
+    const discOpen = dlgState==='disclosure';
+    const hasConsole = true;
+    const discKv = st.lang==='cs' ? [
+      {k:'adresa stránky', v:'home.tilcer.cz/nakupy/sobota'},
+      {k:'odkud jste přišli', v:'home.tilcer.cz/poznamky'},
+      {k:'prohlížeč', v:'Safari 26 · iPhone (iOS 19.2)'},
+      {k:'velikost okna', v:'375 × 812'},
+      {k:'jazyk', v:'cs-CZ'},
+      {k:'verze aplikace', v:'home@2026.35.1'},
+    ] : [
+      {k:'page address', v:'home.tilcer.cz/shopping/saturday'},
+      {k:'came from', v:'home.tilcer.cz/notes'},
+      {k:'browser', v:'Safari 26 · iPhone (iOS 19.2)'},
+      {k:'window size', v:'375 × 812'},
+      {k:'language', v:'cs-CZ'},
+      {k:'app version', v:'home@2026.35.1'},
+    ];
+    const consoleLines = st.lang==='cs' ? [
+      '[home] POST /api/shopping/items/48 → 500',
+      'TypeError: t.items is undefined — ShoppingList.tsx:88',
+      '[home] retry sync (2/3)',
+      '…dalších 47 řádků',
+    ] : [
+      '[home] POST /api/shopping/items/48 → 500',
+      'TypeError: t.items is undefined — ShoppingList.tsx:88',
+      '[home] retry sync (2/3)',
+      '…47 more lines',
+    ];
+
+    const kinds = L.kinds.map((label,i) => {
+      const on = i===0;
+      return {label, on, checked: on ? 'true' : 'false',
+        style:`display:inline-flex;align-items:center;gap:7px;min-height:44px;padding:0 14px;border-radius:var(--sfb-radius-sm);font-size:14px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid ${on?'var(--sfb-accent)':'var(--sfb-hairline-strong)'};background:${on?'var(--sfb-accent-soft)':'var(--sfb-surface)'};color:${on?'var(--sfb-accent)':'var(--sfb-ink)'};font-family:var(--sfb-font)`};
+    });
+
+    // ---- uploading ----
+    const upTone = {done:'var(--sfb-accent)', up:'var(--sfb-accent)', wait:'var(--sfb-muted)'};
+    const upLabels = st.lang==='cs' ? {done:'nahráno', up:'62 %', wait:'čeká'} : {done:'uploaded', up:'62%', wait:'waiting'};
+    const upFiles = [
+      {...fileDefs[0], s:'done'},
+      {...fileDefs[1], s:'up'},
+      {...fileDefs[2], s:'wait'},
+    ].map(f => ({
+      name:f.name, size:f.size,
+      icon:this.icon(f.kind==='video'?'video':'image',17),
+      tone:upTone[f.s],
+      stateIcon:f.s==='done' ? this.icon('check',13) : (f.s==='wait' ? this.icon('clock',13) : null),
+      stateLabel:upLabels[f.s],
+      showBar:f.s==='up',
+      barStyle:'height:100%;width:62%;border-radius:999px;background:var(--sfb-accent)',
+    }));
+
+    // ---- launcher specimens ----
+    const specPad = 'display:flex;align-items:center;justify-content:center;padding:18px;border-radius:9px;background:#FBFBFA;background-image:repeating-linear-gradient(135deg,#EFEFEC 0 6px,#F8F8F6 6px 12px)';
+    const specPadDark = 'display:flex;align-items:center;justify-content:center;padding:18px;border-radius:9px;background:#14161A;background-image:repeating-linear-gradient(135deg,#1D2126 0 6px,#191C21 6px 12px)';
+    const specBase = 'display:inline-flex;align-items:center;gap:9px;height:48px;border:1px solid var(--sfb-hairline);background:var(--sfb-surface);box-shadow:var(--sfb-shadow);font-family:var(--sfb-font)';
+    const launcherSpecs = [
+      {cap:'rest · light host', padStyle:specPad, style:`${specBase};width:48px;justify-content:center;border-radius:50%`, labelled:false,
+       note:'Icon only, white on a hairline, one shadow. Seen ten thousand times more often than it is clicked, so it earns no colour.'},
+      {cap:'hover / focus · expands', padStyle:specPad, style:`${specBase};padding:0 16px 0 14px;border-radius:24px;border-color:var(--sfb-hairline-strong);box-shadow:0 0 0 2px #FFFFFF, 0 0 0 4px var(--sfb-accent), var(--sfb-shadow)`, labelled:true,
+       note:'The label appears on hover and on focus-visible, with the two-part ring. Findable when wanted, silent otherwise.'},
+      {cap:'rest · dark host', padStyle:specPadDark, style:`${specBase};width:48px;justify-content:center;border-radius:50%`, labelled:false,
+       note:'The widget does not adapt to the host. One appearance means the reporter recognises it across three apps; the shadow keeps the edge honest on dark pages.'},
+      {cap:'pressed', padStyle:specPad, style:`${specBase};width:48px;justify-content:center;border-radius:50%;background:var(--sfb-surface-2);box-shadow:none;transform:scale(.96)`, labelled:false,
+       note:'Shadow drops and the fill greys — a press that is felt without moving anything on the host page.'},
+    ];
+    const posBase = 'position:absolute;display:grid;place-items:center;height:34px;width:34px;border-radius:50%;border:1px solid var(--sfb-hairline);background:#FFFFFF;color:var(--sfb-accent);box-shadow:0 6px 16px -6px rgba(16,22,28,.35)';
+    const posSpecs = [
+      {cap:'bottom-right (default)', style:`${posBase};right:12px;bottom:12px`},
+      {cap:'bottom-left', style:`${posBase};left:12px;bottom:12px`},
+      {cap:'top-right', style:`${posBase};right:12px;top:12px`},
+      {cap:'top-left', style:`${posBase};left:12px;top:12px`},
+    ];
+
+    const stageNotes = {
+      launcher:'Question 1, answered: icon-only at rest, expanding to a labelled pill on hover and focus. A permanent label on every page of an app someone uses daily becomes furniture people resent; an icon that grows a name the moment you reach for it is findable without being loud. On a phone it stays icon-only and sits 12px above the host’s own bottom bar, so it never covers host navigation.',
+      dialog:'Question 5, answered: the message field comes first and is focused on open, because the person is annoyed and wants to type. Kind sits below it and defaults to Chyba, so classification costs nothing if they ignore it. Question 2, answered: the disclosure is an always-visible one-line summary that expands in place — a separate step would gate a thirty-second task behind a privacy screen nobody reads, and a side panel does not exist at 375px.',
+      uploading:'Sequential upload, one file at a time (V3-D38), with a live region and a per-file state. The dialog stays interactive-looking and honest: the text landed before the first byte of video moved, which is why the note says closing is safe once files finish.',
+      success:'The reference code is the only thing the reporter takes away, so it gets 32px mono, letter-spacing, and a copy button — designed to be read aloud as much as copied. The body says plainly that no reply arrives here; there is no status to look up and nothing to come back for.',
+    };
+
+    const failures = F.map(f => ({
+      n:f.n, cap:f.cap, why:f.why, isNone:!!f.isNone,
+      head:f.head||null, head2:f.head2||null, body:f.body,
+      tone:f.tone||null, bg:f.bg||null, border:f.border||null,
+      icon:f.isNone?null:this.icon(f.tone==='var(--sfb-accent)'?'check':'alert',17),
+      action:f.action||null, action2:f.action2||null, refCode:f.refCode||null,
+      chipName:f.chip?f.chip.name:null, chipSize:f.chip?f.chip.size:null,
+      chipTone:f.chip?f.chip.tone:null, chipBg:f.chip?f.chip.bg:null, chipBorder:f.chip?f.chip.border:null,
+      chipIcon:f.chip?this.icon(f.chip.icon,17):null,
+    }));
+
+    const copyRows = [
+      {k:'title', cs:'Nahlásit problém', en:'Report a problem'},
+      {k:'msgLabel', cs:'Co se pokazilo?', en:'What went wrong?'},
+      {k:'msgPlaceholder', cs:this.STR.cs.msgPlaceholder, en:this.STR.en.msgPlaceholder, isNew:true},
+      {k:'msgHint', cs:this.STR.cs.msgHint, en:this.STR.en.msgHint, isNew:true},
+      {k:'kindLabel', cs:'O co jde?', en:'What kind of thing is this?', isNew:true},
+      {k:'kind.bug / idea / other', cs:'Chyba · Nápad · Něco jiného', en:'Bug · Idea · Something else'},
+      {k:'attach', cs:'Přiložit snímek nebo video', en:'Attach a screenshot or video'},
+      {k:'attachHint', cs:this.STR.cs.attachHint, en:this.STR.en.attachHint, isNew:true},
+      {k:'attachHintFull', cs:this.STR.cs.attachHintFull, en:this.STR.en.attachHintFull, isNew:true},
+      {k:'discLead', cs:'Odešle se také', en:'This will also send'},
+      {k:'discSummary', cs:this.STR.cs.discSummary, en:this.STR.en.discSummary, isNew:true},
+      {k:'discShow', cs:this.STR.cs.discShow, en:this.STR.en.discShow, isNew:true},
+      {k:'consoleLead', cs:this.STR.cs.consoleLead, en:this.STR.en.consoleLead, isNew:true},
+      {k:'consoleNote', cs:this.STR.cs.consoleNote, en:this.STR.en.consoleNote, isNew:true},
+      {k:'consoleOptOut', cs:this.STR.cs.consoleOptOut, en:this.STR.en.consoleOptOut, isNew:true},
+      {k:'send', cs:'Odeslat', en:'Send'},
+      {k:'uploadingN', cs:'Nahrávám soubor {n} ze {total}', en:'Uploading file {n} of {total}', isNew:true},
+      {k:'file.done / failed', cs:'nahráno · nepovedlo se', en:'uploaded · failed', isNew:true},
+      {k:'successTitle', cs:'Děkujeme — hlášení dorazilo', en:'Thanks — your report reached us'},
+      {k:'successBody', cs:this.STR.cs.successBody, en:this.STR.en.successBody, isNew:true},
+      {k:'refLabel', cs:'Číslo hlášení', en:'Reference'},
+      {k:'refHelp', cs:this.STR.cs.refHelp, en:this.STR.en.refHelp, isNew:true},
+      {k:'err.tooLarge', cs:F[0].head2 + ' — ' + this.FAIL.cs[0].body, en:this.FAIL.en[0].head2 + ' — ' + this.FAIL.en[0].body, isNew:true},
+      {k:'err.wrongType', cs:this.FAIL.cs[1].head2 + ' — ' + this.FAIL.cs[1].body, en:this.FAIL.en[1].head2 + ' — ' + this.FAIL.en[1].body, isNew:true},
+      {k:'err.rateLimited', cs:this.FAIL.cs[2].head2 + ' — ' + this.FAIL.cs[2].body, en:this.FAIL.en[2].head2 + ' — ' + this.FAIL.en[2].body},
+      {k:'err.sendFailed', cs:this.FAIL.cs[3].head2 + ' — ' + this.FAIL.cs[3].body, en:this.FAIL.en[3].head2 + ' — ' + this.FAIL.en[3].body, isNew:true},
+      {k:'err.uploadFailedSent', cs:this.FAIL.cs[4].head2 + ' — ' + this.FAIL.cs[4].body, en:this.FAIL.en[4].head2 + ' — ' + this.FAIL.en[4].body, isNew:true},
+    ];
+
+    return {
+      rootRef:this.rootRef, L,
+      tabs, isStage, hasStates:stateDefs.length>0, stateTabs, hostTabs, vpTabs, langTabs,
+      hostLight:st.host==='light', hostDark:st.host==='dark',
+      vpMobile:mobile, vpDesktop:!mobile,
+      hostRows:this.hostRows,
+      frameStyle, launcherStyle, launcherLabelled,
+      showLauncher:!(mobile && dialogOpen),
+      dialogOpen, dialogWrapStyle, dialogStyle,
+      showForm, showUploading:tab==='uploading', showSuccess:tab==='success',
+      dialogTitle: tab==='success' ? L.successTitle : L.title,
+      dialogSub: tab==='uploading' ? L.sending : (st.lang==='cs' ? 'home.tilcer.cz' : 'home.tilcer.cz'),
+      msgValue:msg || this.MSG[st.lang], msgFieldValue:msg,
+      charCount:(filled ? String(this.MSG[st.lang].length) : '0') + ' / 4000',
+      kinds, files, attachOpen:!attachFull, attachFull,
+      attachHint: attachFull ? L.attachHintFull : L.attachHint,
+      discOpen, discKv, hasConsole, consoleLines,
+      discSummary: hasConsole ? L.discSummaryConsole : L.discSummary,
+      discToggleLabel: discOpen ? L.discHide : L.discShow,
+      discChevron: this.icon(discOpen?'chevU':'chevD', 14),
+      upFiles,
+      isLauncherTab:tab==='launcher', launcherSpecs, posSpecs,
+      stageNote:stageNotes[tab] || '',
+      isFailures:tab==='failures', failures,
+      isTokens:tab==='tokens',
+      tokenRows:this.tokenRows.map(t=>({...t, swatch:`display:block;height:22px;width:34px;border-radius:5px;background:${t.sw};border:1px solid var(--rborder-strong)`})),
+      typeRows:this.typeRows, geoRows:this.geoRows,
+      isComponents:tab==='components', components:this.components,
+      isCopy:tab==='copy', copyRows, plurals:this.plurals, toneRules:this.toneRules,
+      isA11y:tab==='a11y', a11ySummary:this.a11ySummary, contrastRows:this.contrastRows, a11yCards:this.a11yCards,
+      iconBubble:this.icon('bubble',20), iconBubbleSm:this.icon('bubble',16),
+      iconX:this.icon('x',20), iconClip:this.icon('clip',17), iconInfo:this.icon('info',16),
+      iconCheckSm:this.icon('check',14), iconCheckLg:this.icon('check',26), iconCopy:this.icon('copy',15),
+    };
+  }
+}
+</script>
+</body>
+</html>
