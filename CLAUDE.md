@@ -9,7 +9,10 @@ Conventions for working in this repo. It follows the `home`/`fin` fleet pattern;
 - `backend/` — Go modular monolith, API-only, port **112**, served at `status.tilcer.cz/api`.
 - `frontend/` — React + Vite SPA, port **80**, served at `status.tilcer.cz` (catch-all).
 
-**Do not enable Strip Prefix** on the backend — routes are under `/api` or they 404.
+⚠ **Strip Prefix must be OFF** on the backend — routes are under `/api`. `httpx.StripAPIPrefix` is a
+defensive fallback for the toggle being flipped back, and its re-prefix set is **derived** from the
+routes the router registers (`httpx.APISegments`) — never hand-written. The hand-written list it
+replaced omitted `/meta`, which is why `GET /api/meta` 404'd in production.
 
 ## Backend layout (`backend/`)
 
@@ -38,6 +41,11 @@ Compile-time modular monolith:
   — cursors and windowed queries rely on it. Never store `time.RFC3339Nano` directly (variable width).
 - Errors: return `*httpx.APIError` (or the `httpx.Err*` constructors); `httpx.WriteError` renders the
   `{error, detail}` envelope.
+- **CORS is on the public group only** (`MountAuth` + `MountPublicAPI`) and reuses
+  `STATUS_ALLOWED_ORIGINS` — there is exactly one origin allow-list (V3-D50). The gated group stays
+  same-origin. ⚠ `Access-Control-Allow-Credentials` is **never** sent: those endpoints authenticate by
+  key, not by cookie. Every public path also gets an explicit `OPTIONS` handler (derived in
+  `NewRouter`), because chi runs group middleware only on a matched route.
 - Color is **computed on read** in list/detail (orange ages out by time); `cached_color` is a
   write-through fallback updated after every check, ingest, and triage.
 - UI language is **English only** (unlike the Czech `home`/`fin` UIs).

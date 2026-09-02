@@ -1,16 +1,26 @@
 openapi: 3.1.0
 info:
   title: Status (Monitoring & Crash Reporting) API
-  version: 0.2.0
+  version: 0.3.0
   description: >-
-    First-draft API for the status service. Actively monitors registered sites
-    and ingests crash reports from them, surfacing a green/orange/red status per
-    site. Companion to PRD.md.
+    API for the status service. Actively monitors registered sites, ingests
+    crash reports from them, and (v3) collects bug reports written by the users
+    of those sites. Companion to PRD.md.
 
-    Auth: admin endpoints use bearerAuth (JWT, 15-min) with session-cookie
-    fallback, via the shared auth backend (site id `status`). The crash-ingest
-    endpoint is public and authenticated per-site by an ingest key header
-    (Sentry-DSN style). Health probes are unauthenticated.
+    0.3.0 is the first version of this document reconciled against the built
+    service. Corrections over 0.2.0, all of which describe behaviour that has
+    been live since 2026-08-02: the three `/api/auth/*` routes and `GET
+    /api/meta` were never documented; the SPA authenticates with a **session
+    cookie plus a double-submit CSRF token**, not the `bearerAuth` JWT this
+    document used to claim; and `buckets` defaults per window rather than to a
+    fixed 90.
+
+    Auth: dashboard endpoints require the `session` cookie, and every unsafe
+    method additionally requires `X-CSRF-Token` matching the `csrf` cookie and
+    an `Origin`/`Referer` within `STATUS_ALLOWED_ORIGINS`. Crash ingest is
+    public and authenticated per-site by `X-Ingest-Key`. The v3 feedback widget
+    endpoints are public and authenticated per-site by `X-Widget-Key`. Health
+    probes are unauthenticated.
 servers:
   - url: https://status.tilcer.cz
     description: Production (Coolify)
@@ -26,6 +36,12 @@ tags:
     description: Crash groups and events (admin)
   - name: ingest
     description: Public crash ingest (per-site ingest key)
+  - name: auth
+    description: Mode B session login/logout against the shared auth backend
+  - name: feedback
+    description: User bug reports — the cross-site inbox (admin)
+  - name: widget
+    description: Public feedback-widget endpoints (per-site widget key)
 
 paths:
   /healthz:
@@ -60,6 +76,113 @@ paths:
                 $ref: "#/components/schemas/Error"
 
   # --- Sites (admin) ---
+  # --- Auth (Mode B; public, pre-session) ---
+  # Present since the initial 2026-08-02 build; absent from this document until 0.3.0.
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: Log in and open a session
+      description: >-
+        Verifies the credentials against the shared auth backend (site `status`)
+        and sets the `session` and `csrf` cookies. Runs outside the session gate —
+        login must work before a session exists. The auth service's MFA challenge
+        surfaces as `409 mfa_required`; status does not handle MFA in-app and the
+        login screen links out to auth.tilcer.cz.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Session established; `session` and `csrf` cookies set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          description: Bad credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: MFA challenge required; complete it at auth.tilcer.cz
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/auth/session:
+    get:
+      tags: [auth]
+      summary: Describe the current session
+      description: Returns the authenticated actor and roles, or 401 when there is no session.
+      responses:
+        "200":
+          description: The current session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      summary: End the session
+      description: Clears the session server-side and expires both cookies. CSRF-protected.
+      responses:
+        "204":
+          description: Session ended
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CSRFOrOriginRejected"
+
+  # --- Service metadata ---
+  /api/meta:
+    get:
+      tags: [monitoring]
+      summary: Service metadata the SPA needs to label its UI
+      description: >-
+        Returns the configured uptime window so the board labels the figure with
+        the real `STATUS_UPTIME_WINDOW` instead of hardcoding 90 days.
+
+        Present since the initial build and undocumented until 0.3.0 — and it
+        **404s in production** because `httpx.StripAPIPrefix`'s re-prefix
+        allow-list omits `/meta`. See PRD §V2-12.11 and §V3-8.
+      responses:
+        "200":
+          description: Service metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [uptime_window_days]
+                properties:
+                  uptime_window_days:
+                    type: integer
+                    examples: [90]
+                  feedback_enabled:
+                    type: boolean
+                    description: v3 — whether the feedback module is configured on this deployment
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/sites:
     get:
       tags: [sites]
@@ -221,10 +344,13 @@ paths:
           default: 90d
       - name: buckets
         in: query
-        description: Number of time buckets for the strip/sparkline
+        description: >-
+          Number of time buckets for the strip/sparkline. The default is
+          **per window** — 24 for `24h`, 7 for `7d`, 30 for `30d`, 90 for `90d` —
+          not a fixed 90 as 0.2.0 claimed. Non-24h grids are snapped to whole UTC
+          days so day rollups do not straddle bucket boundaries.
         schema:
           type: integer
-          default: 90
           minimum: 1
           maximum: 180
     get:
@@ -403,28 +529,488 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  # ==========================================================================
+  # v3 — Feedback
+  # Admin inbox (session + CSRF) and the three public widget routes.
+  # ==========================================================================
+
+  /api/reports:
+    get:
+      tags: [feedback]
+      summary: The cross-site report inbox
+      description: >-
+        One queue across every site, newest first, keyset-paginated. This is the
+        working surface: filter by state to triage, by site to review one app.
+      parameters:
+        - name: state
+          in: query
+          description: Filter by triage state
+          schema:
+            $ref: "#/components/schemas/ReportState"
+        - name: site
+          in: query
+          description: Filter to one site
+          schema:
+            $ref: "#/components/schemas/SiteIdString"
+        - name: kind
+          in: query
+          schema:
+            $ref: "#/components/schemas/ReportKind"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of reports
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ReportSummary"
+                  next_cursor:
+                    type: [string, "null"]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/reports/{ref}:
+    parameters:
+      - $ref: "#/components/parameters/ReportRef"
+    get:
+      tags: [feedback]
+      summary: One report, with its context and attachments
+      responses:
+        "200":
+          description: The report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [feedback]
+      summary: Triage a report
+      description: Sets the state and/or the internal note. Requires the `admin` role.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportPatch"
+      responses:
+        "200":
+          description: The updated report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CSRFOrOriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [feedback]
+      summary: Delete a report and its stored files
+      description: >-
+        Deletes the row and then the R2 objects, in that order — the object keys
+        are read inside the transaction and the deletes are issued after it
+        commits (PRD §V3-4, FR-22). An object whose delete fails is left for the
+        nightly sweep; the response does not wait on R2. Requires `admin`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CSRFOrOriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/reports/{ref}/attachments/{attachmentId}/url:
+    parameters:
+      - $ref: "#/components/parameters/ReportRef"
+      - name: attachmentId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags: [feedback]
+      summary: Mint a short-lived view URL for one attachment
+      description: >-
+        Returns a presigned GET valid for `STATUS_FEEDBACK_VIEW_TTL` (default
+        5 minutes). The bucket is private and has no public base URL, so this is
+        the only way to see an attachment. ⚠ The URL is a bearer token for its
+        lifetime — anyone it is forwarded to can open it until it expires.
+
+        R2 serves range requests against it, which is why video seeks correctly
+        without the service implementing ranges itself.
+      responses:
+        "200":
+          description: A presigned URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, expires_at, content_type]
+                properties:
+                  url:
+                    type: string
+                    format: uri
+                  expires_at:
+                    type: string
+                    format: date-time
+                  content_type:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: >-
+            Unknown report, unknown attachment, or the attachment is not in
+            `stored` state — a `pending` or `missing` object has no URL to mint.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/sites/{id}/feedback-config:
+    parameters:
+      - $ref: "#/components/parameters/SiteId"
+    get:
+      tags: [feedback]
+      summary: Read a site's feedback configuration
+      description: >-
+        A site with no configuration row has feedback **off**; this returns the
+        absent-means-off shape rather than 404, so the dashboard can render the
+        switch without a special case.
+      responses:
+        "200":
+          description: The site's feedback configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [feedback]
+      summary: Enable, disable or reconfigure a site's widget
+      description: >-
+        `enabled: false` is the kill switch — the widget stops rendering on the
+        next page load and a submission from a stale page gets 403, without any
+        key being rotated. Requires `admin`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackConfigPatch"
+      responses:
+        "200":
+          description: The updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CSRFOrOriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          description: >-
+            The deployment has no object storage configured
+            (`STATUS_FEEDBACK_ENABLED` is false), so feedback cannot be turned on
+            for any site.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/sites/{id}/rotate-widget-key:
+    parameters:
+      - $ref: "#/components/parameters/SiteId"
+    post:
+      tags: [feedback]
+      summary: Rotate the site's widget key
+      description: >-
+        Issues a new `wk_` key and returns the plaintext **once**. The old key
+        stops working immediately. Independent of `rotate-key`: rotating the
+        widget key never disturbs crash ingest, which is the whole reason the two
+        keys are separate. Requires `admin`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: The new widget key, shown once
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [widget_key]
+                properties:
+                  widget_key:
+                    type: string
+                    examples: ["wk_8Nq2…"]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CSRFOrOriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # --- Widget (public, per-site widget key) ---------------------------------
+  # These three sit under /api/ingest/ deliberately: that prefix is already on
+  # httpx.StripAPIPrefix's re-prefix allow-list and demonstrably works in
+  # production, where /api/meta does not. See PRD §V3-6.
+  #
+  # They are the only routes on this service that answer a cross-origin request.
+  # CORS is applied to the public group only and echoes an origin matching
+  # STATUS_ALLOWED_ORIGINS (default `https://*.tilcer.cz`); it never sends
+  # Access-Control-Allow-Credentials.
+
+  /api/ingest/{siteId}/feedback/config:
+    parameters:
+      - name: siteId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/SiteIdString"
+    get:
+      tags: [widget]
+      summary: What the widget needs before it renders anything
+      description: >-
+        The widget calls this first and renders **no launcher at all** unless it
+        answers `enabled: true` — a disabled site must never show a button that
+        fails when pressed.
+
+        The response carries a single-use `ticket`. Submission requires it, which
+        is what makes the minimum-dwell check meaningful: a `dwell_ms` field sent
+        by the client is a number the client chooses, whereas the ticket's issue
+        time is signed by the server.
+      security:
+        - widgetKey: []
+      responses:
+        "200":
+          description: Widget configuration and a submission ticket
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WidgetConfig"
+        "401":
+          description: Missing or invalid widget key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Feedback is disabled for this site, or the origin is not allowed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/ingest/{siteId}/feedback:
+    parameters:
+      - name: siteId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/SiteIdString"
+    post:
+      tags: [widget]
+      summary: Submit a bug report
+      description: >-
+        Accepts the report text and the *declared* attachments, and returns a
+        presigned PUT for each. Upload URLs exist **only** in this response —
+        there is no standalone "give me an upload URL" endpoint, so no accepted
+        report means no way to write a byte into the bucket.
+
+        Each presigned PUT signs `Content-Type` and `Content-Length` at the exact
+        declared size (clamped server-side to the cap first). That signature is
+        the only size enforcement a presigned PUT can have: a URL signed for N
+        bytes refuses N+1, and it refuses it at R2, before anything reaches the
+        droplet.
+
+        Guard order, asserted by test: 404 unknown site → 401 bad key → 403
+        disabled → 403 origin → 429 over rate → 413 oversized → 422 invalid →
+        202. The body is never parsed before the key is checked.
+      security:
+        - widgetKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackSubmission"
+      responses:
+        "202":
+          description: Report stored; upload slots issued for the declared files
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackAccepted"
+        "401":
+          description: Missing or invalid widget key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Feedback disabled for this site, or the origin is not allowed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          description: >-
+            The JSON body exceeds `STATUS_FEEDBACK_MAX_TEXT_BYTES`. An oversized
+            *file* is never refused here — it is refused by R2 against the signed
+            content-length.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: >-
+            Bad or spent ticket, honeypot filled, dwell below the minimum,
+            unknown content type, too many files, or empty message.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/ingest/{siteId}/feedback/{ref}/claim:
+    parameters:
+      - name: siteId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/SiteIdString"
+      - $ref: "#/components/parameters/ReportRef"
+    post:
+      tags: [widget]
+      summary: Confirm which uploads actually landed
+      description: >-
+        HEADs every pending object and records **the size R2 reports**, not the
+        size the client declared. An object that is absent or the wrong size is
+        marked `missing`; the report itself always survives, because the text is
+        the thing worth keeping.
+
+        Idempotent, and it can only ever touch attachments belonging to the `ref`
+        it names. A report whose claim never arrives keeps its `pending` rows
+        until the nightly sweep marks them `missing` and deletes the objects.
+      security:
+        - widgetKey: []
+      responses:
+        "200":
+          description: The resulting attachment states
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [attachments]
+                properties:
+                  attachments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AttachmentSummary"
+        "401":
+          description: Missing or invalid widget key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Feedback disabled for this site, or the origin is not allowed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
 components:
   securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: Short-term FE→BE auth, 15-minute expiry (via auth backend, site `status`).
     sessionCookie:
       type: apiKey
       in: cookie
       name: session
-      description: Long-term FE→BE auth.
-    serviceSecret:
+      description: >-
+        The dashboard session (Mode B). This — not a bearer JWT — is how every
+        gated endpoint is authenticated. 0.2.0 documented `bearerAuth`; the SPA
+        has never sent one, and the scheme has been removed rather than left
+        standing as a contract nobody implements.
+    csrfToken:
       type: apiKey
       in: header
-      name: X-Service-Secret
-      description: BE→BE shared secret (unused in v1; reserved).
+      name: X-CSRF-Token
+      description: >-
+        Double-submit CSRF token, equal to the JS-readable `csrf` cookie.
+        **Required on every unsafe method** of a cookie-authenticated endpoint,
+        in addition to `sessionCookie`. The same middleware also rejects a
+        request whose `Origin`/`Referer` is outside `STATUS_ALLOWED_ORIGINS`
+        (403). Safe methods pass through.
     ingestKey:
       type: apiKey
       in: header
       name: X-Ingest-Key
       description: Per-site crash-ingest key (public, Sentry-DSN style). Scoped to POST /api/ingest/{siteId}.
+    widgetKey:
+      type: apiKey
+      in: header
+      name: X-Widget-Key
+      description: >-
+        v3. Per-site feedback-widget key (`wk_` + 32 url-safe bytes, SHA-256
+        stored, shown once, independently rotatable). Public by design, like the
+        ingest key. Scoped to the three `/api/ingest/{siteId}/feedback*` routes
+        and to nothing else — it can neither post a crash nor read anything.
+    serviceSecret:
+      type: apiKey
+      in: header
+      name: X-Service-Secret
+      description: >-
+        BE→BE shared secret. Not accepted on any inbound route of this service —
+        status *sends* it to the auth backend (`STATUS_AUTH_SERVICE_SECRET`).
+        Retained here only to document that it is outbound, correcting 0.2.0's
+        "unused in v1; reserved".
 
   parameters:
     SiteId:
@@ -448,8 +1034,34 @@ components:
       description: Opaque pagination cursor
       schema:
         type: string
+    ReportRef:
+      name: ref
+      in: path
+      required: true
+      description: The reference code shown to the reporter
+      schema:
+        $ref: "#/components/schemas/ReportRefString"
 
   responses:
+    CSRFOrOriginRejected:
+      description: >-
+        CSRF token missing/mismatched, or the request `Origin`/`Referer` is
+        outside `STATUS_ALLOWED_ORIGINS`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Rate limit exceeded; retry after the interval in `Retry-After`.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait before retrying
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Unauthorized:
       description: Not authenticated
       content:
@@ -577,6 +1189,16 @@ components:
         recent_crash_count:
           type: integer
           description: Crash events within crash_window_hours
+        open_reports:
+          type: [integer, "null"]
+          description: >-
+            v3. Count of user reports in state `new` for this site — the unread
+            badge on the board card. **Deliberately not part of `color`**: a
+            person saying "this is confusing" must not make a site look degraded
+            beside a real outage.
+
+            Null, not zero, when the feedback module is not composed into this
+            deployment; the card then renders no badge at all.
         created_at:
           type: string
           format: date-time
@@ -744,7 +1366,312 @@ components:
           type: string
           format: date-time
 
-# Default auth for service endpoints (override per-path; health probes and ingest set their own).
+    # --- Session (v2 behaviour, documented from 0.3.0) ---
+    Session:
+      type: object
+      required: [actor_id, roles]
+      properties:
+        actor_id:
+          type: string
+        email:
+          type: [string, "null"]
+        roles:
+          type: array
+          items:
+            type: string
+          description: >-
+            Fleet roles from the auth backend. Any authenticated session may
+            read; mutations require `admin` (or `*`) via httpx.RequireAdmin.
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+
+    # --- v3 — Feedback ---
+    ReportKind:
+      type: string
+      enum: [bug, idea, other]
+      description: >-
+        What the reporter said this is. A hint, not a verdict — triage may change
+        it. Rendered in the widget as Chyba / Nápad / Něco jiného.
+    ReportState:
+      type: string
+      enum: [new, open, resolved, declined]
+    AttachmentState:
+      type: string
+      enum: [pending, stored, missing]
+      description: >-
+        `pending` — a slot was issued and the object has not been confirmed.
+        `stored` — HEAD confirmed it at the expected size.
+        `missing` — it was never uploaded, was the wrong size, or has been swept.
+    ReportRefString:
+      type: string
+      pattern: "^R-[0-9A-HJKMNP-TV-Z]{4}$"
+      description: >-
+        The reference shown to the reporter, e.g. `R-7QK2`. Crockford base32
+        (no I, L, O or U), so it survives being read aloud or written down.
+        A convenience code, not a secret — every route that takes it is either
+        admin-gated or requires the site's widget key.
+      examples: ["R-7QK2"]
+
+    AttachmentSummary:
+      type: object
+      required: [id, state, content_type]
+      properties:
+        id:
+          type: integer
+        state:
+          $ref: "#/components/schemas/AttachmentState"
+        content_type:
+          type: string
+        byte_size:
+          type: [integer, "null"]
+          description: Confirmed by HEAD at claim; null while pending.
+        created_at:
+          type: string
+          format: date-time
+
+    ReportSummary:
+      type: object
+      required: [ref, site_id, kind, state, message, created_at]
+      properties:
+        ref:
+          $ref: "#/components/schemas/ReportRefString"
+        site_id:
+          $ref: "#/components/schemas/SiteIdString"
+        kind:
+          $ref: "#/components/schemas/ReportKind"
+        state:
+          $ref: "#/components/schemas/ReportState"
+        message:
+          type: string
+          description: Truncated in the list; the detail carries the whole text.
+        reporter_label:
+          type: [string, "null"]
+          description: >-
+            An untrusted display string supplied by the host app. Never an
+            identity, never joined to anything — escaped and shown.
+        attachment_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Report:
+      allOf:
+        - $ref: "#/components/schemas/ReportSummary"
+        - type: object
+          properties:
+            page_url:
+              type: [string, "null"]
+              description: >-
+                ⚠ Can carry query-string secrets from a badly built host app.
+                Stored as sent; the dashboard does not make it clickable without
+                an explicit action.
+            referrer:
+              type: [string, "null"]
+            user_agent:
+              type: [string, "null"]
+            viewport:
+              type: [string, "null"]
+            locale:
+              type: [string, "null"]
+            app_release:
+              type: [string, "null"]
+            console_tail:
+              type: [array, "null"]
+              items:
+                type: string
+              description: >-
+                Present only when the site opted in (`console_capture`). Capped
+                at 50 lines × 200 chars, and the widget shows the reporter what
+                will be sent before they submit.
+            last_error:
+              type: [string, "null"]
+            internal_note:
+              type: [string, "null"]
+              description: Admin-only; never leaves the dashboard and never reaches the reporter.
+            resolved_at:
+              type: [string, "null"]
+              format: date-time
+            attachments:
+              type: array
+              items:
+                $ref: "#/components/schemas/AttachmentSummary"
+
+    ReportPatch:
+      type: object
+      minProperties: 1
+      properties:
+        state:
+          $ref: "#/components/schemas/ReportState"
+        internal_note:
+          type: [string, "null"]
+        kind:
+          $ref: "#/components/schemas/ReportKind"
+
+    FeedbackConfig:
+      type: object
+      required: [site_id, enabled, console_capture]
+      properties:
+        site_id:
+          $ref: "#/components/schemas/SiteIdString"
+        enabled:
+          type: boolean
+          description: The kill switch. Absent configuration means false.
+        console_capture:
+          type: boolean
+          description: >-
+            Opt-in. Off by default because a console tail from `home` could carry
+            a private note's title into status — see PRD §V3-8.
+        widget_key_set_at:
+          type: [string, "null"]
+          format: date-time
+          description: When the current key was issued. The key itself is never returned.
+        updated_at:
+          type: [string, "null"]
+          format: date-time
+
+    FeedbackConfigPatch:
+      type: object
+      minProperties: 1
+      properties:
+        enabled:
+          type: boolean
+        console_capture:
+          type: boolean
+
+    WidgetConfig:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+        ticket:
+          type: [string, "null"]
+          description: >-
+            Single-use, signed, site-scoped. Required by the submit call, which
+            rejects it if it is younger than the minimum dwell, older than 30
+            minutes, already spent, or signed for a different site.
+        kinds:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportKind"
+        max_files:
+          type: integer
+        max_image_bytes:
+          type: integer
+        max_video_bytes:
+          type: integer
+        accept:
+          type: array
+          items:
+            type: string
+          description: >-
+            The fixed allow-list of content types. Matched against what the
+            client declares — never inferred from the filename — and signed into
+            the upload URL.
+          examples:
+            - ["image/png", "image/jpeg", "image/webp", "image/gif", "video/mp4", "video/webm"]
+        console_capture:
+          type: boolean
+          description: Tells the widget whether to collect a console tail at all.
+        strings_version:
+          type: integer
+          description: >-
+            Bumped when the bundled CZ/EN strings change. The widget ships its own
+            strings; this exists only so a mismatch is diagnosable.
+
+    DeclaredFile:
+      type: object
+      required: [content_type, byte_size]
+      properties:
+        content_type:
+          type: string
+        byte_size:
+          type: integer
+          description: >-
+            The declared size, clamped to the cap before the URL is signed. A
+            client that under-declares gets a URL that refuses the file it has.
+
+    FeedbackSubmission:
+      type: object
+      required: [message, ticket]
+      properties:
+        message:
+          type: string
+          maxLength: 4000
+        kind:
+          $ref: "#/components/schemas/ReportKind"
+        ticket:
+          type: string
+        reporter_label:
+          type: [string, "null"]
+        page_url:
+          type: [string, "null"]
+        referrer:
+          type: [string, "null"]
+        viewport:
+          type: [string, "null"]
+        locale:
+          type: [string, "null"]
+        app_release:
+          type: [string, "null"]
+        console_tail:
+          type: [array, "null"]
+          items:
+            type: string
+          description: Ignored unless the site has console_capture enabled.
+        last_error:
+          type: [string, "null"]
+        website:
+          type: [string, "null"]
+          description: >-
+            Honeypot. A hidden field no human fills in; a non-empty value is a
+            422. Named plausibly on purpose.
+        files:
+          type: array
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/DeclaredFile"
+
+    UploadSlot:
+      type: object
+      required: [attachment_id, url, expires_at, headers]
+      properties:
+        attachment_id:
+          type: integer
+        url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: >-
+            The exact headers the PUT must send — `Content-Type` and
+            `Content-Length` are signed, so any deviation is rejected by R2.
+
+    FeedbackAccepted:
+      type: object
+      required: [ref, uploads]
+      properties:
+        ref:
+          $ref: "#/components/schemas/ReportRefString"
+        uploads:
+          type: array
+          items:
+            $ref: "#/components/schemas/UploadSlot"
+          description: One slot per declared file, in the order declared. Empty when no files were declared.
+
+
+# Default auth for gated endpoints. Health probes, the auth routes, crash ingest
+# and the widget routes each override this with their own `security:`.
+# Unsafe methods additionally require `csrfToken` — declared per operation.
 security:
-  - bearerAuth: []
   - sessionCookie: []
