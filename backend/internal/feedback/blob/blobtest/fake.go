@@ -33,15 +33,23 @@ type Fake struct {
 	objects map[string]*object
 	signed  map[string]signedPut // presigned PUT URL → what it will accept
 
-	// ListErr, when set, makes List fail. The sweep must then delete NOTHING: a
-	// listing that came back empty because of a credential error, followed by
-	// "delete everything with no live row", is how a bucket is quietly emptied.
-	ListErr error
-	// HeadErr, when set, makes Head fail with a transport-style error (distinct
-	// from blob.ErrNotFound, which is a decision the caller acts on).
-	HeadErr error
-	// DeleteErr, when set, makes Delete fail — the orphan path.
-	DeleteErr error
+	// The injected failures. ⚠ They are read and written under mu like every other
+	// field: object deletes run detached from the request that ordered them
+	// (FR-22), so a test can be setting one while a call is in flight.
+	//
+	//   listErr   — makes List fail. The sweep must then delete NOTHING: a listing
+	//               that came back empty because of a credential error, followed by
+	//               "delete everything with no live row", is how a bucket is
+	//               quietly emptied.
+	//   headErr   — makes Head fail with a transport-style error (distinct from
+	//               blob.ErrNotFound, which is a decision the caller acts on).
+	//   deleteErr — makes Delete fail: the orphan path.
+	listErr   error
+	headErr   error
+	deleteErr error
+	// deleteGate, when non-nil, holds every Delete until it is closed. See
+	// BlockDeletes.
+	deleteGate chan struct{}
 
 	// Calls counts every store operation, in order, for assertions about what ran
 	// and when.
@@ -66,6 +74,31 @@ type signedPut struct {
 // New returns an empty fake store.
 func New() *Fake {
 	return &Fake{objects: map[string]*object{}, signed: map[string]signedPut{}}
+}
+
+// SetListErr makes List fail with err (nil clears it).
+func (f *Fake) SetListErr(err error) { f.mu.Lock(); f.listErr = err; f.mu.Unlock() }
+
+// SetHeadErr makes Head fail with err (nil clears it).
+func (f *Fake) SetHeadErr(err error) { f.mu.Lock(); f.headErr = err; f.mu.Unlock() }
+
+// SetDeleteErr makes Delete fail with err (nil clears it).
+func (f *Fake) SetDeleteErr(err error) { f.mu.Lock(); f.deleteErr = err; f.mu.Unlock() }
+
+// BlockDeletes makes every Delete wait until the returned release is called. It
+// is how a test proves a delete response does not wait on the bucket (FR-22):
+// the 204 has to arrive while the deletes are still held here.
+func (f *Fake) BlockDeletes() (release func()) {
+	gate := make(chan struct{})
+	f.mu.Lock()
+	f.deleteGate = gate
+	f.mu.Unlock()
+	return func() {
+		f.mu.Lock()
+		f.deleteGate = nil
+		f.mu.Unlock()
+		close(gate)
+	}
 }
 
 // txProbeTimeout bounds how long the probe waits for the single connection
@@ -115,11 +148,11 @@ func (f *Fake) PresignGet(ctx context.Context, key string, ttl time.Duration) (s
 
 func (f *Fake) Head(ctx context.Context, key string) (int64, error) {
 	f.enter(ctx, "Head "+key)
-	if f.HeadErr != nil {
-		return 0, f.HeadErr
-	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.headErr != nil {
+		return 0, f.headErr
+	}
 	o, ok := f.objects[key]
 	if !ok {
 		return 0, blob.ErrNotFound
@@ -129,22 +162,34 @@ func (f *Fake) Head(ctx context.Context, key string) (int64, error) {
 
 func (f *Fake) Delete(ctx context.Context, key string) error {
 	f.enter(ctx, "Delete "+key)
-	if f.DeleteErr != nil {
-		return f.DeleteErr
+	// The gate is waited on OUTSIDE the lock: the point is to hold the delete, not
+	// to hold the fake.
+	f.mu.Lock()
+	gate := f.deleteGate
+	f.mu.Unlock()
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	delete(f.objects, key)
 	return nil
 }
 
 func (f *Fake) List(ctx context.Context, prefix string) ([]blob.Object, error) {
 	f.enter(ctx, "List "+prefix)
-	if f.ListErr != nil {
-		return nil, f.ListErr
-	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	var out []blob.Object
 	for k, o := range f.objects {
 		if strings.HasPrefix(k, prefix) {

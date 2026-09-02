@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"io/fs"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -29,18 +30,28 @@ const stringsVersion = 1
 // ⚠ The sweep's delete step is scoped to it, and nothing widens that scope.
 const objectPrefix = "feedback/"
 
-// configRateFactor is how much larger the dialog-open budget is than the
+// auxRateFactor is how much larger the widget's *non-report* budget is than the
 // reporting budget.
 //
-// The widget fetches its configuration on every page load, because it must render
-// nothing at all until the answer arrives (V3-D35) — so config traffic is
-// browsing volume, whereas STATUS_FEEDBACK_RATE (≈20/hour) is reporting volume.
-// Charging page loads to the reporting bucket would exhaust it during ordinary
-// browsing and leave the launcher missing, which is the one failure mode the
-// design is most careful to avoid. This bucket exists to bound ticket rows and
-// writes, not to bound reports; it is derived from the configured rates so a
-// deployment that raises those raises this too.
-const configRateFactor = 20
+// STATUS_FEEDBACK_RATE and STATUS_FEEDBACK_IP_RATE are denominated in **reports**
+// (≈20/hour per key, ≈5/hour per IP), so only the submission may spend them. Two
+// widget calls are not reports and get this separate, larger bucket:
+//
+//   - the configuration fetch, which happens on every page load because the widget
+//     must render nothing at all until the answer arrives (V3-D35) — charging
+//     browsing volume to the reporting bucket would exhaust it and leave the
+//     launcher missing, the one failure mode the design is most careful to avoid;
+//   - ⚠ the claim, which is the second half of a report that has ALREADY been
+//     accepted. Charging it to the reporting bucket would make every report cost
+//     two tokens, so a reporter filing a second report inside the refill window
+//     would be refused on the claim — and a claim that never lands leaves its
+//     attachments `pending` until the sweep marks them missing and deletes the
+//     bytes the reporter already uploaded. Silently losing an attachment is a far
+//     worse outcome than allowing a second claim.
+//
+// It is derived from the configured rates, so a deployment that raises those
+// raises this too.
+const auxRateFactor = 20
 
 // Config is the module's runtime configuration (PRD §V3-9).
 type Config struct {
@@ -88,14 +99,20 @@ type Module struct {
 	cfg        Config
 	logger     *slog.Logger
 
-	// Submission limiters: one per widget key, one per client IP (V3-D23 — the
-	// client IP comes from the same XFF machinery the logs and the login limiter
-	// use, never a second parser).
+	// Submission limiters, spent by POST /feedback alone: one per widget key, one
+	// per client IP (V3-D23 — the client IP comes from the same XFF machinery the
+	// logs and the login limiter use, never a second parser).
 	keyLimiter *ratelimit.Limiter
 	ipLimiter  *ratelimit.Limiter
-	// Dialog-open limiters guarding the config route; see configRateFactor.
-	configKeyLimiter *ratelimit.Limiter
-	configIPLimiter  *ratelimit.Limiter
+	// Limiters for the widget calls that are not reports — the config fetch and
+	// the claim. See auxRateFactor for why they may not share the budget above.
+	auxKeyLimiter *ratelimit.Limiter
+	auxIPLimiter  *ratelimit.Limiter
+
+	// deletes tracks the object deletes issued after a delete transaction commits.
+	// They run detached because the response does not wait on R2 (FR-22); Drain
+	// lets a shutdown — and a test — wait for them.
+	deletes sync.WaitGroup
 }
 
 // NewModule builds the feedback module. blobs may be nil when the deployment has
@@ -110,10 +127,10 @@ func NewModule(db *sql.DB, sitesStore *sites.Store, blobs blob.Store, cfg Config
 		cfg:        cfg,
 		logger:     logger,
 
-		keyLimiter:       ratelimit.New(cfg.RatePerSec, cfg.Burst, nil),
-		ipLimiter:        ratelimit.New(cfg.IPRatePerSec, cfg.IPBurst, nil),
-		configKeyLimiter: ratelimit.New(cfg.RatePerSec*configRateFactor, cfg.Burst*configRateFactor, nil),
-		configIPLimiter:  ratelimit.New(cfg.IPRatePerSec*configRateFactor, cfg.IPBurst*configRateFactor, nil),
+		keyLimiter:    ratelimit.New(cfg.RatePerSec, cfg.Burst, nil),
+		ipLimiter:     ratelimit.New(cfg.IPRatePerSec, cfg.IPBurst, nil),
+		auxKeyLimiter: ratelimit.New(cfg.RatePerSec*auxRateFactor, cfg.Burst*auxRateFactor, nil),
+		auxIPLimiter:  ratelimit.New(cfg.IPRatePerSec*auxRateFactor, cfg.IPBurst*auxRateFactor, nil),
 	}
 }
 

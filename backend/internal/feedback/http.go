@@ -1,8 +1,10 @@
 package feedback
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -11,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/httpx"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/timeutil"
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/sites"
 )
 
 // listReports handles GET /api/reports — the cross-site inbox.
@@ -26,7 +29,14 @@ func (m *Module) listReports(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, httpx.ErrUnprocessable("kind must be one of bug|idea|other"))
 		return
 	}
-	page, err := m.store.ListReports(r.Context(), state, q.Get("site"), kind,
+	// The site filter is validated like the other two: a typo that silently
+	// returns an empty page reads to the operator as "this site has no reports".
+	site := q.Get("site")
+	if site != "" && !sites.ValidID(site) {
+		httpx.WriteError(w, httpx.ErrUnprocessable("site must be a valid site id"))
+		return
+	}
+	page, err := m.store.ListReports(r.Context(), state, site, kind,
 		httpx.AtoiDefault(q.Get("limit"), 0), q.Get("cursor"))
 	if errors.Is(err, errInvalidCursor) {
 		httpx.WriteError(w, httpx.ErrUnprocessable("invalid cursor"))
@@ -49,10 +59,16 @@ func (m *Module) getReport(w http.ResponseWriter, r *http.Request) {
 }
 
 type reportPatchReq struct {
-	State        *string `json:"state"`
-	InternalNote *string `json:"internal_note"`
-	Kind         *string `json:"kind"`
+	State *string `json:"state"`
+	// InternalNote is raw so that an ABSENT field and an explicit null are
+	// distinguishable: openapi types it [string, "null"], and null is how the
+	// dashboard clears a note. A *string collapses the two into nil.
+	InternalNote json.RawMessage `json:"internal_note"`
+	Kind         *string         `json:"kind"`
 }
+
+// jsonNull is the literal an explicit null decodes to.
+var jsonNull = []byte("null")
 
 // patchReport handles PATCH /api/reports/{ref} (admin): state, internal note,
 // kind.
@@ -84,8 +100,17 @@ func (m *Module) patchReport(w http.ResponseWriter, r *http.Request) {
 	}
 	p := patch{State: in.State, Kind: in.Kind}
 	if in.InternalNote != nil {
+		// Present at all means the note is being set: an explicit null (or an empty
+		// string) clears it, anything else replaces it.
 		p.NoteSet = true
-		p.InternalNote = trimPtr(in.InternalNote, 4000)
+		if !bytes.Equal(in.InternalNote, jsonNull) {
+			var note string
+			if err := json.Unmarshal(in.InternalNote, &note); err != nil {
+				httpx.WriteError(w, httpx.ErrUnprocessable("internal_note must be a string or null"))
+				return
+			}
+			p.InternalNote = trimPtr(&note, 4000)
+		}
 	}
 	found, err := m.store.Patch(r.Context(), ref, p, time.Now().UTC())
 	if err != nil {
@@ -338,15 +363,34 @@ func (m *Module) SiteObjectKeys(ctx context.Context, tx *sql.Tx, siteID string) 
 // is a cost, whereas deleting the objects of a report that still exists is data
 // loss.
 //
+// ⚠ It does not block the caller (FR-22: "the response does not wait on R2"). The
+// rows are already gone and committed, so an unreachable bucket must not hold a
+// DELETE open for the length of someone else's TCP timeout; the sweep is the
+// backstop for whatever these calls fail to remove. The context is detached from
+// the request precisely because the request is about to end, and Drain lets a
+// graceful shutdown finish what is in flight rather than turning every pending
+// delete into an orphan.
+//
 // ⚠ It must never be called inside a transaction or with a cursor open — see
 // blob's package comment for why (V3-D05a).
 func (m *Module) DeleteObjects(ctx context.Context, keys []string) {
 	if !m.storageReady() || len(keys) == 0 {
 		return
 	}
-	for _, k := range keys {
-		if err := m.blobs.Delete(ctx, k); err != nil {
-			m.logger.Error("feedback delete object", "key", k, "err", err)
+	detached := context.WithoutCancel(ctx)
+	m.deletes.Add(1)
+	go func() {
+		defer m.deletes.Done()
+		for _, k := range keys {
+			if err := m.blobs.Delete(detached, k); err != nil {
+				m.logger.Error("feedback delete object", "key", k, "err", err)
+			}
 		}
-	}
+	}()
 }
+
+// Drain waits for the object deletes DeleteObjects has in flight. Composition
+// defers it so a shutdown lands them rather than leaving orphans for the sweep,
+// and tests use it to observe a delete that the response deliberately does not
+// wait for.
+func (m *Module) Drain() { m.deletes.Wait() }

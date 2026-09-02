@@ -206,6 +206,10 @@ func TestDeleteReportRemovesRowThenObjects(t *testing.T) {
 	if code, raw := h.do(http.MethodDelete, "/api/reports/"+acc.Ref, nil, nil); code != http.StatusNoContent {
 		t.Fatalf("delete = %d, want 204 (%s)", code, raw)
 	}
+	// ⚠ The response deliberately does not wait on R2 (FR-22), so the objects are
+	// observed after Drain rather than immediately — which is also the assertion
+	// that the delete is detached at all.
+	h.mod.Drain()
 	if _, ok := h.blobs.Size(key); ok {
 		t.Fatal("the object outlived its report")
 	}
@@ -219,13 +223,75 @@ func TestDeleteReportRemovesRowThenObjects(t *testing.T) {
 	h.upload(acc2.Uploads[0], bytes.Repeat([]byte("f"), 1024))
 	h.claim(acc2.Ref)
 	orphan := objectKeyOf(t, h, acc2.Ref)
-	h.blobs.DeleteErr = errFakeUnreachable
+	h.blobs.SetDeleteErr(errFakeUnreachable)
 	if code, _ := h.do(http.MethodDelete, "/api/reports/"+acc2.Ref, nil, nil); code != http.StatusNoContent {
 		t.Fatal("a delete must not fail because object storage is unreachable")
 	}
-	h.blobs.DeleteErr = nil
+	h.mod.Drain()
+	h.blobs.SetDeleteErr(nil)
 	if _, ok := h.blobs.Size(orphan); !ok {
 		t.Fatal("expected the object to survive as an orphan for the sweep")
+	}
+}
+
+// TestDeleteDoesNotWaitOnObjectStorage — FR-22 and openapi 0.3.0 both say the
+// response does not wait on R2. With SetMaxOpenConns(1) the transaction is
+// already committed by then, so a bucket that will not answer must cost the admin
+// a slow 204 rather than a hung one.
+func TestDeleteDoesNotWaitOnObjectStorage(t *testing.T) {
+	h := newHarness(t, testConfig())
+	acc := h.submitWithFile(1024)
+	h.upload(acc.Uploads[0], bytes.Repeat([]byte("g"), 1024))
+	h.claim(acc.Ref)
+	key := objectKeyOf(t, h, acc.Ref)
+
+	release := h.blobs.BlockDeletes()
+	done := make(chan int, 1)
+	go func() {
+		code, _ := h.do(http.MethodDelete, "/api/reports/"+acc.Ref, nil, nil)
+		done <- code
+	}()
+	select {
+	case code := <-done:
+		if code != http.StatusNoContent {
+			t.Fatalf("delete = %d, want 204", code)
+		}
+	case <-time.After(5 * time.Second):
+		release()
+		t.Fatal("the delete response waited on object storage — an unreachable bucket must not hold an admin request open")
+	}
+
+	// The row is already gone; the object follows once the bucket answers.
+	if code, _ := h.do(http.MethodGet, "/api/reports/"+acc.Ref, nil, nil); code != http.StatusNotFound {
+		t.Fatal("the row must be gone before the object is")
+	}
+	release()
+	h.mod.Drain()
+	if _, ok := h.blobs.Size(key); ok {
+		t.Fatal("the object outlived its report")
+	}
+}
+
+// TestClaimDoesNotSpendTheReportBudget — STATUS_FEEDBACK_RATE and
+// STATUS_FEEDBACK_IP_RATE are denominated in reports (PRD §V3-9), so a report
+// must cost exactly one token.
+//
+// ⚠ Charging the claim to the same buckets made every report cost two, which at
+// the shipped defaults (IP burst 3) refused the claim of a reporter's second
+// report — and a claim that never lands leaves its attachments pending until the
+// sweep deletes the bytes they already uploaded.
+func TestClaimDoesNotSpendTheReportBudget(t *testing.T) {
+	cfg := testConfig()
+	cfg.RatePerSec, cfg.Burst = 0.0056, 2 // the shipped rate, two reports of headroom
+	cfg.IPRatePerSec, cfg.IPBurst = 0.0014, 2
+	h := newHarness(t, cfg)
+
+	for i := 0; i < 2; i++ {
+		acc := h.submitWithFile(64) // fatals on a 429
+		h.upload(acc.Uploads[0], bytes.Repeat([]byte("h"), 64))
+		if att := h.claim(acc.Ref); att[0].State != AttachStored {
+			t.Fatalf("report %d: attachment state %s, want stored", i, att[0].State)
+		}
 	}
 }
 

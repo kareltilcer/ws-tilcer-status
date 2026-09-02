@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -116,6 +117,15 @@ func (r *R2) Head(ctx context.Context, key string) (int64, error) {
 		}
 		var noKey *types.NoSuchKey
 		if errors.As(err, &noKey) {
+			return 0, ErrNotFound
+		}
+		// ⚠ A HEAD carries no body, so there is nothing for the SDK to deserialize
+		// an error code from; whether a 404 arrives as a modelled type or as a bare
+		// response error is not something to depend on. Read the status directly so
+		// an absent object is never mistaken for a transport failure — which would
+		// leave the attachment pending until the sweep, a day later.
+		var status interface{ HTTPStatusCode() int }
+		if errors.As(err, &status) && status.HTTPStatusCode() == http.StatusNotFound {
 			return 0, ErrNotFound
 		}
 		return 0, fmt.Errorf("blob: head %q: %w", key, err)

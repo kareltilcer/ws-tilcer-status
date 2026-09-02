@@ -44,7 +44,7 @@ func TestSweepDeletesNothingWhenTheListingFails(t *testing.T) {
 	h := newHarness(t, testConfig())
 	old := time.Now().UTC().Add(-48 * time.Hour)
 	h.blobs.Put("feedback/home/R-AAAA/0-orphan.png", 10, old) // an orphan the sweep would normally collect
-	h.blobs.ListErr = errors.New("credentials rejected")
+	h.blobs.SetListErr(errors.New("credentials rejected"))
 
 	h.mod.Sweep(context.Background(), time.Now().UTC())
 
@@ -140,6 +140,7 @@ func TestNoObjectStorageCallInsideATransaction(t *testing.T) {
 	if code, _ := h.do(http.MethodDelete, "/api/reports/"+acc.Ref, nil, nil); code != http.StatusNoContent {
 		t.Fatal("delete should succeed") // delete
 	}
+	h.mod.Drain()                                                         // the delete is detached; wait for it before reading the probe
 	h.mod.Sweep(context.Background(), time.Now().UTC().Add(48*time.Hour)) // list + delete
 
 	if len(h.blobs.Violations) > 0 {

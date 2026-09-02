@@ -39,8 +39,11 @@ Compile-time modular monolith:
 - `internal/scheduler` — the poller ticker + the daily **rollup → purge → feedback sweep** timer
   (net-new; `home` has none). The sweep runs last because it is the only step that talks to the
   network.
-- `internal/bootstrap` — assembles the migration sequence (platform sessions + sites schema).
-- `cmd/status/main.go` — config → open → migrate → auth wiring → scheduler → serve → graceful shutdown.
+- `internal/bootstrap` — assembles the migration sequence (platform sessions + sites schema +
+  feedback tables).
+- `cmd/status/main.go` — config → open → migrate → auth wiring → scheduler → serve → graceful
+  shutdown. `daily.go` holds the daily chain (rollup → purge → sweep) as a named function, because
+  its order is normative and a closure cannot be tested.
 
 ### Conventions
 - Go 1.26, `chi` v5, `modernc.org/sqlite` (CGO off, `SetMaxOpenConns(1)`, WAL), Goose migrations, slog JSON.

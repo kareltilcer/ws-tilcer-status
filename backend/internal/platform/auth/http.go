@@ -231,10 +231,9 @@ func firstNonEmpty(vs ...string) string {
 	return ""
 }
 
-// clientIP mirrors httpx.clientIP for rate-limit keying (X-Forwarded-For aware).
+// clientIP is the login limiter's key: the IP the router already resolved under
+// STATUS_TRUSTED_PROXY_COUNT, falling back to the peer address when no middleware
+// resolved one. The resolution itself lives in exactly one place (V3-D23).
 func clientIP(r *http.Request) string {
-	if info, ok := reqctx.RequestFrom(r.Context()); ok && info.IP != "" {
-		return info.IP
-	}
-	return r.RemoteAddr
+	return firstNonEmpty(reqctx.IP(r.Context()), r.RemoteAddr)
 }

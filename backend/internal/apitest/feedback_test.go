@@ -193,6 +193,7 @@ func TestFeedbackEndToEnd(t *testing.T) {
 	if st, _ := a.do(t, "DELETE", "/api/reports/"+acc.Ref, nil, nil); st != 204 {
 		t.Fatalf("delete report: %d", st)
 	}
+	a.fb.Drain() // the 204 does not wait on R2 (FR-22); the objects go right after it
 	if left := a.blobs.Keys(); len(left) != 0 {
 		t.Fatalf("the object outlived its report: %v", left)
 	}
@@ -280,6 +281,7 @@ func TestDeleteSiteRemovesReportsAndObjects(t *testing.T) {
 	if st, _ := a.do(t, "DELETE", "/api/sites/home", nil, nil); st != 204 {
 		t.Fatalf("delete site: %d", st)
 	}
+	a.fb.Drain() // the 204 does not wait on R2 (FR-22); the objects go right after it
 	if left := a.blobs.Keys(); len(left) != 0 {
 		t.Fatalf("deleting a site left its attachments in the bucket: %v — the SQL cascade cannot reach R2", left)
 	}

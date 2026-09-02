@@ -157,6 +157,10 @@ func run(logger *slog.Logger) error {
 	// package-level global.
 	sitesMod.SetReportCounter(fbMod)
 	sitesMod.SetObjectPurger(fbMod)
+	// A delete answers before its R2 objects are gone (FR-22), so the last thing
+	// this process does is land whatever is still in flight rather than leaving it
+	// for the sweep.
+	defer fbMod.Drain()
 
 	modules := []registry.Module{sitesMod, crashMod, monMod, fbMod}
 
@@ -180,25 +184,12 @@ func run(logger *slog.Logger) error {
 		Logger:        logger,
 	}, scheduler.Jobs{
 		Poll: monMod.Poller().RunOnce,
+		// rollup → purge → feedback sweep, in that order and with the rollup
+		// failure skipping the rest. Both rules are normative, so they live in the
+		// named runDailyJob beside this file rather than in a closure no test can
+		// reach — see daily.go and daily_test.go.
 		Daily: func(ctx context.Context) {
-			now := time.Now().UTC()
-			// Order matters: roll up + refresh the uptime cache BEFORE purging, so no
-			// raw check is deleted before it is aggregated (a single sequential
-			// closure guarantees the ordering). If the rollup fails, SKIP the purge so
-			// the un-aggregated checks survive to be retried on the next run rather
-			// than being deleted, leaving a permanent uptime gap.
-			if err := monMod.Rollup().RunDaily(ctx, now); err != nil {
-				logger.Error("daily rollup", "err", err)
-				return
-			}
-			if err := purger.Purge(ctx, now); err != nil {
-				logger.Error("retention purge", "err", err)
-			}
-			// The feedback sweep runs LAST (V3-D25): it is the only step that talks
-			// to the network, and it must not be able to delay the two that keep the
-			// database honest. It reports its own failures and never returns one,
-			// because a bucket problem is not a reason to skip anything.
-			fbMod.Sweep(ctx, now)
+			runDailyJob(ctx, logger, monMod.Rollup(), purger, fbMod, time.Now().UTC())
 		},
 	})
 

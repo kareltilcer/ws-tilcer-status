@@ -45,6 +45,9 @@ type api struct {
 	// blobs is the feedback module's fake bucket. ⚠ It truncates an oversized
 	// upload rather than refusing it, because that is what R2 does (V3-D54).
 	blobs *blobtest.Fake
+	// fb is the feedback module, kept so a test can Drain the object deletes a
+	// DELETE response deliberately does not wait for (FR-22).
+	fb *feedback.Module
 }
 
 func newAPI(t *testing.T, burst int, ratePerSec float64) *api {
@@ -102,7 +105,7 @@ func newAPI(t *testing.T, burst int, ratePerSec float64) *api {
 	})
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	return &api{srv: srv, rt: handler, blobs: blobs}
+	return &api{srv: srv, rt: handler, blobs: blobs, fb: fbMod}
 }
 
 func (a *api) do(t *testing.T, method, path string, body any, headers map[string]string) (int, []byte) {

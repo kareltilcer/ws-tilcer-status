@@ -54,6 +54,20 @@ func RequestFrom(ctx context.Context) (RequestInfo, bool) {
 	return r, ok
 }
 
+// IP returns the client IP the router resolved for this request, or "" when
+// nothing resolved one (a bare handler test with no middleware).
+//
+// ⚠ This is the single reader of that value. Every rate limiter in the binary —
+// the login limiter and the feedback limiters — keys on it, and resolution
+// happens once, in httpx.RequestID, under STATUS_TRUSTED_PROXY_COUNT (V3-D23). A
+// second X-Forwarded-For parser is how one of them ends up wrong.
+func IP(ctx context.Context) string {
+	if info, ok := RequestFrom(ctx); ok {
+		return info.IP
+	}
+	return ""
+}
+
 // HasRole reports whether roles grants access to any of allowed. The superuser
 // token "*" always grants access.
 func HasRole(roles []string, allowed ...string) bool {

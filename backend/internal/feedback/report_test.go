@@ -198,6 +198,94 @@ func TestInboxFiltersAndPages(t *testing.T) {
 	if code, _ := h.do(http.MethodGet, "/api/reports?kind=nonsense", nil, nil); code != http.StatusUnprocessableEntity {
 		t.Fatalf("unknown kind filter = %d, want 422", code)
 	}
+	// A malformed site filter fails like the other two rather than reading, to the
+	// operator, as "this site has no reports".
+	if code, _ := h.do(http.MethodGet, "/api/reports?site=Not%20A%20Site", nil, nil); code != http.StatusUnprocessableEntity {
+		t.Fatalf("malformed site filter = %d, want 422", code)
+	}
+}
+
+// TestInboxTruncatesTheMessage — openapi's ReportSummary.message is "Truncated in
+// the list; the detail carries the whole text". A page of fifty four-thousand
+// character reports is a payload no row renders.
+func TestInboxTruncatesTheMessage(t *testing.T) {
+	cfg := testConfig()
+	cfg.MaxTextBytes = 1 << 20 // the body cap would otherwise 413 a long message first
+	h := newHarness(t, cfg)
+	long := strings.Repeat("é", maxMessageChars) // runes, not bytes
+
+	body := h.submission()
+	body["message"] = long
+	code, raw := h.do(http.MethodPost, "/api/ingest/"+testSite+"/feedback", body, widgetHeaders(h.key))
+	if code != http.StatusAccepted {
+		t.Fatalf("submit = %d (%s)", code, raw)
+	}
+	var acc Accepted
+	mustJSON(t, raw, &acc)
+
+	code, raw = h.do(http.MethodGet, "/api/reports", nil, nil)
+	if code != http.StatusOK {
+		t.Fatalf("inbox = %d (%s)", code, raw)
+	}
+	var page ReportPage
+	mustJSON(t, raw, &page)
+	if n := len([]rune(page.Items[0].Message)); n != summaryMessageRunes {
+		t.Fatalf("inbox message is %d runes, want the %d-rune preview", n, summaryMessageRunes)
+	}
+	// ⚠ And the detail still carries every character: the truncation is a list
+	// affordance, never a change to what was stored.
+	if n := len([]rune(h.report(acc.Ref).Message)); n != maxMessageChars {
+		t.Fatalf("the report detail kept %d runes, want the whole %d", n, maxMessageChars)
+	}
+}
+
+// TestClearTheInternalNote: openapi types ReportPatch.internal_note as
+// [string, "null"], so an explicit null is how the dashboard clears one. A
+// *string collapses "absent" and "null" into the same nil, which made clearing a
+// note a 422.
+func TestClearTheInternalNote(t *testing.T) {
+	h := newHarness(t, testConfig())
+	ref := h.submitWithFile(64).Ref
+
+	code, raw := h.do(http.MethodPatch, "/api/reports/"+ref, map[string]any{"internal_note": "asked her for a screenshot"}, nil)
+	if code != http.StatusOK {
+		t.Fatalf("set note = %d (%s)", code, raw)
+	}
+	code, raw = h.do(http.MethodPatch, "/api/reports/"+ref, map[string]any{"internal_note": nil}, nil)
+	if code != http.StatusOK {
+		t.Fatalf("clearing a note with null = %d, want 200 (%s)", code, raw)
+	}
+	var rep Report
+	mustJSON(t, raw, &rep)
+	if rep.InternalNote != nil {
+		t.Fatalf("internal_note = %q, want null after an explicit null", *rep.InternalNote)
+	}
+	// A non-string is still a 422.
+	if code, _ := h.do(http.MethodPatch, "/api/reports/"+ref, map[string]any{"internal_note": 7}, nil); code != http.StatusUnprocessableEntity {
+		t.Fatalf("a numeric internal_note = %d, want 422", code)
+	}
+}
+
+// TestAFixableRejectionKeepsTheTicket: the ticket is spent only once the payload
+// is known to be acceptable, so a reporter who attaches an unsupported file can
+// correct it and send — rather than needing a full page reload for a new ticket.
+func TestAFixableRejectionKeepsTheTicket(t *testing.T) {
+	h := newHarness(t, testConfig())
+	ticket := h.ticket()
+
+	reject := map[string]any{"message": "the board is empty", "ticket": ticket,
+		"files": []DeclaredFile{{ContentType: "application/pdf", ByteSize: 10}}}
+	if code, raw := h.do(http.MethodPost, "/api/ingest/"+testSite+"/feedback", reject, widgetHeaders(h.key)); code != http.StatusUnprocessableEntity {
+		t.Fatalf("unsupported content type = %d, want 422 (%s)", code, raw)
+	}
+	fixed := map[string]any{"message": "the board is empty", "ticket": ticket}
+	if code, raw := h.do(http.MethodPost, "/api/ingest/"+testSite+"/feedback", fixed, widgetHeaders(h.key)); code != http.StatusAccepted {
+		t.Fatalf("resubmitting after a correctable 422 = %d, want 202 (%s)", code, raw)
+	}
+	// And it is still single-use: the corrected submission spent it.
+	if code, _ := h.do(http.MethodPost, "/api/ingest/"+testSite+"/feedback", fixed, widgetHeaders(h.key)); code != http.StatusUnprocessableEntity {
+		t.Fatal("the ticket outlived the submission that spent it")
+	}
 }
 
 // TestConsoleTailIsOptIn: ⚠ a console tail from a host app with a private-item

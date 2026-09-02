@@ -42,7 +42,7 @@ func (m *Module) widgetConfig(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !m.limit(w, r, m.configKeyLimiter, m.configIPLimiter, cfg.WidgetKeyHash) {
+	if !m.limit(w, r, m.auxKeyLimiter, m.auxIPLimiter, cfg.WidgetKeyHash) {
 		return
 	}
 	// A disabled site (or a deployment with no object storage) gets the bare
@@ -129,15 +129,21 @@ func (m *Module) submit(w http.ResponseWriter, r *http.Request) {
 	// Presigning happens AFTER the insert transaction has committed: an R2 round
 	// trip inside it would hold the service's only connection for the length of
 	// someone else's TCP timeout (V3-D05a).
+	//
+	// ⚠ The slots are all-or-nothing. The contract promises "one slot per declared
+	// file, in the order declared", and the widget pairs them with its own File
+	// list by index — so handing back a short list would silently shift every file
+	// after the gap onto the wrong slot. Signing is local computation over static
+	// credentials, so a failure here means none of them can be signed; the report
+	// is kept regardless (it is the thing worth keeping), its rows stay pending,
+	// and the sweep resolves them.
 	uploads := make([]UploadSlot, 0, len(slots))
 	for _, s := range slots {
 		up, err := m.blobs.PresignPut(r.Context(), s.ObjectKey, s.ContentType, s.ByteSize, m.cfg.UploadTTL)
 		if err != nil {
-			// The report is already stored and is the thing worth keeping. A slot
-			// that could not be signed simply is not offered; its row stays pending
-			// and the sweep resolves it.
 			m.logger.Error("feedback presign upload", "site", siteID, "ref", ref, "err", err)
-			continue
+			uploads = uploads[:0]
+			break
 		}
 		uploads = append(uploads, UploadSlot{
 			AttachmentID: s.AttachmentID,
@@ -159,7 +165,12 @@ func (m *Module) claim(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !m.limit(w, r, m.keyLimiter, m.ipLimiter, cfg.WidgetKeyHash) {
+	// ⚠ The claim spends the auxiliary budget, NOT the reporting one. It is the
+	// second half of a report that has already been accepted and paid for; making
+	// each report cost two report tokens would refuse the claim of a reporter's
+	// second report inside the refill window, and a claim that never lands loses
+	// the attachment the reporter already uploaded (see auxRateFactor).
+	if !m.limit(w, r, m.auxKeyLimiter, m.auxIPLimiter, cfg.WidgetKeyHash) {
 		return
 	}
 	ref := chi.URLParam(r, "ref")
@@ -299,7 +310,7 @@ func (m *Module) limit(w http.ResponseWriter, r *http.Request, keyLimiter, ipLim
 		writeRateLimited(w, retry)
 		return false
 	}
-	if ip := clientIP(r); ip != "" {
+	if ip := reqctx.IP(r.Context()); ip != "" {
 		if ok, retry := ipLimiter.Allow(ip); !ok {
 			writeRateLimited(w, retry)
 			return false
@@ -315,15 +326,6 @@ func writeRateLimited(w http.ResponseWriter, retry time.Duration) {
 		Code:   "rate_limited",
 		Detail: "too many reports, slow down",
 	})
-}
-
-// clientIP returns the request's resolved client IP, or "" when the router did
-// not record one (no RequestID middleware, as in a bare handler test).
-func clientIP(r *http.Request) string {
-	if info, ok := reqctx.RequestFrom(r.Context()); ok {
-		return info.IP
-	}
-	return ""
 }
 
 // --- validation -------------------------------------------------------------
@@ -346,16 +348,6 @@ func (m *Module) validateSubmission(r *http.Request, in Submission, cfg *siteCon
 	if err := t.checkTiming(now, m.cfg.MinDwell); err != nil {
 		return newReport{}, nil, errors.New("invalid or expired ticket")
 	}
-	// Single use is a property of the database: the row is deleted, and a second
-	// attempt finds nothing to delete.
-	spent, err := m.store.SpendTicket(r.Context(), t.ID, siteID)
-	if err != nil {
-		return newReport{}, nil, errors.New("invalid or expired ticket")
-	}
-	if !spent {
-		return newReport{}, nil, errors.New("invalid or expired ticket")
-	}
-
 	msg := strings.TrimSpace(in.Message)
 	if msg == "" {
 		return newReport{}, nil, errors.New("message is required")
@@ -375,6 +367,22 @@ func (m *Module) validateSubmission(r *http.Request, in Submission, cfg *siteCon
 		return newReport{}, nil, err
 	}
 
+	// The ticket is spent LAST, once the payload is known to be acceptable. Its
+	// signature, site and timing were all checked above, so nothing unverified has
+	// reached the database — and a 422 the reporter can fix (an unsupported file
+	// type, an over-long message) no longer costs them the one ticket their page
+	// holds, which would leave the dialog dead until a full reload.
+	//
+	// Single use is a property of the database: the row is deleted, and a second
+	// attempt finds nothing to delete.
+	spent, err := m.store.SpendTicket(r.Context(), t.ID, siteID)
+	if err != nil {
+		return newReport{}, nil, errors.New("invalid or expired ticket")
+	}
+	if !spent {
+		return newReport{}, nil, errors.New("invalid or expired ticket")
+	}
+
 	report := newReport{
 		SiteID:        siteID,
 		Kind:          kind,
@@ -386,7 +394,7 @@ func (m *Module) validateSubmission(r *http.Request, in Submission, cfg *siteCon
 		Viewport:      trimPtr(in.Viewport, 40),
 		Locale:        trimPtr(in.Locale, 40),
 		AppRelease:    trimPtr(in.AppRelease, 100),
-		IPHash:        m.hashIP(clientIP(r)),
+		IPHash:        m.hashIP(reqctx.IP(r.Context())),
 	}
 	// The console tail is stored only when the site opted in. ⚠ A tail from a host
 	// app with a private-item model could carry a private title into an admin

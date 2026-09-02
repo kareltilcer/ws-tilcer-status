@@ -304,6 +304,12 @@ type reportRow struct {
 const reportSummaryCols = `r.id, r.ref, r.site_id, r.kind, r.state, r.message, r.reporter_label, r.created_at, r.updated_at,
 	(SELECT COUNT(*) FROM feedback_attachment a WHERE a.report_id = r.id) AS attachment_count`
 
+// summaryMessageRunes is how much of a report's text the inbox carries.
+// openapi's ReportSummary.message is "Truncated in the list; the detail carries
+// the whole text" — a row shows a first line, and a page of 50 four-thousand
+// character reports is a payload nothing renders.
+const summaryMessageRunes = 200
+
 func scanReportRow(rows *sql.Rows) (reportRow, error) {
 	var (
 		out   reportRow
@@ -311,6 +317,7 @@ func scanReportRow(rows *sql.Rows) (reportRow, error) {
 	)
 	err := rows.Scan(&out.id, &out.Ref, &out.SiteID, &out.Kind, &out.State, &out.Message, &label,
 		&out.CreatedAt, &out.UpdatedAt, &out.AttachmentCount)
+	out.Message = truncateRunes(out.Message, summaryMessageRunes)
 	out.ReporterLabel = nsToPtr(label)
 	return out, err
 }
@@ -641,8 +648,14 @@ func (s *Store) ReportCounts(ctx context.Context, siteIDs []string) (map[string]
 	if len(siteIDs) == 0 {
 		return map[string]int{}, nil
 	}
+	args := make([]any, 0, len(siteIDs)+1)
+	args = append(args, StateNew)
+	for _, id := range siteIDs {
+		args = append(args, id)
+	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT site_id, COUNT(*) FROM feedback_report WHERE state = ? GROUP BY site_id`, StateNew)
+		`SELECT site_id, COUNT(*) FROM feedback_report
+		  WHERE state = ? AND site_id IN (`+placeholders(len(siteIDs))+`) GROUP BY site_id`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -682,6 +695,15 @@ func (s *Store) SiteObjectKeys(ctx context.Context, tx *sql.Tx, siteID string) (
 }
 
 // --- helpers ----------------------------------------------------------------
+
+// placeholders renders n comma-separated "?" for an IN list. n is always a slice
+// length the caller controls, never user input.
+func placeholders(n int) string {
+	if n <= 0 {
+		return "NULL"
+	}
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
 
 // querier is satisfied by *sql.DB and *sql.Tx.
 type querier interface {
