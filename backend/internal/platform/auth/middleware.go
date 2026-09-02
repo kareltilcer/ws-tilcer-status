@@ -4,8 +4,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/httpx"
@@ -149,7 +147,7 @@ func NewCSRF(origins []string, bypass bool) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if !originAllowed(r, origins) {
+			if !httpx.OriginAllowed(r, origins) {
 				httpx.WriteError(w, httpx.ErrForbidden("origin not allowed"))
 				return
 			}
@@ -170,53 +168,6 @@ func safeMethod(m string) bool {
 		return true
 	}
 	return false
-}
-
-// originAllowed checks the request's Origin (or, absent that, Referer) host
-// against the allowlist. Entries may be exact origins ("https://status.tilcer.cz")
-// or wildcards ("https://*.tilcer.cz").
-func originAllowed(r *http.Request, allowed []string) bool {
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		if ref := r.Header.Get("Referer"); ref != "" {
-			if u, err := url.Parse(ref); err == nil {
-				origin = u.Scheme + "://" + u.Host
-			}
-		}
-	}
-	if origin == "" {
-		return false // cannot verify a cookie-authenticated mutation
-	}
-	for _, a := range allowed {
-		if originMatches(origin, a) {
-			return true
-		}
-	}
-	return false
-}
-
-func originMatches(origin, pattern string) bool {
-	if origin == pattern {
-		return true
-	}
-	scheme, host, ok := splitOrigin(origin)
-	pScheme, pHost, ok2 := splitOrigin(pattern)
-	if !ok || !ok2 || scheme != pScheme {
-		return false
-	}
-	if strings.HasPrefix(pHost, "*.") {
-		suffix := pHost[1:] // ".tilcer.cz"
-		return strings.HasSuffix(host, suffix) && host != suffix[1:]
-	}
-	return false
-}
-
-func splitOrigin(o string) (scheme, host string, ok bool) {
-	i := strings.Index(o, "://")
-	if i < 0 {
-		return "", "", false
-	}
-	return o[:i], o[i+3:], true
 }
 
 func labelFor(s Session) string {

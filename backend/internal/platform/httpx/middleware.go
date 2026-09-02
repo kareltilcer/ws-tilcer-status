@@ -4,8 +4,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/idgen"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/reqctx"
@@ -105,56 +108,93 @@ func Recover(l *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-// StripAPIPrefix normalizes the request path to handle reverse proxy
-// misconfigurations. It handles two common scenarios:
+// StripAPIPrefix normalizes the request path so a reverse-proxy misconfiguration
+// does not silently unroute the API. It tolerates two shapes:
 //
-// 1. Double prefix: upstream includes "/api" (e.g. Coolify upstream = :112/api)
-//    /api/api/auth/login → /api/auth/login
+//  1. Double prefix: the upstream already includes "/api" (Coolify upstream =
+//     :112/api)      /api/api/auth/login → /api/auth/login
+//  2. Stripped prefix: "Strip Prefix" is enabled on an /api path rule
+//     /auth/login → /api/auth/login,  /sites → /api/sites
 //
-// 2. Stripped prefix: "Strip Prefix" is enabled on a /api path rule
-//    /auth/login → /api/auth/login
-//    /sites → /api/sites
+// segments is the set of first path segments under /api that may be re-prefixed.
+// ⚠ It is DERIVED from the routes the router actually registers (see
+// APISegments), never hand-written: the hand-written list this replaced omitted
+// "/meta", so GET /api/meta 404'd in production for a month while the SPA
+// silently fell back to a hard-coded 90-day uptime window. A defensive layer
+// that needs manual maintenance is not defensive — it is a second place to be
+// wrong.
 //
-// Health probes (/healthz, /readyz) are never rewritten.
-func StripAPIPrefix(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
+// Health probes (/healthz, /readyz) are not under /api, so they are never in the
+// derived set and never rewritten.
+//
+// ⚠ Where the same origin also serves the SPA (StaticDir, the local harness
+// only), an SPA route that shares a first segment with an API route — /sites/:id,
+// /crashes/:groupId — is rewritten to the API path and answers JSON. Production
+// splits the two apps across Traefik, so this affects no deployment; it is the
+// price of the normalizer, and it is why the normalizer is a fallback for a
+// misconfigured proxy rather than a supported routing mode.
+func StripAPIPrefix(segments []string) func(http.Handler) http.Handler {
+	set := make(map[string]struct{}, len(segments))
+	for _, s := range segments {
+		set[s] = struct{}{}
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			path := r.URL.Path
 
-		// Health probes: never rewrite
-		if path == "/healthz" || path == "/readyz" {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Double prefix case: /api/api/... → /api/...
-		if strings.HasPrefix(path, "/api/api") {
-			r.URL.Path = strings.TrimPrefix(path, "/api")
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Exact /api → /
-		if path == "/api" {
-			r.URL.Path = "/"
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Stripped prefix case: path doesn't start with /api but looks like
-		// an API endpoint that was stripped by the proxy
-		if !strings.HasPrefix(path, "/api") {
-			// Common API path prefixes that might be stripped
-			apiPaths := []string{"/auth/", "/sites", "/crashes", "/ingest/"}
-			for _, prefix := range apiPaths {
-				if strings.HasPrefix(path, prefix) || path == strings.TrimSuffix(prefix, "/") {
+			switch {
+			// Double prefix: /api/api/... → /api/...
+			case strings.HasPrefix(path, "/api/api"):
+				r.URL.Path = strings.TrimPrefix(path, "/api")
+			// Exact /api → / (the /api subrouter matches nothing at its own root).
+			case path == "/api":
+				r.URL.Path = "/"
+			// Stripped prefix: a path whose first segment is one the API owns.
+			case !strings.HasPrefix(path, "/api"):
+				if _, ok := set[firstSegment(path)]; ok {
 					r.URL.Path = "/api" + path
-					break
 				}
 			}
-		}
 
-		next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// APISegments returns the distinct first path segments the router registers under
+// /api, sorted — the re-prefix set for StripAPIPrefix. Walking the composed
+// routing tree is the whole point: whatever v4 mounts falls out automatically.
+func APISegments(routes chi.Routes) []string {
+	seen := map[string]struct{}{}
+	_ = chi.Walk(routes, func(_ string, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		rest, ok := strings.CutPrefix(route, "/api/")
+		if !ok {
+			return nil
+		}
+		if seg := firstSegment("/" + rest); seg != "" {
+			seen[seg] = struct{}{}
+		}
+		return nil
 	})
+	out := make([]string, 0, len(seen))
+	for s := range seen {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// firstSegment returns the first path segment of an absolute path ("/sites/x" →
+// "sites"), or "" if there is none.
+func firstSegment(path string) string {
+	rest, ok := strings.CutPrefix(path, "/")
+	if !ok {
+		return ""
+	}
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		rest = rest[:i]
+	}
+	return rest
 }
 
 // clientIP extracts a best-effort client IP for logging and login rate-limit

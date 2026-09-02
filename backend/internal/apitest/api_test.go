@@ -31,8 +31,15 @@ import (
 // GET /api/meta and computes cached uptime over.
 const uptimeWindowDays = 90
 
+// testAllowedOrigins is the harness's STATUS_ALLOWED_ORIGINS. The wildcard is
+// the production default; cross-origin behaviour is unobservable without one.
+var testAllowedOrigins = []string{"https://*.tilcer.cz"}
+
 type api struct {
 	srv *httptest.Server
+	// rt is the composed router. Its mux is walked by the routing tests, which
+	// enumerate the real tree rather than a hand-written list of prefixes.
+	rt *httpx.Router
 }
 
 func newAPI(t *testing.T, burst int, ratePerSec float64) *api {
@@ -70,11 +77,12 @@ func newAPI(t *testing.T, burst int, ratePerSec float64) *api {
 		MountAuth:      func(a chi.Router) { authHandler.Mount(a, csrfMW) },
 		MountPublicAPI: func(a chi.Router) { crashMod.RegisterPublicRoutes(a) },
 		SessionMW:      sessionMW, CSRFMW: csrfMW,
-		MountAPI: func(a chi.Router) { registry.MountAll(a, modules) },
+		MountAPI:       func(a chi.Router) { registry.MountAll(a, modules) },
+		AllowedOrigins: testAllowedOrigins,
 	})
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	return &api{srv: srv}
+	return &api{srv: srv, rt: handler}
 }
 
 func (a *api) do(t *testing.T, method, path string, body any, headers map[string]string) (int, []byte) {
