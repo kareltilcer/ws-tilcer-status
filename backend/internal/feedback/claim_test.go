@@ -2,9 +2,12 @@ package feedback
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -306,4 +309,30 @@ func objectKeyOf(t *testing.T, h *harness, ref string) string {
 		t.Fatalf("object key for %s: %v", ref, err)
 	}
 	return key
+}
+
+// TestClaimAlwaysAnswersAnAttachmentArray — openapi requires `attachments` to be
+// a present array, and a widget that iterates a null throws into the host page,
+// which V3-D37 forbids absolutely. A report deleted between the claim's lookup
+// and its final read must therefore still answer [].
+func TestClaimAlwaysAnswersAnAttachmentArray(t *testing.T) {
+	h := newHarness(t, testConfig())
+
+	out, err := h.mod.store.AttachmentsForRef(context.Background(), "R-ZZZZ")
+	if err != nil {
+		t.Fatalf("attachments for a vanished report: %v", err)
+	}
+	if out == nil {
+		t.Fatal("a vanished report must yield an empty array, not nil — nil renders as attachments: null")
+	}
+	if len(out) != 0 {
+		t.Fatalf("want no attachments, got %d", len(out))
+	}
+	raw, err := json.Marshal(ClaimResult{Attachments: out})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"attachments":[]`) {
+		t.Fatalf("claim body = %s, want an empty array", raw)
+	}
 }

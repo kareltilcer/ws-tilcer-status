@@ -19,6 +19,12 @@ type Config struct {
 	PollConcurrency  int
 	RedFailThreshold int
 	UptimeWindowDays int
+	// FeedbackEnabled is STATUS_FEEDBACK_ENABLED, surfaced on GET /api/meta so the
+	// dashboard knows whether this deployment can serve feedback at all. It is
+	// carried as a plain bool from config rather than as a dependency on the
+	// feedback module: /api/meta is service metadata, and monitoring must not
+	// learn to import a feature module to report a deployment fact.
+	FeedbackEnabled bool
 }
 
 // Module implements registry.Module for the monitoring endpoints and exposes the
@@ -28,6 +34,7 @@ type Module struct {
 	poller           *Poller
 	rollup           *Rollup
 	uptimeWindowDays int
+	feedbackEnabled  bool
 }
 
 // NewModule builds the monitoring module and its background jobs.
@@ -38,6 +45,7 @@ func NewModule(db *sql.DB, cfg Config, logger *slog.Logger) *Module {
 		poller:           NewPoller(db, store, cfg.CheckTimeout, cfg.PollConcurrency, cfg.RedFailThreshold, logger),
 		rollup:           NewRollup(store, cfg.UptimeWindowDays, logger),
 		uptimeWindowDays: cfg.UptimeWindowDays,
+		feedbackEnabled:  cfg.FeedbackEnabled,
 	}
 }
 

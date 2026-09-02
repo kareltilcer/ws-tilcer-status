@@ -37,31 +37,35 @@ type Fake struct {
 	// field: object deletes run detached from the request that ordered them
 	// (FR-22), so a test can be setting one while a call is in flight.
 	//
-	//   listErr   — makes List fail. The sweep must then delete NOTHING: a listing
-	//               that came back empty because of a credential error, followed by
-	//               "delete everything with no live row", is how a bucket is
-	//               quietly emptied.
-	//   headErr   — makes Head fail with a transport-style error (distinct from
-	//               blob.ErrNotFound, which is a decision the caller acts on).
-	//   deleteErr — makes Delete fail: the orphan path.
-	listErr   error
-	headErr   error
-	deleteErr error
+	//   listErr    — makes List fail. The sweep must then delete NOTHING: a listing
+	//                that came back empty because of a credential error, followed
+	//                by "delete everything with no live row", is how a bucket is
+	//                quietly emptied.
+	//   headErr    — makes Head fail with a transport-style error (distinct from
+	//                blob.ErrNotFound, which is a decision the caller acts on).
+	//   deleteErr  — makes Delete fail: the orphan path.
+	//   presignErr — makes PresignPut fail, which is the only way to reach the
+	//                submit handler's all-or-nothing slot path.
+	listErr    error
+	headErr    error
+	deleteErr  error
+	presignErr error
 	// deleteGate, when non-nil, holds every Delete until it is closed. See
 	// BlockDeletes.
 	deleteGate chan struct{}
 
-	// Calls counts every store operation, in order, for assertions about what ran
-	// and when.
-	Calls []string
+	// calls records every store operation, in order, for assertions about what ran
+	// and when. Read it with Calls().
+	calls []string
 
 	// TxProbe, when set, is queried on every call: if the service's single
 	// connection is held by an open transaction the probe blocks and times out,
-	// which records a Violation. This is how "no R2 call inside a transaction"
+	// which records a violation. This is how "no R2 call inside a transaction"
 	// (V3-D05a) is asserted structurally rather than by review.
 	TxProbe *sql.DB
-	// Violations names every call that ran while the connection was held.
-	Violations []string
+	// violations names every call that ran while the connection was held. Read it
+	// with Violations().
+	violations []string
 }
 
 type signedPut struct {
@@ -84,6 +88,12 @@ func (f *Fake) SetHeadErr(err error) { f.mu.Lock(); f.headErr = err; f.mu.Unlock
 
 // SetDeleteErr makes Delete fail with err (nil clears it).
 func (f *Fake) SetDeleteErr(err error) { f.mu.Lock(); f.deleteErr = err; f.mu.Unlock() }
+
+// SetPresignErr makes PresignPut fail with err (nil clears it). It exists so the
+// submit handler's all-or-nothing slot path is reachable from a test: the
+// contract promises "one slot per declared file, in the order declared", and the
+// widget pairs slots with its own File list by index.
+func (f *Fake) SetPresignErr(err error) { f.mu.Lock(); f.presignErr = err; f.mu.Unlock() }
 
 // BlockDeletes makes every Delete wait until the returned release is called. It
 // is how a test proves a delete response does not wait on the bucket (FR-22):
@@ -114,13 +124,33 @@ func (f *Fake) enter(ctx context.Context, name string) {
 		cancel()
 		if err != nil {
 			f.mu.Lock()
-			f.Violations = append(f.Violations, name)
+			f.violations = append(f.violations, name)
 			f.mu.Unlock()
 		}
 	}
 	f.mu.Lock()
-	f.Calls = append(f.Calls, name)
+	f.calls = append(f.calls, name)
 	f.mu.Unlock()
+}
+
+// Calls returns the store operations recorded so far, in order.
+//
+// ⚠ It copies under the lock, and the field behind it is unexported, because
+// object deletes run in a goroutine detached from the request that ordered them
+// (FR-22): a test reading the slice directly would race with a delete still in
+// flight. Call Drain first when the assertion is about a delete having happened.
+func (f *Fake) Calls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.calls...)
+}
+
+// Violations returns the calls that ran while the single database connection was
+// held — see TxProbe. Copied under the lock, for the same reason as Calls.
+func (f *Fake) Violations() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.violations...)
 }
 
 // PresignPut records what the URL is signed for and returns an opaque URL the
@@ -129,6 +159,9 @@ func (f *Fake) PresignPut(ctx context.Context, key, contentType string, size int
 	f.enter(ctx, "PresignPut "+key)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.presignErr != nil {
+		return blob.Upload{}, f.presignErr
+	}
 	u := "https://fake.r2.invalid/" + url.PathEscape(key) +
 		"?X-Amz-SignedHeaders=" + url.QueryEscape("content-length;content-type;host") +
 		"&X-Amz-Expires=" + fmt.Sprintf("%d", int(ttl.Seconds()))

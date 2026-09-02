@@ -112,6 +112,9 @@ func run(logger *slog.Logger) error {
 		PollConcurrency:  cfg.PollConcurrency,
 		RedFailThreshold: cfg.RedFailThreshold,
 		UptimeWindowDays: cfg.UptimeWindowDays,
+		// GET /api/meta carries it so the dashboard can tell a deployment without
+		// object storage from a site with feedback switched off.
+		FeedbackEnabled: cfg.FeedbackEnabled,
 	}, logger)
 
 	// The feedback module is composed whether or not this deployment has object

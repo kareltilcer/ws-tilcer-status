@@ -152,3 +152,50 @@ func TestRealBucketPresignAcceptsExactSize(t *testing.T) {
 		t.Fatalf("stored %d bytes, want %d", size, len(payload))
 	}
 }
+
+// TestUploadSlotsAreAllOrNothing — openapi's FeedbackAccepted promises "one slot
+// per declared file, in the order declared", and the widget pairs the slots with
+// its own File list by index. A short list would therefore not drop one file; it
+// would shift every file after the gap onto the wrong slot, so a presign that
+// fails part-way issues no slots at all.
+//
+// ⚠ The report itself survives regardless: the text is the thing worth keeping,
+// its attachment rows stay pending, and the nightly sweep resolves them.
+func TestUploadSlotsAreAllOrNothing(t *testing.T) {
+	h := newHarness(t, testConfig())
+	h.blobs.SetPresignErr(errFakeUnreachable)
+
+	body := h.submission(
+		DeclaredFile{ContentType: "image/png", ByteSize: 1024},
+		DeclaredFile{ContentType: "image/png", ByteSize: 2048},
+	)
+	code, raw := h.do(http.MethodPost, "/api/ingest/"+testSite+"/feedback", body, widgetHeaders(h.key))
+	if code != http.StatusAccepted {
+		t.Fatalf("submit = %d, want 202 — a bucket that will not sign must not lose the report (%s)", code, raw)
+	}
+	var out Accepted
+	mustJSON(t, raw, &out)
+	if len(out.Uploads) != 0 {
+		t.Fatalf("got %d upload slots for 2 declared files; a partial list shifts every later file onto the wrong slot", len(out.Uploads))
+	}
+	if out.Ref == "" {
+		t.Fatal("the report must still be accepted and named")
+	}
+
+	// The rows are there, pending, for the sweep to resolve.
+	h.blobs.SetPresignErr(nil)
+	if code, raw := h.do(http.MethodGet, "/api/reports/"+out.Ref, nil, nil); code != http.StatusOK {
+		t.Fatalf("the report should be readable in the inbox: %d %s", code, raw)
+	} else {
+		var rep Report
+		mustJSON(t, raw, &rep)
+		if len(rep.Attachments) != 2 {
+			t.Fatalf("want 2 pending attachment rows, got %d", len(rep.Attachments))
+		}
+		for _, a := range rep.Attachments {
+			if a.State != AttachPending {
+				t.Fatalf("attachment %d state = %s, want pending", a.ID, a.State)
+			}
+		}
+	}
+}

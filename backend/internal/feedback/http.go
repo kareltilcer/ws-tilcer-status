@@ -377,9 +377,17 @@ func (m *Module) DeleteObjects(ctx context.Context, keys []string) {
 	if !m.storageReady() || len(keys) == 0 {
 		return
 	}
-	detached := context.WithoutCancel(ctx)
+	// ⚠ Detached from the request, but NOT open-ended. The AWS client sets no
+	// overall deadline of its own, so a bucket that accepts the connection and
+	// never answers would leave this goroutine running forever — and Drain, which
+	// a graceful shutdown blocks on, waiting with it until the container is
+	// killed. A delete is best-effort by design and the sweep is its backstop, so
+	// giving up after deleteBatchTimeout costs an orphan the sweep already knows
+	// how to collect, whereas hanging costs the shutdown.
+	detached, cancel := context.WithTimeout(context.WithoutCancel(ctx), deleteBatchTimeout)
 	m.deletes.Add(1)
 	go func() {
+		defer cancel()
 		defer m.deletes.Done()
 		for _, k := range keys {
 			if err := m.blobs.Delete(detached, k); err != nil {
@@ -392,5 +400,5 @@ func (m *Module) DeleteObjects(ctx context.Context, keys []string) {
 // Drain waits for the object deletes DeleteObjects has in flight. Composition
 // defers it so a shutdown lands them rather than leaving orphans for the sweep,
 // and tests use it to observe a delete that the response deliberately does not
-// wait for.
+// wait for. It is bounded because every batch it waits on is (deleteBatchTimeout).
 func (m *Module) Drain() { m.deletes.Wait() }

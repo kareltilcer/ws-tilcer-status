@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -98,10 +99,16 @@ func (m *Module) submit(w http.ResponseWriter, r *http.Request) {
 	if err := dec.Decode(&in); err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
+			// ⚠ The limit is named because it bounds the WHOLE body, not the message:
+			// a 4 000-character message beside a long page_url, or an opted-in console
+			// tail near its 50 × 200 bound, can reach it while every individual field
+			// is within its own documented cap. A reporter who is only told "too
+			// large" cannot tell which part to shorten, and STATUS_FEEDBACK_MAX_TEXT_BYTES
+			// is the deployment's dial for it.
 			httpx.WriteError(w, &httpx.APIError{
 				Status: http.StatusRequestEntityTooLarge,
 				Code:   "payload_too_large",
-				Detail: "report payload exceeds the size limit",
+				Detail: fmt.Sprintf("report payload exceeds the %d-byte limit", m.cfg.MaxTextBytes),
 			})
 			return
 		}
@@ -319,12 +326,17 @@ func (m *Module) limit(w http.ResponseWriter, r *http.Request, keyLimiter, ipLim
 	return true
 }
 
+// writeRateLimited answers 429 with Retry-After. The wording is deliberately
+// about requests rather than reports: this is shared by the config fetch and the
+// claim, which spend the auxiliary budget precisely because they are not reports,
+// and telling a reporter who has filed none that they filed too many sends
+// whoever reads it looking for a flood that never happened.
 func writeRateLimited(w http.ResponseWriter, retry time.Duration) {
 	w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retry.Seconds()))))
 	httpx.WriteError(w, &httpx.APIError{
 		Status: http.StatusTooManyRequests,
 		Code:   "rate_limited",
-		Detail: "too many reports, slow down",
+		Detail: "too many requests, slow down",
 	})
 }
 

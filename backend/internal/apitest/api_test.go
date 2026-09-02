@@ -77,6 +77,7 @@ func newAPI(t *testing.T, burst int, ratePerSec float64) *api {
 	})
 	monMod := monitoring.NewModule(db, monitoring.Config{
 		CheckTimeout: time.Second, PollConcurrency: 1, RedFailThreshold: 2, UptimeWindowDays: uptimeWindowDays,
+		FeedbackEnabled: true,
 	}, discardLogger())
 	blobs := blobtest.New()
 	fbMod := feedback.NewModule(db, sitesMod.Store(), blobs, feedback.Config{
@@ -382,7 +383,8 @@ func TestUptimeBucketsAndMeta(t *testing.T) {
 	}
 
 	var m struct {
-		UptimeWindowDays int `json:"uptime_window_days"`
+		UptimeWindowDays int   `json:"uptime_window_days"`
+		FeedbackEnabled  *bool `json:"feedback_enabled"`
 	}
 	st, body := a.do(t, "GET", "/api/meta", nil, nil)
 	if st != 200 {
@@ -391,6 +393,13 @@ func TestUptimeBucketsAndMeta(t *testing.T) {
 	mustJSON(t, body, &m)
 	if m.UptimeWindowDays != uptimeWindowDays {
 		t.Fatalf("meta uptime_window_days = %d, want %d", m.UptimeWindowDays, uptimeWindowDays)
+	}
+	// openapi 0.3.0 documents feedback_enabled here. A dashboard that reads it as
+	// undefined hides the feature on a deployment that has it — the drift
+	// /api/meta exists to prevent, so the field must be present, not merely
+	// truthy-by-accident.
+	if m.FeedbackEnabled == nil || !*m.FeedbackEnabled {
+		t.Fatalf("meta must carry feedback_enabled=true for this deployment, got %s", body)
 	}
 
 	bucketsFor := func(query string) int {

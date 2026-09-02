@@ -587,11 +587,16 @@ func (s *Store) SettleAttachment(ctx context.Context, id int64, state string, si
 
 // AttachmentsForRef returns the wire attachments of a report by ref (the claim
 // response).
+//
+// A report that vanished between the claim's lookup and this read yields an
+// EMPTY slice, never nil: openapi requires `attachments` to be a present array,
+// and a widget iterating a null would throw into the host page — the one thing
+// V3-D37 says it must never do.
 func (s *Store) AttachmentsForRef(ctx context.Context, ref string) ([]AttachmentSummary, error) {
 	var id int64
 	err := s.db.QueryRowContext(ctx, `SELECT id FROM feedback_report WHERE ref = ?`, ref).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+		return []AttachmentSummary{}, nil
 	}
 	if err != nil {
 		return nil, err

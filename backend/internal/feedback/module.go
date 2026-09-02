@@ -30,6 +30,16 @@ const stringsVersion = 1
 // ⚠ The sweep's delete step is scoped to it, and nothing widens that scope.
 const objectPrefix = "feedback/"
 
+// deleteBatchTimeout bounds one detached batch of object deletes (FR-22: the
+// response does not wait on R2, so nothing else bounds it).
+//
+// ⚠ The AWS client applies no overall deadline of its own, so without this a
+// bucket that accepts a connection and never answers would leave the goroutine —
+// and Drain, which shutdown blocks on — running until the container is killed.
+// Giving up here costs an orphaned object, which the nightly sweep already
+// collects; not giving up costs the shutdown.
+const deleteBatchTimeout = 30 * time.Second
+
 // auxRateFactor is how much larger the widget's *non-report* budget is than the
 // reporting budget.
 //

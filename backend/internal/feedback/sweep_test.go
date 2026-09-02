@@ -143,10 +143,10 @@ func TestNoObjectStorageCallInsideATransaction(t *testing.T) {
 	h.mod.Drain()                                                         // the delete is detached; wait for it before reading the probe
 	h.mod.Sweep(context.Background(), time.Now().UTC().Add(48*time.Hour)) // list + delete
 
-	if len(h.blobs.Violations) > 0 {
-		t.Fatalf("object-storage calls ran while the single connection was held: %v", h.blobs.Violations)
+	if v := h.blobs.Violations(); len(v) > 0 {
+		t.Fatalf("object-storage calls ran while the single connection was held: %v", v)
 	}
-	if len(h.blobs.Calls) == 0 {
+	if len(h.blobs.Calls()) == 0 {
 		t.Fatal("the probe never observed a call — the assertion would pass vacuously")
 	}
 }
@@ -167,7 +167,7 @@ func TestTxProbeDetectsACallInsideATransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tx: %v", err)
 	}
-	if len(h.blobs.Violations) == 0 {
+	if len(h.blobs.Violations()) == 0 {
 		t.Fatal("the probe missed a call made inside a transaction — TestNoObjectStorageCallInsideATransaction would pass vacuously")
 	}
 }

@@ -31,7 +31,7 @@ X-Amz-SignedHeaders before any upload is attempted.
 
 Usage (it writes real objects and deletes them again):
 
-    pip install boto3
+    pip install boto3 requests
     export STATUS_R2_TEST_ENDPOINT=https://<account>.r2.cloudflarestorage.com
     export STATUS_R2_TEST_BUCKET=ws-tilcer-status-feedback
     export STATUS_R2_TEST_ACCESS_KEY_ID=...

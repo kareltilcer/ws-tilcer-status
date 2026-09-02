@@ -354,9 +354,11 @@ func Load(getenv Getenv) (*Config, error) {
 	if c.FeedbackMinDwell < 0 {
 		l.errf("STATUS_FEEDBACK_MIN_DWELL_MS must be >= 0 (got %s)", c.FeedbackMinDwell)
 	}
-	if c.FeedbackMinDwell > 30*time.Second {
-		// A dwell longer than half a minute is a disabled widget wearing a config
-		// value: nobody reads a dialog for thirty seconds before typing.
+	if c.FeedbackMinDwell >= 30*time.Second {
+		// A dwell of half a minute or longer is a disabled widget wearing a config
+		// value: nobody reads a dialog for thirty seconds before typing. PRD §V3-9
+		// says "under 30 000", so 30000 itself is out — the bound and the sentence
+		// describing it must not disagree.
 		l.errf("STATUS_FEEDBACK_MIN_DWELL_MS must be under 30000 (got %s)", c.FeedbackMinDwell)
 	}
 	if c.FeedbackUploadTTL >= c.FeedbackUnclaimedTTL {
