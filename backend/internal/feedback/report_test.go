@@ -394,8 +394,6 @@ func TestRotateWidgetKeyInvalidatesTheOldOne(t *testing.T) {
 	}
 }
 
-// TestSiteConfigRoutes covers FR-14: absence means off, the plaintext is shown
-// exactly once, and an unknown site is a 404.
 // TestInternalNoteIsAdminOnly holds the code to what the contract says about
 // that field.
 //
@@ -476,6 +474,8 @@ func TestConsoleCaptureAloneCannotMintAKey(t *testing.T) {
 	}
 }
 
+// TestSiteConfigRoutes covers FR-14: absence means off, the plaintext is shown
+// exactly once, and an unknown site is a 404.
 func TestSiteConfigRoutes(t *testing.T) {
 	h := newHarness(t, testConfig())
 	h.seedSite("karel", "Karel") // no configuration row at all

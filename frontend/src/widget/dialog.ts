@@ -838,6 +838,7 @@ export class FeedbackDialog {
 
     await this.o.api.ticketSettled()
     if (!this.live(gen)) return
+    if (this.heldForDiscard()) return
     const ticket = this.o.api.ticket()
     if (!ticket) {
       this.backToForm()
@@ -911,11 +912,43 @@ export class FeedbackDialog {
 
   /** backToForm returns the dialog to an editable state after a failed send —
    *  the footer's Send button and the attachment controls the sending phase
-   *  locked. */
+   *  locked.
+   *
+   *  ⚠ It clears `dwelling` too, because it is the one transition that ends a
+   *  send. The no-ticket bail-out above reaches it BEFORE the POST, where the
+   *  flag is still set, and left standing it outlives its own send for the whole
+   *  of the following form phase. Inert only for as long as `requestClose`
+   *  happens to OR the flag with the form phase; clearing it here keeps the
+   *  invariant the flag is named for — true only while a send is pending. */
   private backToForm(): void {
     this.phase = 'form'
+    this.dwelling = false
     this.renderFooter()
     this.syncFiles()
+  }
+
+  /**
+   * heldForDiscard stops a queued send when a ✕ has raised the discard question
+   * and nobody has answered it yet.
+   *
+   * ⚠ Both pre-POST waits — the replacement ticket and its dwell — park while
+   * the dialog stays open, so a ✕ during either raises the question and then the
+   * resume ran straight on, cleared the prompt and posted. The widget answering
+   * its own modal question is the same failure as discarding without asking,
+   * from the other side: the reporter asked to throw the report away and it was
+   * filed instead.
+   *
+   * Returning to the form (rather than closing) leaves the decision with them:
+   * Keep editing puts the footer's own Send back, Discard closes. Answering by
+   * retrying is still the case `submit` and `retrySend` clear the flag for, up
+   * front — that is a reporter choosing to send, not a timer doing it for them.
+   */
+  private heldForDiscard(): boolean {
+    if (!this.discardPrompt) return false
+    this.phase = 'form'
+    this.dwelling = false
+    this.syncFiles()
+    return true
   }
 
   /**
@@ -984,6 +1017,9 @@ export class FeedbackDialog {
     // opening that is over, and clearing a flag the CURRENT opening owns is how
     // a later dwell ends up unguarded. `reset()` clears it on close instead.
     if (!this.live(gen)) return
+    // A ✕ during either wait above raised the discard question and it is still
+    // unanswered — sending now would be the widget answering it.
+    if (this.heldForDiscard()) return
     this.dwelling = false
     this.phase = 'form'
     await this.submit()

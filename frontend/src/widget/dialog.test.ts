@@ -489,6 +489,22 @@ describe('the submission', () => {
       press(h, 'Escape')
       expect(h.dialog.isOpen).toBe(true)
       expect(h.root.textContent).toContain(STRINGS.cs.discardTitle)
+
+      // ⚠ And the dwell runs OUT while the question stands. The timer that
+      // resumes the retry used to walk straight past the prompt, clear it and
+      // post — the widget answering its own modal question, which is the same
+      // failure as discarding without asking seen from the other side: the
+      // reporter asked to throw the report away and it was filed instead.
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(h.submitted).toHaveLength(1)
+      expect(h.root.textContent).toContain(STRINGS.cs.discardTitle)
+
+      // Keeping it puts the reporter back on a form they can send themselves.
+      h.byText('button', STRINGS.cs.keepEditing)!.click()
+      expect(h.root.textContent).not.toContain(STRINGS.cs.discardTitle)
+      h.byText('button', STRINGS.cs.send)!.click()
+      await flush()
+      expect(h.submitted).toHaveLength(2)
     } finally {
       vi.useRealTimers()
     }
@@ -524,8 +540,15 @@ describe('the submission', () => {
     press(h, 'Escape')
     expect(h.dialog.isOpen).toBe(true)
     expect(h.root.textContent).toContain(STRINGS.cs.discardTitle)
+
+    // ⚠ And the ticket ARRIVES while the question stands. The resume used to
+    // clear the prompt and post the report the reporter had just asked to
+    // discard, on the likelier of the two waits.
     settle()
     await flush()
+    expect(h.submitted).toHaveLength(1)
+    expect(h.root.textContent).toContain(STRINGS.cs.discardTitle)
+    expect(h.dialog.isOpen).toBe(true)
   })
 
   // ⚠ The alert's "Odeslat znovu" lives in the BODY and the discard question in

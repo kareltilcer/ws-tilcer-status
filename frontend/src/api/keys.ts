@@ -21,5 +21,11 @@ export const qk = {
   // make every triage click re-mint a presigned URL per attachment and swap
   // every <img src> on the page.
   attachmentUrl: (ref: string, attachmentId: number) => ['attachment', ref, attachmentId] as const,
-  feedbackConfig: (siteId: string) => ['site', siteId, 'feedback-config'] as const,
+  // ⚠ Outside the ['site', id] prefix for the same reason, and it was inside it:
+  // SiteDetail invalidates qk.site(id) after every save — a rename, a monitor
+  // toggle, an interval change — and prefix matching then refetched the feedback
+  // configuration too, on a service whose one writer connection every request
+  // queues behind. Nothing a site edit changes is in this response; `uptime` and
+  // `crashes` stay nested because a monitoring change genuinely moves them.
+  feedbackConfig: (siteId: string) => ['feedback-config', siteId] as const,
 }

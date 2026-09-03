@@ -457,9 +457,18 @@ func TestOneIPCannotDrainTheSiteBudget(t *testing.T) {
 // the attempt must not cost them a token of their own either.
 func TestASiteOverItsBudgetKeepsTheCallersToken(t *testing.T) {
 	cfg := testConfig()
-	// The site's bucket holds one report and refills within a millisecond; the
+	// The site's bucket holds one report and takes 200 ms to refill it; the
 	// reporter's own holds two and, for the length of this test, never refills.
-	cfg.RatePerSec, cfg.Burst = 1000, 1
+	//
+	// ⚠ The margins are wide on purpose. `Module`'s limiters are built on
+	// time.Now — only `ratelimit`'s own suite can inject a clock — so the two
+	// assertions below are wall-clock bets: that the second request lands within
+	// 200 ms of the first (with a submission's ticket spend, report insert and
+	// httptest round trip in between, over one SQLite writer), and that 300 ms of
+	// sleep is more than 200. At 1 000 tokens/sec, which is what this said first,
+	// the first bet was on a single millisecond and the test failed roughly once
+	// in a hundred runs on an unloaded machine.
+	cfg.RatePerSec, cfg.Burst = 5, 1
 	cfg.IPRatePerSec, cfg.IPBurst = 0.001, 2
 	h := newHarness(t, cfg)
 	const path = "/api/ingest/" + testSite + "/feedback"
@@ -477,7 +486,7 @@ func TestASiteOverItsBudgetKeepsTheCallersToken(t *testing.T) {
 	// Once the site's bucket has refilled, my second token must still be there.
 	// Without the refund it went to a request the site never served, and this is
 	// a 429 for a reporter who has filed exactly one report.
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 	if code, body := h.do(http.MethodPost, path, h.submission(), me); code != http.StatusAccepted {
 		t.Fatalf("second submission = %d, want 202 — a refusal by the site's bucket cost the caller a token: %s", code, body)
 	}
@@ -632,9 +641,6 @@ func TestConfigPublishesTheMinimumDwell(t *testing.T) {
 	}
 }
 
-// TestConfigWithoutStorageIsDisabled: a deployment with no object storage reports
-// every site as disabled, whatever its row says. A switch must not be flippable
-// into a state the process cannot serve.
 // TestWidgetRoutesAreNotCacheable covers the three public responses, two of
 // which carry single-use credentials.
 //
@@ -688,6 +694,9 @@ func TestWidgetRoutesAreNotCacheable(t *testing.T) {
 	}
 }
 
+// TestConfigWithoutStorageIsDisabled: a deployment with no object storage reports
+// every site as disabled, whatever its row says. A switch must not be flippable
+// into a state the process cannot serve.
 func TestConfigWithoutStorageIsDisabled(t *testing.T) {
 	cfg := testConfig()
 	cfg.Enabled = false

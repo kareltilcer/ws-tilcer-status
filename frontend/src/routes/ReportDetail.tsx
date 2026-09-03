@@ -234,7 +234,16 @@ export function ReportDetail() {
             </p>
           </div>
 
-          <InternalNote key={report.ref} report={report} disabled={!isAdmin} pending={saveNote.isPending} onSave={(n) => saveNote.mutate(n)} />
+          {/* ⚠ Hidden from a non-admin, not disabled for one. The server nulls
+              `internal_note` for a session without the admin role, so the card
+              rendered for an editor with an empty textarea — which reads as "no
+              note has been written", not as "this is not yours to see". A note
+              Karel wrote was shown to them as its own absence, and the screen
+              would look identical if the redaction ever regressed. The Delete
+              button above takes the same treatment. */}
+          {isAdmin && (
+            <InternalNote key={report.ref} report={report} pending={saveNote.isPending} onSave={(n) => saveNote.mutate(n)} />
+          )}
 
           <div style={{ ...cardStyle, padding: '16px 18px' }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>What the reporter sees</div>
@@ -483,12 +492,10 @@ function Context({ report }: { report: Report }) {
 
 function InternalNote({
   report,
-  disabled,
   pending,
   onSave,
 }: {
   report: Report
-  disabled: boolean
   pending: boolean
   onSave: (note: string) => void
 }) {
@@ -512,7 +519,6 @@ function InternalNote({
       <textarea
         rows={4}
         value={note}
-        disabled={disabled}
         onChange={(e) => setNote(e.target.value)}
         style={{ display: 'block', width: '100%', resize: 'vertical', border: '1px solid var(--border)', background: 'var(--s2)', borderRadius: 8, padding: '10px 11px', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.5, color: 'var(--text)', outline: 'none' }}
       />
@@ -522,7 +528,7 @@ function InternalNote({
           // ⚠ Compared trimmed, because the mutation SENDS trimmed. On the raw
           // value, a note of nothing but spaces saves as null, comes back
           // unchanged, and leaves the button enabled on a no-op forever.
-          disabled={disabled || pending || note.trim() === (report.internal_note ?? '')}
+          disabled={pending || note.trim() === (report.internal_note ?? '')}
           style={{ ...primaryButton, height: 34 }}
         >
           Save note
