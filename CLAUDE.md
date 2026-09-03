@@ -21,14 +21,24 @@ Compile-time modular monolith:
   migrations + `WithTx`), `httpx` (chi router, `Error` envelope `{error, detail}`, health probes, role
   gates), `auth` (Mode B: self-hosted login + own session + CSRF), `reqctx`, `idgen`, `paging`
   (cursor helpers), `timeutil` (the one fixed-width RFC3339 UTC layout — all stored timestamps use it).
-- `internal/sites` — the shared registry. **Owns the whole DB schema** (one migration,
+- `internal/sites` — the shared registry. Owns the **v2** schema (one migration,
   `migrations/10001_init.sql`, all five tables). CRUD, ingest-key lifecycle, and the pure `ComputeColor`
-  + `RecomputeAndPersist` (FR-6).
+  + `RecomputeAndPersist` (FR-6). It must never import a feature module: the board's `open_reports`
+  badge and the object half of the site cascade are **interfaces it declares** (`ReportCounter`,
+  `ObjectPurger`) and `cmd/status` injects — never a package-level global.
 - `internal/monitoring` — poller (2-fail red debounce), nightly rollup, rollup-backed `/uptime`.
 - `internal/crash` — public key-authenticated ingest (guard chain 404→401→429→413→422→202),
   fingerprint grouping, admin browse/triage.
-- `internal/retention` — daily purge (runs **after** the rollup).
-- `internal/scheduler` — the poller ticker + daily rollup→purge timer (net-new; `home` has none).
+- `internal/feedback` — user bug reports with R2 attachments (v3). The first module to own a
+  migration block (`migrations/20001_feedback.sql`, four tables); mounts **twice** — the gated inbox
+  and per-site config through `RegisterRoutes`, the three public widget routes through
+  `MountPublicAPI`, as `crash` does. `blob/` wraps R2 behind an interface; `blob/blobtest` is the fake,
+  which **truncates** an oversized upload because that is what R2 does.
+- `internal/retention` — daily purge (runs **after** the rollup). ⚠ It does **not** touch feedback:
+  a report is a hand-written artifact and is kept until deleted (`TestRetentionDoesNotPurgeFeedback`).
+- `internal/scheduler` — the poller ticker + the daily **rollup → purge → feedback sweep** timer
+  (net-new; `home` has none). The sweep runs last because it is the only step that talks to the
+  network.
 - `internal/bootstrap` — assembles the migration sequence (platform sessions + sites schema).
 - `cmd/status/main.go` — config → open → migrate → auth wiring → scheduler → serve → graceful shutdown.
 
@@ -51,8 +61,19 @@ Compile-time modular monolith:
 - UI language is **English only** (unlike the Czech `home`/`fin` UIs).
 
 ### Migrations
-Numeric filename prefix orders them globally: platform sessions `02xxx`, sites schema `10xxx`. Every
-child table FKs to `site` with `ON DELETE CASCADE`; `foreign_keys` is a DSN pragma (per-connection).
+Numeric filename prefix orders them globally: platform sessions `02xxx`, sites schema `10xxx`,
+feedback `20xxx`. Every child table FKs to `site` with `ON DELETE CASCADE`; `foreign_keys` is a DSN
+pragma (per-connection).
+
+### Object storage (feedback)
+⚠ **No R2 call may run inside a transaction or with an outer `rows` cursor open.** One connection
+means a network round-trip holds the service's only writer for the length of someone else's TCP
+timeout. Collect keys, close, commit, *then* talk to R2 — asserted structurally by
+`TestNoObjectStorageCallInsideATransaction`, whose probe is itself proven to fail by the test beside
+it. Deletion order is normative: keys are read **inside** the transaction, objects deleted **after**
+it commits. The presigned PUT signs `Content-Type` **and** `Content-Length`; dropping the latter turns
+the bucket into an open upload endpoint that reports no error, which is what
+`TestPresignPutSignsContentLength` exists to prevent.
 
 ## Testing
 `cd backend && go test ./...`. `internal/apitest` drives the real router over HTTP (dev-bypass auth,

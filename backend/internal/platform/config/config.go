@@ -77,6 +77,35 @@ type Config struct {
 	// --- Scheduler daily job time (UTC) ---
 	DailyAtHour int // STATUS_DAILY_JOB_AT hour (default 0)
 	DailyAtMin  int // STATUS_DAILY_JOB_AT minute (default 15)
+
+	// --- Feedback (PRD §V3-9) ---
+	// FeedbackEnabled is the master switch. When true, every R2 variable below —
+	// plus the ticket secret and the IP hash salt — is REQUIRED at boot: a
+	// deployment that advertises feedback and cannot mint an upload URL is a
+	// switch that does nothing.
+	FeedbackEnabled bool
+	R2Endpoint      string
+	R2Bucket        string
+	R2AccessKeyID   string // never logged
+	R2SecretKey     string // never logged
+
+	FeedbackMaxFiles      int
+	FeedbackMaxImageBytes int64
+	FeedbackMaxVideoBytes int64
+	FeedbackMaxTextBytes  int64
+
+	FeedbackRatePerSec   float64 // per widget key (rateDefault idiom, as STATUS_INGEST_RATE)
+	FeedbackBurst        int
+	FeedbackIPRatePerSec float64 // per client IP, across all sites
+	FeedbackIPBurst      int
+
+	FeedbackUploadTTL    time.Duration
+	FeedbackViewTTL      time.Duration
+	FeedbackUnclaimedTTL time.Duration // sweep threshold AND the GC's minimum object age
+	FeedbackMinDwell     time.Duration
+
+	FeedbackTicketSecret string // never logged
+	IPHashSalt           string // never logged
 }
 
 // IsProduction reports whether the service is running in production.
@@ -98,17 +127,33 @@ func (c *Config) Redacted() string {
 	if jwtIssuer == "" {
 		jwtIssuer = "any"
 	}
+	endpoint, bucket := c.R2Endpoint, c.R2Bucket
+	if endpoint == "" {
+		endpoint = "none"
+	}
+	if bucket == "" {
+		bucket = "none"
+	}
 	return fmt.Sprintf(
 		"env=%s addr=%s db=%s static=%s site=%s auth_base=%s auth_secret=%s jwt_secret=%s jwt_issuer=%s "+
 			"origins=%v session_ttl_days=%d role_refresh_min=%d trusted_proxies=%d dev_auth_bypass=%t "+
 			"check_interval=%s check_timeout=%s poll_concurrency=%d red_fail_threshold=%d uptime_window_days=%d "+
 			"retention_days=%d rollup_retention_days=%d max_ingest_bytes=%d ingest_rate_per_sec=%.4f ingest_burst=%d "+
-			"reopen_on_regression=%t daily_job_at=%02d:%02d",
+			"reopen_on_regression=%t daily_job_at=%02d:%02d "+
+			"feedback_enabled=%t r2_endpoint=%s r2_bucket=%s r2_key_id=%s r2_secret=%s ticket_secret=%s ip_hash_salt=%s "+
+			"feedback_max_files=%d feedback_max_image_bytes=%d feedback_max_video_bytes=%d feedback_max_text_bytes=%d "+
+			"feedback_rate_per_sec=%.4f feedback_burst=%d feedback_ip_rate_per_sec=%.4f feedback_ip_burst=%d "+
+			"feedback_upload_ttl=%s feedback_view_ttl=%s feedback_unclaimed_ttl=%s feedback_min_dwell=%s",
 		c.Env, c.Addr, c.DBPath, static, c.SiteKey, c.AuthBaseURL, mask(c.AuthServiceSecret), mask(c.AuthJWTSecret), jwtIssuer,
 		c.AllowedOrigins, c.SessionTTLDays, c.RoleRefreshMinutes, c.TrustedProxyCount, c.DevAuthBypass,
 		c.CheckInterval, c.CheckTimeout, c.PollConcurrency, c.RedFailThreshold, c.UptimeWindowDays,
 		c.RetentionDays, c.RollupRetentionDays, c.MaxIngestBytes, c.IngestRatePerSec, c.IngestBurst,
 		c.ReopenOnRegression, c.DailyAtHour, c.DailyAtMin,
+		c.FeedbackEnabled, endpoint, bucket, mask(c.R2AccessKeyID), mask(c.R2SecretKey),
+		mask(c.FeedbackTicketSecret), mask(c.IPHashSalt),
+		c.FeedbackMaxFiles, c.FeedbackMaxImageBytes, c.FeedbackMaxVideoBytes, c.FeedbackMaxTextBytes,
+		c.FeedbackRatePerSec, c.FeedbackBurst, c.FeedbackIPRatePerSec, c.FeedbackIPBurst,
+		c.FeedbackUploadTTL, c.FeedbackViewTTL, c.FeedbackUnclaimedTTL, c.FeedbackMinDwell,
 	)
 }
 
@@ -124,6 +169,9 @@ const (
 	defaultSessionTTLDays     = 90
 	defaultRoleRefreshMinutes = 15
 	defaultTrustedProxyCount  = 1 // Coolify's lone Traefik appends the real client
+
+	// megabyte converts the MB-denominated attachment caps to bytes.
+	megabyte = 1024 * 1024
 )
 
 var defaultAllowedOrigins = []string{"https://*.tilcer.cz"}
@@ -193,6 +241,40 @@ func Load(getenv Getenv) (*Config, error) {
 	// Scheduler daily job time.
 	c.DailyAtHour, c.DailyAtMin = l.hhmmDefault("STATUS_DAILY_JOB_AT", 0, 15)
 
+	// Feedback (PRD §V3-9). The caps are read whether or not the feature is on, so
+	// a deployment that turns it on later does not also discover a typo then.
+	c.FeedbackEnabled = l.boolDefault("STATUS_FEEDBACK_ENABLED", false)
+	c.FeedbackMaxFiles = l.intDefault("STATUS_FEEDBACK_MAX_FILES", 3)
+	c.FeedbackMaxImageBytes = int64(l.intDefault("STATUS_FEEDBACK_MAX_IMAGE_MB", 10)) * megabyte
+	c.FeedbackMaxVideoBytes = int64(l.intDefault("STATUS_FEEDBACK_MAX_VIDEO_MB", 50)) * megabyte
+	c.FeedbackMaxTextBytes = int64(l.intDefault("STATUS_FEEDBACK_MAX_TEXT_BYTES", 8192))
+	c.FeedbackRatePerSec = l.rateDefault("STATUS_FEEDBACK_RATE", 0.0056) // ≈20/hour per widget key
+	c.FeedbackBurst = l.intDefault("STATUS_FEEDBACK_BURST", 5)
+	c.FeedbackIPRatePerSec = l.rateDefault("STATUS_FEEDBACK_IP_RATE", 0.0014) // ≈5/hour per client IP
+	c.FeedbackIPBurst = l.intDefault("STATUS_FEEDBACK_IP_BURST", 3)
+	c.FeedbackUploadTTL = l.durationDefault("STATUS_FEEDBACK_UPLOAD_TTL", 10*time.Minute)
+	c.FeedbackViewTTL = l.durationDefault("STATUS_FEEDBACK_VIEW_TTL", 5*time.Minute)
+	c.FeedbackUnclaimedTTL = l.durationDefault("STATUS_FEEDBACK_UNCLAIMED_TTL", 24*time.Hour)
+	c.FeedbackMinDwell = time.Duration(l.intDefault("STATUS_FEEDBACK_MIN_DWELL_MS", 3000)) * time.Millisecond
+	if c.FeedbackEnabled {
+		// ⚠ Every one of these is required once the switch is on. The R2 token must
+		// be scoped to the attachments bucket ALONE and must not reach the
+		// Litestream bucket (V3-D21).
+		c.R2Endpoint = l.strRequired("STATUS_R2_ENDPOINT")
+		c.R2Bucket = l.strRequired("STATUS_R2_BUCKET")
+		c.R2AccessKeyID = l.strRequired("STATUS_R2_ACCESS_KEY_ID")
+		c.R2SecretKey = l.strRequired("STATUS_R2_SECRET_ACCESS_KEY")
+		c.FeedbackTicketSecret = l.strRequired("STATUS_FEEDBACK_TICKET_SECRET")
+		c.IPHashSalt = l.strRequired("STATUS_IP_HASH_SALT")
+	} else {
+		c.R2Endpoint = l.strDefault("STATUS_R2_ENDPOINT", "")
+		c.R2Bucket = l.strDefault("STATUS_R2_BUCKET", "")
+		c.R2AccessKeyID = l.strDefault("STATUS_R2_ACCESS_KEY_ID", "")
+		c.R2SecretKey = l.strDefault("STATUS_R2_SECRET_ACCESS_KEY", "")
+		c.FeedbackTicketSecret = l.strDefault("STATUS_FEEDBACK_TICKET_SECRET", "")
+		c.IPHashSalt = l.strDefault("STATUS_IP_HASH_SALT", "")
+	}
+
 	// Range sanity.
 	if c.SessionTTLDays < 1 {
 		l.errf("STATUS_SESSION_TTL_DAYS must be >= 1 (got %d)", c.SessionTTLDays)
@@ -239,6 +321,54 @@ func Load(getenv Getenv) (*Config, error) {
 	}
 	if c.IngestBurst < 1 {
 		l.errf("STATUS_INGEST_BURST must be >= 1 (got %d)", c.IngestBurst)
+	}
+
+	// Feedback range sanity and cross-validation (V3-D24).
+	if c.FeedbackMaxFiles < 1 {
+		l.errf("STATUS_FEEDBACK_MAX_FILES must be >= 1 (got %d)", c.FeedbackMaxFiles)
+	}
+	if c.FeedbackMaxImageBytes < 1 {
+		l.errf("STATUS_FEEDBACK_MAX_IMAGE_MB must be >= 1 (got %d bytes)", c.FeedbackMaxImageBytes)
+	}
+	if c.FeedbackMaxTextBytes < 1 {
+		l.errf("STATUS_FEEDBACK_MAX_TEXT_BYTES must be >= 1 (got %d)", c.FeedbackMaxTextBytes)
+	}
+	if c.FeedbackRatePerSec <= 0 {
+		l.errf("STATUS_FEEDBACK_RATE must be > 0 (got %.4f/s)", c.FeedbackRatePerSec)
+	}
+	if c.FeedbackBurst < 1 {
+		l.errf("STATUS_FEEDBACK_BURST must be >= 1 (got %d)", c.FeedbackBurst)
+	}
+	if c.FeedbackIPRatePerSec <= 0 {
+		l.errf("STATUS_FEEDBACK_IP_RATE must be > 0 (got %.4f/s)", c.FeedbackIPRatePerSec)
+	}
+	if c.FeedbackIPBurst < 1 {
+		l.errf("STATUS_FEEDBACK_IP_BURST must be >= 1 (got %d)", c.FeedbackIPBurst)
+	}
+	if c.FeedbackUploadTTL <= 0 {
+		l.errf("STATUS_FEEDBACK_UPLOAD_TTL must be > 0 (got %s)", c.FeedbackUploadTTL)
+	}
+	if c.FeedbackViewTTL <= 0 {
+		l.errf("STATUS_FEEDBACK_VIEW_TTL must be > 0 (got %s)", c.FeedbackViewTTL)
+	}
+	if c.FeedbackMinDwell < 0 {
+		l.errf("STATUS_FEEDBACK_MIN_DWELL_MS must be >= 0 (got %s)", c.FeedbackMinDwell)
+	}
+	if c.FeedbackMinDwell > 30*time.Second {
+		// A dwell longer than half a minute is a disabled widget wearing a config
+		// value: nobody reads a dialog for thirty seconds before typing.
+		l.errf("STATUS_FEEDBACK_MIN_DWELL_MS must be under 30000 (got %s)", c.FeedbackMinDwell)
+	}
+	if c.FeedbackUploadTTL >= c.FeedbackUnclaimedTTL {
+		// Otherwise the sweep can delete an object whose presigned PUT has not yet
+		// expired — "a GC that outruns an in-flight upload" (V3-D06) arriving
+		// through the config file instead of through the code.
+		l.errf("STATUS_FEEDBACK_UPLOAD_TTL (%s) must be < STATUS_FEEDBACK_UNCLAIMED_TTL (%s) so the sweep cannot delete an object whose upload URL is still valid",
+			c.FeedbackUploadTTL, c.FeedbackUnclaimedTTL)
+	}
+	if c.FeedbackMaxVideoBytes < c.FeedbackMaxImageBytes {
+		l.errf("STATUS_FEEDBACK_MAX_VIDEO_MB (%d bytes) must be >= STATUS_FEEDBACK_MAX_IMAGE_MB (%d bytes) — a video cap below the image cap is always a typo",
+			c.FeedbackMaxVideoBytes, c.FeedbackMaxImageBytes)
 	}
 
 	// Security hard-stop: the dev bypass must never be active in production.

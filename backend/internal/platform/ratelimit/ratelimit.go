@@ -1,4 +1,8 @@
-package crash
+// Package ratelimit is the token bucket the service's key-authenticated public
+// endpoints share: crash ingest per site, feedback submission per widget key and
+// per client IP. One implementation, so a limit cannot behave differently
+// depending on which endpoint it guards.
+package ratelimit
 
 import (
 	"math"
@@ -8,14 +12,14 @@ import (
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/mapcap"
 )
 
-// maxTrackedKeys bounds the limiter's map. The key space is per-site (a site has
-// exactly one active ingest key), so this ceiling is only ever approached under a
-// spoofed-site flood, where wiping the map is acceptable degradation.
+// maxTrackedKeys bounds a limiter's map. The key space is a site id, a widget
+// key hash or a client IP, so this ceiling is only ever approached under a
+// spoofed-key flood, where wiping the map is acceptable degradation.
 const maxTrackedKeys = 8192
 
-// ingestLimiter is a per-key token bucket. Ingest is rate-limited per site
-// (INGEST_RATE tokens/sec, INGEST_BURST capacity) → 429 with Retry-After.
-type ingestLimiter struct {
+// Limiter is a per-key token bucket: rate tokens/sec accruing to a burst
+// capacity, one token per request → 429 with Retry-After when empty.
+type Limiter struct {
 	mu        sync.Mutex
 	buckets   map[string]*bucket
 	rate      float64 // tokens per second
@@ -29,11 +33,12 @@ type bucket struct {
 	last   time.Time
 }
 
-func newIngestLimiter(ratePerSec float64, burst int, now func() time.Time) *ingestLimiter {
+// New builds a limiter. now may be nil (time.Now); tests inject a clock.
+func New(ratePerSec float64, burst int, now func() time.Time) *Limiter {
 	if now == nil {
 		now = time.Now
 	}
-	return &ingestLimiter{
+	return &Limiter{
 		buckets: map[string]*bucket{},
 		rate:    ratePerSec,
 		burst:   float64(burst),
@@ -43,7 +48,7 @@ func newIngestLimiter(ratePerSec float64, burst int, now func() time.Time) *inge
 
 // Allow consumes one token for key. When the bucket is empty it returns
 // ok=false and the duration until the next token is available (for Retry-After).
-func (l *ingestLimiter) Allow(key string) (ok bool, retryAfter time.Duration) {
+func (l *Limiter) Allow(key string) (ok bool, retryAfter time.Duration) {
 	now := l.now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -71,7 +76,7 @@ func (l *ingestLimiter) Allow(key string) (ok bool, retryAfter time.Duration) {
 
 // sweep drops full/idle buckets to bound memory. Runs at most once per minute
 // unless the map is over the cap, where it wipes to keep memory bounded.
-func (l *ingestLimiter) sweep(now time.Time) {
+func (l *Limiter) sweep(now time.Time) {
 	overCap := len(l.buckets) > maxTrackedKeys
 	if !overCap && now.Sub(l.lastSweep) < time.Minute {
 		return

@@ -18,6 +18,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/bootstrap"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/crash"
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/feedback"
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/feedback/blob"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/monitoring"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/auth"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/config"
@@ -94,8 +96,9 @@ func run(logger *slog.Logger) error {
 	csrfMW := auth.NewCSRF(cfg.AllowedOrigins, cfg.DevAuthBypass)
 
 	// 4. Feature modules (mounted onto the gated /api group). The sites registry is
-	// the shared join point both functional modules key off. The crash module also
-	// exposes a public, key-authenticated ingest surface outside the session gate.
+	// the shared join point every functional module keys off. Two modules also
+	// expose public, key-authenticated surfaces outside the session gate: crash
+	// ingest, and the three widget routes of feedback (V3-D52).
 	sitesMod := sites.NewModule(sqldb, cfg.RedFailThreshold)
 	crashMod := crash.NewModule(sqldb, sitesMod.Store(), crash.Config{
 		MaxIngestBytes:     cfg.MaxIngestBytes,
@@ -110,7 +113,52 @@ func run(logger *slog.Logger) error {
 		RedFailThreshold: cfg.RedFailThreshold,
 		UptimeWindowDays: cfg.UptimeWindowDays,
 	}, logger)
-	modules := []registry.Module{sitesMod, crashMod, monMod}
+
+	// The feedback module is composed whether or not this deployment has object
+	// storage: its gated routes are what the dashboard renders the switch from,
+	// and with no storage every site simply reads as disabled and PATCH answers
+	// 503. ⚠ The R2 credentials are the narrow ones — scoped to the attachments
+	// bucket alone, never the Litestream bucket (V3-D21).
+	var blobs blob.Store
+	if cfg.FeedbackEnabled {
+		r2, err := blob.NewR2(blob.R2Config{
+			Endpoint:  cfg.R2Endpoint,
+			Bucket:    cfg.R2Bucket,
+			AccessKey: cfg.R2AccessKeyID,
+			SecretKey: cfg.R2SecretKey,
+		})
+		if err != nil {
+			return err
+		}
+		blobs = r2
+		logger.Info("feedback storage ready", "bucket", cfg.R2Bucket)
+	}
+	fbMod := feedback.NewModule(sqldb, sitesMod.Store(), blobs, feedback.Config{
+		Enabled:        cfg.FeedbackEnabled,
+		MaxFiles:       cfg.FeedbackMaxFiles,
+		MaxImageBytes:  cfg.FeedbackMaxImageBytes,
+		MaxVideoBytes:  cfg.FeedbackMaxVideoBytes,
+		MaxTextBytes:   cfg.FeedbackMaxTextBytes,
+		RatePerSec:     cfg.FeedbackRatePerSec,
+		Burst:          cfg.FeedbackBurst,
+		IPRatePerSec:   cfg.FeedbackIPRatePerSec,
+		IPBurst:        cfg.FeedbackIPBurst,
+		UploadTTL:      cfg.FeedbackUploadTTL,
+		ViewTTL:        cfg.FeedbackViewTTL,
+		UnclaimedTTL:   cfg.FeedbackUnclaimedTTL,
+		MinDwell:       cfg.FeedbackMinDwell,
+		TicketSecret:   cfg.FeedbackTicketSecret,
+		IPHashSalt:     cfg.IPHashSalt,
+		AllowedOrigins: cfg.AllowedOrigins,
+	}, logger)
+	// The board's unread badge and the object half of the site cascade cross a
+	// module boundary downwards: `sites` may not import `feedback`, so it declares
+	// the interfaces and composition injects the implementation here — never a
+	// package-level global.
+	sitesMod.SetReportCounter(fbMod)
+	sitesMod.SetObjectPurger(fbMod)
+
+	modules := []registry.Module{sitesMod, crashMod, monMod, fbMod}
 
 	// 5. Background scheduler: the poller every CHECK_INTERVAL, and a daily closure
 	// that rolls up yesterday, refreshes cached uptime, then purges (retention
@@ -146,6 +194,11 @@ func run(logger *slog.Logger) error {
 			if err := purger.Purge(ctx, now); err != nil {
 				logger.Error("retention purge", "err", err)
 			}
+			// The feedback sweep runs LAST (V3-D25): it is the only step that talks
+			// to the network, and it must not be able to delay the two that keep the
+			// database honest. It reports its own failures and never returns one,
+			// because a bucket problem is not a reason to skip anything.
+			fbMod.Sweep(ctx, now)
 		},
 	})
 
@@ -157,12 +210,15 @@ func run(logger *slog.Logger) error {
 		InsecureAuth:      cfg.DevAuthBypass,
 		TrustedProxyCount: cfg.TrustedProxyCount,
 		MountAuth:         func(api chi.Router) { authHandler.Mount(api, csrfMW) },
-		MountPublicAPI:    func(api chi.Router) { crashMod.RegisterPublicRoutes(api) },
-		SessionMW:         sessionMW,
-		CSRFMW:            csrfMW,
-		MountAPI:          func(api chi.Router) { registry.MountAll(api, modules) },
-		StaticDir:         cfg.StaticDir,
-		AllowedOrigins:    cfg.AllowedOrigins,
+		MountPublicAPI: func(api chi.Router) {
+			crashMod.RegisterPublicRoutes(api)
+			fbMod.RegisterPublicRoutes(api)
+		},
+		SessionMW:      sessionMW,
+		CSRFMW:         csrfMW,
+		MountAPI:       func(api chi.Router) { registry.MountAll(api, modules) },
+		StaticDir:      cfg.StaticDir,
+		AllowedOrigins: cfg.AllowedOrigins,
 	})
 	srv := &http.Server{
 		Addr:              cfg.Addr,

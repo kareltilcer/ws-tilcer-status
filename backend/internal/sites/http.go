@@ -229,9 +229,18 @@ func (m *Module) patchSite(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteSite handles DELETE /api/sites/{id}.
+//
+// ⚠ Order is normative (V3-D05): the object keys are collected inside the
+// deleting transaction and the storage deletes are issued after it commits. A
+// failed delete leaves an orphan for the nightly feedback sweep; the response
+// does not wait on the network.
 func (m *Module) deleteSite(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	ok, err := m.store.Delete(r.Context(), id)
+	var collect ObjectCollector
+	if m.objects != nil {
+		collect = m.objects.SiteObjectKeys
+	}
+	keys, ok, err := m.store.Delete(r.Context(), id, collect)
 	if err != nil {
 		httpx.WriteError(w, httpx.ErrInternal(""))
 		return
@@ -239,6 +248,9 @@ func (m *Module) deleteSite(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		httpx.WriteError(w, httpx.ErrNotFound("unknown site"))
 		return
+	}
+	if m.objects != nil {
+		m.objects.DeleteObjects(r.Context(), keys)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

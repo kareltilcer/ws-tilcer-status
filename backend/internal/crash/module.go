@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/httpx"
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/ratelimit"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/sites"
 )
 
@@ -19,7 +20,7 @@ type Module struct {
 	db         *sql.DB
 	crashStore *Store
 	sitesStore *sites.Store
-	limiter    *ingestLimiter
+	limiter    *ratelimit.Limiter
 	cfg        Config
 }
 
@@ -30,7 +31,7 @@ func NewModule(db *sql.DB, sitesStore *sites.Store, cfg Config) *Module {
 		db:         db,
 		crashStore: NewStore(db),
 		sitesStore: sitesStore,
-		limiter:    newIngestLimiter(cfg.IngestRatePerSec, cfg.IngestBurst, nil),
+		limiter:    ratelimit.New(cfg.IngestRatePerSec, cfg.IngestBurst, nil),
 		cfg:        cfg,
 	}
 }

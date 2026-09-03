@@ -20,6 +20,9 @@ var ErrMonitorURLRequired = errors.New("sites: monitor_url required to enable mo
 type Store struct {
 	db           *sql.DB
 	redThreshold int
+	// reports is the injected feedback report counter. Nil until composition
+	// registers one — and nil is what makes open_reports null rather than 0.
+	reports ReportCounter
 }
 
 // NewStore returns a store over db. redThreshold is the consecutive-failure count
@@ -63,7 +66,12 @@ func (s *Store) toSummary(ctx context.Context, r rawSite, now time.Time) (SiteSu
 	if err != nil {
 		return SiteSummary{}, err
 	}
-	return s.summaryFrom(r, recent, now), nil
+	sum := s.summaryFrom(r, recent, now)
+	if counts := s.openReports(ctx, []string{r.id}); counts != nil {
+		n := counts[r.id]
+		sum.OpenReports = &n
+	}
+	return sum, nil
 }
 
 // summaryFrom assembles a wire summary from a raw row and an already-computed
@@ -130,9 +138,20 @@ func (s *Store) List(ctx context.Context, now time.Time) ([]SiteSummary, error) 
 		return nil, err
 	}
 
+	ids := make([]string, 0, len(raws))
+	for _, r := range raws {
+		ids = append(ids, r.id)
+	}
+	reports := s.openReports(ctx, ids)
+
 	out := make([]SiteSummary, 0, len(raws))
 	for _, r := range raws {
-		out = append(out, s.summaryFrom(r, counts[r.id], now))
+		sum := s.summaryFrom(r, counts[r.id], now)
+		if reports != nil {
+			n := reports[r.id]
+			sum.OpenReports = &n
+		}
+		out = append(out, sum)
 	}
 	return out, nil
 }
@@ -305,15 +324,43 @@ func (s *Store) Update(ctx context.Context, id string, p updateParams, now time.
 	return s.Get(ctx, id, now)
 }
 
-// Delete removes a site (cascading its checks, rollups, groups, and events).
-// Returns false when the id did not exist.
-func (s *Store) Delete(ctx context.Context, id string) (bool, error) {
-	res, err := s.db.ExecContext(ctx, "DELETE FROM site WHERE id = ?", id)
+// Delete removes a site (cascading its checks, rollups, groups, events and
+// reports) and returns the object-storage keys that belonged to it, for the
+// caller to delete AFTER this has committed. ok is false when the id did not
+// exist.
+//
+// ⚠ The cascade removes rows; it cannot remove objects from R2 (FR-22). collect
+// runs inside the same transaction as the delete, so the keys are exactly what
+// the cascade is about to orphan: collecting after the commit would find the rows
+// already gone, and deleting the objects before it would destroy the attachments
+// of a site that still exists if the commit failed. collect may be nil.
+func (s *Store) Delete(ctx context.Context, id string, collect ObjectCollector) (keys []string, ok bool, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+	defer func() { _ = tx.Rollback() }() // no-op once committed
+
+	var one int
+	err = tx.QueryRowContext(ctx, "SELECT 1 FROM site WHERE id = ?", id).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if collect != nil {
+		if keys, err = collect(ctx, tx, id); err != nil {
+			return nil, false, err
+		}
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM site WHERE id = ?", id); err != nil {
+		return nil, false, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, false, err
+	}
+	return keys, true, nil
 }
 
 // SetIngestKeyHash replaces a site's ingest key hash (rotate). Returns false when
