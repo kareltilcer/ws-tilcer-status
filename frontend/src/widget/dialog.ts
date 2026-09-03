@@ -1,0 +1,901 @@
+// The dialog: form → uploading → success, plus the six failure treatments from
+// HANDOFF-design-v3.md §4.5.
+//
+// It is deliberately independent of how it is mounted. `main.ts` gives it a
+// closed shadow root; a test gives it a plain element. That is what makes the
+// focus trap and the submit flow testable at all — a closed root is, by
+// definition, unreadable from outside.
+
+import type { ConsoleCapture } from './consoleTail'
+import { clear, el, icon } from './dom'
+import type { Limits } from './files'
+import { validateFile } from './files'
+import { formatBytes } from './format'
+import type { Strings } from './i18n'
+import type { SubmitResult, Upload } from './api'
+import type { Kind, Submission, UploadSlot } from './types'
+
+const MAX_MESSAGE_CHARS = 4000
+
+/** ReportContext is everything the widget attaches without being asked. It is
+ *  also exactly what the disclosure block shows, because a person who can see
+ *  what they are attaching can decline to attach it (PRD §V3-8). */
+export interface ReportContext {
+  pageUrl: string | null
+  referrer: string | null
+  viewport: string | null
+  locale: string | null
+  appRelease: string | null
+  reporterLabel: string | null
+  /** browserLabel is display-only. The user agent reaches the report as the
+   *  request header the server reads, not as a field — but it IS sent, so the
+   *  disclosure names it. */
+  browserLabel: string
+}
+
+export interface DialogApi {
+  submit(body: Submission): Promise<SubmitResult>
+  put(slot: UploadSlot, file: Blob, onProgress: (pct: number) => void): Upload
+  claim(ref: string): Promise<void>
+  /** ticket returns the current unspent submission ticket, or null. */
+  ticket(): string | null
+  /** refreshTicket fetches a new one. Its failure is silent — the retry it backs
+   *  will simply fail again with the same message. */
+  refreshTicket(): Promise<void>
+}
+
+export interface DialogOptions {
+  root: ParentNode
+  strings: Strings
+  limits: Limits
+  consoleCapture: boolean
+  capture: ConsoleCapture
+  context: () => ReportContext
+  api: DialogApi
+  /** onClosed hands focus back to whatever opened the dialog. */
+  onClosed: () => void
+}
+
+type Phase = 'form' | 'sending' | 'uploading' | 'done'
+type FileState = 'waiting' | 'uploading' | 'done' | 'failed'
+
+interface Attachment {
+  file: File
+  state: FileState
+  pct: number
+}
+
+export class FeedbackDialog {
+  private o: DialogOptions
+  private scrim: HTMLElement | null = null
+  private wrap: HTMLElement | null = null
+  private dialog: HTMLElement | null = null
+  private body: HTMLElement | null = null
+  private foot: HTMLElement | null = null
+
+  private phase: Phase = 'form'
+  private message = ''
+  private kind: Kind = 'bug'
+  private attachments: Attachment[] = []
+  private discOpen = false
+  private consoleOptOut = false
+  private discardPrompt = false
+  private ref: string | null = null
+  private activeUpload: Upload | null = null
+  private disclosureHost: HTMLElement | null = null
+  private uploadStatus: HTMLElement | null = null
+  private uploadRows: { label: HTMLElement; bar: HTMLElement; fill: HTMLElement; mark: HTMLElement }[] = []
+
+  // Live nodes the update path writes to, rather than re-rendering the form and
+  // losing the caret in the middle of a sentence.
+  private msgInput: HTMLTextAreaElement | null = null
+  private counter: HTMLElement | null = null
+  private filesEl: HTMLElement | null = null
+  private pickBtn: HTMLButtonElement | null = null
+  private fileInput: HTMLInputElement | null = null
+  private attachHintEl: HTMLElement | null = null
+  private alertHost: HTMLElement | null = null
+  private discBody: HTMLElement | null = null
+  private discToggle: HTMLButtonElement | null = null
+  private sendBtn: HTMLButtonElement | null = null
+  private honeypot: HTMLInputElement | null = null
+
+  constructor(options: DialogOptions) {
+    this.o = options
+  }
+
+  get isOpen(): boolean {
+    return this.wrap !== null
+  }
+
+  open(): void {
+    if (this.isOpen) return
+    this.reset()
+    this.mount()
+    this.msgInput?.focus()
+  }
+
+  close(): void {
+    // ⚠ Closing mid-upload abandons the remaining files rather than trapping the
+    // reporter in a dialog. The report itself is already stored — the text is the
+    // thing worth keeping — and an abandoned object is collected by the nightly
+    // sweep, which is what it exists for.
+    this.activeUpload?.abort()
+    this.activeUpload = null
+    this.scrim?.remove()
+    this.wrap?.remove()
+    this.scrim = null
+    this.wrap = null
+    this.dialog = null
+    this.o.onClosed()
+  }
+
+  /** requestClose is what Escape, the ✕ and the scrim go through: it asks before
+   *  discarding text the reporter typed, because losing that is the real failure. */
+  private requestClose(): void {
+    if (this.phase === 'form' && this.dirty() && !this.discardPrompt) {
+      this.discardPrompt = true
+      this.renderFooter()
+      return
+    }
+    this.close()
+  }
+
+  private dirty(): boolean {
+    return this.message.trim().length > 0 || this.attachments.length > 0
+  }
+
+  private reset(): void {
+    this.phase = 'form'
+    this.message = ''
+    this.kind = 'bug'
+    this.attachments = []
+    this.discOpen = false
+    this.consoleOptOut = false
+    this.discardPrompt = false
+    this.ref = null
+  }
+
+  // --- structure ------------------------------------------------------------
+
+  private mount(): void {
+    const s = this.o.strings
+    this.scrim = el('div', { cls: 'sfb-scrim', on: { click: () => this.requestClose() } })
+    const titleId = 'sfb-title'
+
+    const head = el('div', {
+      cls: 'sfb-head',
+      kids: [
+        el('span', { cls: 'sfb-head-mark', kids: [icon('bubble', 18)] }),
+        el('div', {
+          attrs: { style: 'flex:1;min-width:0' },
+          kids: [
+            el('div', { cls: 'sfb-title', text: s.title, attrs: { id: titleId } }),
+            el('div', { cls: 'sfb-sub', text: s.msgHint }),
+          ],
+        }),
+        el('button', {
+          cls: 'sfb-iconbtn',
+          attrs: { type: 'button', 'aria-label': s.close },
+          kids: [icon('x', 20)],
+          on: { click: () => this.requestClose() },
+        }),
+      ],
+    })
+
+    this.body = el('div', { cls: 'sfb-body' })
+    this.foot = el('div', { cls: 'sfb-foot' })
+    this.dialog = el('div', {
+      cls: 'sfb-dialog',
+      attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId },
+      kids: [head, this.body, this.foot],
+      on: { keydown: (e) => this.onKeyDown(e as KeyboardEvent) },
+    })
+    this.wrap = el('div', { cls: 'sfb-wrap', kids: [this.dialog] })
+
+    this.o.root.appendChild(this.scrim)
+    this.o.root.appendChild(this.wrap)
+    this.renderForm()
+    this.renderFooter()
+  }
+
+  private onKeyDown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      e.stopPropagation()
+      this.requestClose()
+      return
+    }
+    if (e.key !== 'Tab' || !this.dialog) return
+    // Focus trap: Tab cycles inside the dialog only, in both directions.
+    //
+    // ⚠ Visibility is decided by the selector, never by `offsetParent`: the whole
+    // dialog is inside a position:fixed wrapper, and a fixed element's
+    // offsetParent is null in every browser — filtering on it would empty this
+    // list and let Tab escape into the host page.
+    const focusable = Array.from(
+      this.dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]):not([tabindex="-1"]), a[href], input:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]), select:not([disabled])',
+      ),
+    )
+    if (focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    const active = this.activeElementIn(this.dialog)
+    if (e.shiftKey && (active === first || active === null)) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
+
+  /** activeElementIn resolves the focused node through the shadow boundary — in a
+   *  shadow root `document.activeElement` is the host element, not the button. */
+  private activeElementIn(scope: HTMLElement): Element | null {
+    const root = scope.getRootNode() as Document | ShadowRoot
+    return (root as ShadowRoot).activeElement ?? document.activeElement
+  }
+
+  // --- the form -------------------------------------------------------------
+
+  private renderForm(): void {
+    if (!this.body) return
+    const s = this.o.strings
+    clear(this.body)
+
+    this.msgInput = el('textarea', {
+      cls: 'sfb-textarea',
+      attrs: {
+        rows: '4',
+        maxlength: String(MAX_MESSAGE_CHARS),
+        placeholder: s.msgPlaceholder,
+        'aria-describedby': 'sfb-msg-hint',
+      },
+      on: {
+        input: () => {
+          this.message = this.msgInput?.value ?? ''
+          if (this.counter) this.counter.textContent = `${this.message.length} / ${MAX_MESSAGE_CHARS}`
+        },
+      },
+    }) as HTMLTextAreaElement
+    this.msgInput.value = this.message
+    this.counter = el('span', { cls: 'sfb-count', text: `${this.message.length} / ${MAX_MESSAGE_CHARS}` })
+
+    const messageBlock = el('div', {
+      kids: [
+        el('label', { cls: 'sfb-label', text: s.msgLabel, attrs: { for: 'sfb-message' } }),
+        this.msgInput,
+        el('div', {
+          cls: 'sfb-meta',
+          kids: [el('span', { cls: 'sfb-hint', text: s.msgHint, attrs: { id: 'sfb-msg-hint' } }), this.counter],
+        }),
+      ],
+    })
+    this.msgInput.id = 'sfb-message'
+
+    // ⚠ The message comes before the kind (design §11 q5): the person is annoyed
+    // and should be typing within a second of the dialog opening. Classification
+    // is Karel's convenience and can wait for the sentence to be finished.
+    const kindsRow = el('div', { cls: 'sfb-kinds', attrs: { role: 'radiogroup', 'aria-label': s.kindLabel } })
+    const kindIds: Kind[] = ['bug', 'idea', 'other']
+    kindIds.forEach((k, i) => {
+      const btn = el('button', {
+        cls: 'sfb-kind',
+        attrs: { type: 'button', role: 'radio', 'aria-checked': String(k === this.kind) },
+        kids: [icon('check', 14), el('span', { text: s.kinds[i] })],
+        on: {
+          click: () => {
+            this.kind = k
+            for (const node of Array.from(kindsRow.children)) {
+              node.setAttribute('aria-checked', String(node === btn))
+            }
+          },
+        },
+      })
+      kindsRow.appendChild(btn)
+    })
+    const kindBlock = el('div', {
+      kids: [el('div', { cls: 'sfb-label', text: s.kindLabel }), kindsRow],
+    })
+
+    this.fileInput = el('input', {
+      cls: 'sfb-sr',
+      attrs: {
+        type: 'file',
+        multiple: 'multiple',
+        accept: this.o.limits.accept.join(','),
+        tabindex: '-1',
+        'aria-hidden': 'true',
+      },
+      on: { change: () => this.onFilesPicked() },
+    }) as HTMLInputElement
+    this.filesEl = el('div', { cls: 'sfb-files' })
+    this.pickBtn = el('button', {
+      cls: 'sfb-pick',
+      attrs: { type: 'button' },
+      kids: [icon('clip', 17), el('span', { text: s.attach })],
+      on: { click: () => this.fileInput?.click() },
+    }) as HTMLButtonElement
+    this.attachHintEl = el('div', { cls: 'sfb-hint' })
+    const attachBlock = el('div', {
+      kids: [
+        el('div', {
+          attrs: { style: 'display:flex;flex-direction:column;gap:8px' },
+          kids: [this.filesEl, this.pickBtn, this.attachHintEl, this.fileInput],
+        }),
+      ],
+    })
+
+    this.alertHost = el('div')
+    this.honeypot = el('input', {
+      cls: 'sfb-honey',
+      attrs: { type: 'text', name: 'website', tabindex: '-1', autocomplete: 'off', 'aria-hidden': 'true' },
+    }) as HTMLInputElement
+
+    this.body.appendChild(this.alertHost)
+    this.body.appendChild(messageBlock)
+    this.body.appendChild(kindBlock)
+    this.body.appendChild(attachBlock)
+    this.body.appendChild(this.buildDisclosure())
+    this.body.appendChild(this.honeypot)
+    this.syncFiles()
+  }
+
+  private buildDisclosure(): HTMLElement {
+    const s = this.o.strings
+    const summary = this.o.consoleCapture ? s.discSummaryConsole : s.discSummary
+    this.discBody = el('div', { cls: 'sfb-disclosure-body' })
+    this.discToggle = el('button', {
+      cls: 'sfb-link',
+      attrs: { type: 'button', 'aria-expanded': 'false' },
+      kids: [el('span', { text: s.discShow }), icon('chevD', 14)],
+      on: { click: () => this.toggleDisclosure() },
+    }) as HTMLButtonElement
+
+    const block = el('div', {
+      cls: 'sfb-disclosure',
+      kids: [
+        el('div', {
+          cls: 'sfb-disclosure-head',
+          kids: [
+            el('span', { attrs: { style: 'flex:none;margin-top:2px;color:var(--sfb-muted)' }, kids: [icon('info', 16)] }),
+            el('div', {
+              attrs: { style: 'flex:1;min-width:0' },
+              kids: [
+                el('div', {
+                  attrs: { style: 'font-size:12.5px' },
+                  kids: [el('b', { text: `${s.discLead} ` }), el('span', { text: summary })],
+                }),
+                this.discToggle,
+              ],
+            }),
+          ],
+        }),
+      ],
+    })
+    // The expanded body is attached and detached rather than hidden, so a screen
+    // reader never reaches lines the reporter has not asked to see.
+    this.disclosureHost = block
+    return block
+  }
+
+  private toggleDisclosure(): void {
+    const s = this.o.strings
+    this.discOpen = !this.discOpen
+    this.discToggle?.setAttribute('aria-expanded', String(this.discOpen))
+    if (this.discToggle) {
+      clear(this.discToggle)
+      this.discToggle.appendChild(el('span', { text: this.discOpen ? s.discHide : s.discShow }))
+      this.discToggle.appendChild(icon(this.discOpen ? 'chevU' : 'chevD', 14))
+    }
+    if (!this.disclosureHost || !this.discBody) return
+    if (!this.discOpen) {
+      this.discBody.remove()
+      return
+    }
+    this.fillDisclosure()
+    this.disclosureHost.appendChild(this.discBody)
+  }
+
+  private fillDisclosure(): void {
+    if (!this.discBody) return
+    const s = this.o.strings
+    const ctx = this.o.context()
+    clear(this.discBody)
+    const rows: [string, string | null][] = [
+      [s.discKeys.pageUrl, ctx.pageUrl],
+      [s.discKeys.referrer, ctx.referrer],
+      [s.discKeys.browser, ctx.browserLabel],
+      [s.discKeys.viewport, ctx.viewport],
+      [s.discKeys.locale, ctx.locale],
+      [s.discKeys.release, ctx.appRelease],
+    ]
+    const list = el('div', { attrs: { style: 'display:flex;flex-direction:column;gap:7px' } })
+    for (const [k, v] of rows) {
+      if (!v) continue
+      list.appendChild(el('div', { cls: 'sfb-kv', kids: [el('span', { text: k }), el('span', { text: v })] }))
+    }
+    this.discBody.appendChild(list)
+
+    if (!this.o.consoleCapture) return
+    const lines = this.o.capture.lines()
+    const linesEl = el('div', { cls: 'sfb-console-lines' })
+    for (const line of lines) linesEl.appendChild(el('div', { text: line }))
+    if (lines.length === 0) linesEl.appendChild(el('div', { text: '—' }))
+
+    const optOut = el('input', {
+      attrs: { type: 'checkbox' },
+      on: {
+        change: (e) => {
+          this.consoleOptOut = (e.target as HTMLInputElement).checked
+        },
+      },
+    }) as HTMLInputElement
+    optOut.checked = this.consoleOptOut
+
+    this.discBody.appendChild(
+      el('div', {
+        cls: 'sfb-console',
+        kids: [
+          el('div', {
+            cls: 'sfb-console-head',
+            kids: [
+              el('div', { attrs: { style: 'font-size:12px;font-weight:600' }, text: s.consoleLead }),
+              el('div', { cls: 'sfb-hint', text: s.consoleNote }),
+            ],
+          }),
+          linesEl,
+          el('label', { cls: 'sfb-optout', kids: [optOut, el('span', { text: s.consoleOptOut })] }),
+        ],
+      }),
+    )
+  }
+
+  private onFilesPicked(): void {
+    const input = this.fileInput
+    if (!input || !input.files) return
+    const s = this.o.strings
+    const picked = Array.from(input.files)
+    input.value = ''
+    for (const file of picked) {
+      const rejection = validateFile(file, this.o.limits, this.attachments.length)
+      if (!rejection) {
+        this.attachments.push({ file, state: 'waiting', pct: 0 })
+        continue
+      }
+      // ⚠ One rejection ends the loop: three alerts stacked on top of each other
+      // would bury the one the reporter can act on.
+      if (rejection.reason === 'count') {
+        this.showAlert('warn', s.tooManyTitle, s.tooManyBody(this.o.limits.maxFiles))
+      } else if (rejection.reason === 'type') {
+        this.showAlert('warn', s.wrongTypeTitle, `${file.name} · ${s.wrongTypeBody}`)
+      } else {
+        this.showAlert(
+          'danger',
+          s.tooLargeTitle,
+          `${file.name} · ${s.tooLargeBody(rejection.video, formatBytes(rejection.limit, s.lang), formatBytes(file.size, s.lang))}`,
+        )
+      }
+      break
+    }
+    this.syncFiles()
+  }
+
+  private syncFiles(): void {
+    if (!this.filesEl || !this.pickBtn || !this.attachHintEl) return
+    const s = this.o.strings
+    const limits = this.o.limits
+    clear(this.filesEl)
+    this.attachments.forEach((a, i) => {
+      this.filesEl?.appendChild(
+        el('div', {
+          cls: 'sfb-chip',
+          kids: [
+            el('span', {
+              attrs: { style: 'flex:none;color:var(--sfb-muted)' },
+              kids: [icon(a.file.type.startsWith('video/') ? 'video' : 'image', 17)],
+            }),
+            el('div', {
+              attrs: { style: 'flex:1;min-width:0' },
+              kids: [
+                el('div', { cls: 'sfb-chip-name', text: a.file.name }),
+                el('div', { cls: 'sfb-chip-size', text: formatBytes(a.file.size, s.lang) }),
+              ],
+            }),
+            el('button', {
+              cls: 'sfb-iconbtn',
+              attrs: { type: 'button', 'aria-label': `${s.remove}: ${a.file.name}` },
+              kids: [icon('x', 18)],
+              on: {
+                click: () => {
+                  this.attachments.splice(i, 1)
+                  this.syncFiles()
+                },
+              },
+            }),
+          ],
+        }),
+      )
+    })
+    const full = this.attachments.length >= limits.maxFiles
+    this.pickBtn.disabled = full
+    clear(this.pickBtn)
+    this.pickBtn.appendChild(icon('clip', 17))
+    this.pickBtn.appendChild(el('span', { text: full ? s.attachFullBtn : s.attach }))
+    this.attachHintEl.textContent = full
+      ? s.attachHintFull(limits.maxFiles)
+      : s.attachHint(
+          limits.maxFiles,
+          formatBytes(limits.maxImageBytes, s.lang),
+          formatBytes(limits.maxVideoBytes, s.lang),
+        )
+  }
+
+  private showAlert(tone: 'danger' | 'warn' | 'accent', title: string, body: string, action?: { label: string; onClick: () => void }): void {
+    if (!this.alertHost) return
+    clear(this.alertHost)
+    this.alertHost.appendChild(
+      el('div', {
+        cls: `sfb-alert sfb-tone-${tone}`,
+        attrs: { role: 'alert' },
+        kids: [
+          el('span', { attrs: { style: 'flex:none;margin-top:1px' }, kids: [icon(tone === 'accent' ? 'check' : 'alert', 16)] }),
+          el('div', {
+            attrs: { style: 'flex:1;min-width:0' },
+            kids: [
+              el('div', { cls: 'sfb-alert-title', text: title }),
+              el('div', { cls: 'sfb-alert-body', text: body }),
+              action
+                ? el('button', {
+                    cls: 'sfb-link',
+                    attrs: { type: 'button' },
+                    text: action.label,
+                    on: { click: action.onClick },
+                  })
+                : null,
+            ],
+          }),
+        ],
+      }),
+    )
+  }
+
+  private clearAlert(): void {
+    if (this.alertHost) clear(this.alertHost)
+  }
+
+  // --- footer ---------------------------------------------------------------
+
+  private renderFooter(): void {
+    if (!this.foot) return
+    const s = this.o.strings
+    clear(this.foot)
+
+    if (this.discardPrompt) {
+      this.foot.appendChild(
+        el('div', {
+          kids: [
+            el('div', { attrs: { style: 'font-size:13px;font-weight:600;margin-bottom:10px' }, text: s.discardTitle }),
+            el('div', {
+              cls: 'sfb-btn-row',
+              kids: [
+                el('button', {
+                  cls: 'sfb-btn',
+                  attrs: { type: 'button' },
+                  text: s.keepEditing,
+                  on: {
+                    click: () => {
+                      this.discardPrompt = false
+                      this.renderFooter()
+                      this.msgInput?.focus()
+                    },
+                  },
+                }),
+                el('button', {
+                  cls: 'sfb-btn sfb-btn-quiet',
+                  attrs: { type: 'button' },
+                  text: s.discard,
+                  on: { click: () => this.close() },
+                }),
+              ],
+            }),
+          ],
+        }),
+      )
+      return
+    }
+
+    if (this.phase === 'form' || this.phase === 'sending') {
+      const sending = this.phase === 'sending'
+      this.sendBtn = el('button', {
+        cls: 'sfb-btn',
+        attrs: { type: 'button', ...(sending ? { disabled: 'disabled' } : {}) },
+        text: sending ? s.sending : s.send,
+        on: { click: () => void this.submit() },
+      }) as HTMLButtonElement
+      this.foot.appendChild(this.sendBtn)
+      return
+    }
+
+    if (this.phase === 'done') {
+      this.foot.appendChild(
+        el('button', {
+          cls: 'sfb-btn',
+          attrs: { type: 'button' },
+          text: s.close,
+          on: { click: () => this.close() },
+        }),
+      )
+    }
+  }
+
+  // --- submit ---------------------------------------------------------------
+
+  private async submit(): Promise<void> {
+    const s = this.o.strings
+    if (this.phase !== 'form') return
+    const message = this.message.trim()
+    if (!message) {
+      this.showAlert('warn', s.msgLabel, s.msgRequired)
+      this.msgInput?.focus()
+      return
+    }
+    const ticket = this.o.api.ticket()
+    if (!ticket) {
+      this.failSend()
+      return
+    }
+
+    this.clearAlert()
+    this.phase = 'sending'
+    this.renderFooter()
+
+    const ctx = this.o.context()
+    const sendConsole = this.o.consoleCapture && !this.consoleOptOut
+    const payload: Submission = {
+      message,
+      kind: this.kind,
+      ticket,
+      reporter_label: ctx.reporterLabel,
+      page_url: ctx.pageUrl,
+      referrer: ctx.referrer,
+      viewport: ctx.viewport,
+      locale: ctx.locale,
+      app_release: ctx.appRelease,
+      console_tail: sendConsole ? this.o.capture.lines() : null,
+      last_error: sendConsole ? this.o.capture.lastError() : null,
+      website: this.honeypot?.value ?? '',
+      files: this.attachments.map((a) => ({ content_type: a.file.type, byte_size: a.file.size })),
+    }
+
+    const result = await this.o.api.submit(payload)
+    if (!this.isOpen) return
+    if (!result.ok) {
+      this.phase = 'form'
+      this.renderFooter()
+      if (result.kind === 'rate') {
+        const minutes = Math.max(1, Math.ceil(result.retryAfterSeconds / 60))
+        this.showAlert('warn', s.rateTitle, s.rateBody, { label: s.retryIn(minutes), onClick: () => void this.submit() })
+        return
+      }
+      this.failSend()
+      return
+    }
+
+    // The ticket is spent. A new one is fetched now rather than at the next open,
+    // so it has aged past MIN_DWELL_MS by the time anyone could use it.
+    void this.o.api.refreshTicket()
+
+    this.ref = result.accepted.ref
+    const slots = result.accepted.uploads
+    if (this.attachments.length === 0) {
+      this.renderSuccess([])
+      return
+    }
+    if (slots.length === 0) {
+      // The report was accepted but no slot could be signed, so there is nowhere
+      // to put the files. That is the "report landed, file did not" case, and the
+      // reporter is told which files rather than left to assume they arrived.
+      for (const a of this.attachments) a.state = 'failed'
+      this.renderSuccess(this.attachments.map((a) => a.file.name))
+      return
+    }
+    await this.runUploads(slots)
+  }
+
+  /** failSend is the shared treatment for a dropped connection, a 5xx, a 413/422
+   *  and a refused key. Only the first is really "the connection", but the other
+   *  three are equally outside the reporter's control, and the one thing they all
+   *  need to hear is that the text they typed is still there. The retry refreshes
+   *  the ticket first, which is what fixes the common 422 (a ticket that expired
+   *  while the dialog sat open). */
+  private failSend(): void {
+    const s = this.o.strings
+    this.showAlert('danger', s.sendFailTitle, s.sendFailBody, {
+      label: s.sendAgain,
+      onClick: () => {
+        void this.o.api.refreshTicket().then(() => this.submit())
+      },
+    })
+  }
+
+  private async runUploads(slots: UploadSlot[]): Promise<void> {
+    this.phase = 'uploading'
+    this.renderUploading()
+
+    // ⚠ Sequential, one file at a time (V3-D38): a 50 MB video and two
+    // screenshots racing each other on household wifi is slower than the same
+    // three in series, and gives the reporter no honest progress to look at.
+    for (let i = 0; i < slots.length && i < this.attachments.length; i++) {
+      if (!this.isOpen) return
+      const attachment = this.attachments[i]
+      attachment.state = 'uploading'
+      attachment.pct = 0
+      this.setUploadStatus(i)
+      this.updateUploadRow(i)
+      let ok = await this.putOnce(slots[i], attachment, i)
+      if (!ok && this.isOpen) ok = await this.putOnce(slots[i], attachment, i) // one retry, then abandoned
+      attachment.state = ok ? 'done' : 'failed'
+      this.updateUploadRow(i)
+    }
+    this.activeUpload = null
+    if (!this.isOpen) return
+
+    // The claim runs whatever happened above: it is what turns an uploaded object
+    // into a `stored` attachment, and skipping it after a partial failure would
+    // leave the files that DID arrive pending until the sweep deleted them.
+    if (this.ref) await this.o.api.claim(this.ref)
+    if (!this.isOpen) return
+    this.renderSuccess(this.attachments.filter((a) => a.state !== 'done').map((a) => a.file.name))
+  }
+
+  private putOnce(slot: UploadSlot, attachment: Attachment, index: number): Promise<boolean> {
+    const upload = this.o.api.put(slot, attachment.file, (pct) => {
+      attachment.pct = pct
+      this.updateUploadRow(index)
+    })
+    this.activeUpload = upload
+    return upload.promise
+  }
+
+  /** renderUploading builds the progress view ONCE. Progress then writes to the
+   *  rows it keeps references to — re-rendering on every progress event would
+   *  rewrite the polite live region several times a second, which a screen reader
+   *  reads out as a stream of interruptions. */
+  private renderUploading(): void {
+    if (!this.body) return
+    const s = this.o.strings
+    clear(this.body)
+    if (this.foot) clear(this.foot)
+    this.uploadRows = []
+
+    this.body.appendChild(
+      el('div', {
+        cls: 'sfb-quote',
+        kids: [
+          el('div', { cls: 'sfb-quote-label', text: s.yourReport }),
+          el('div', { cls: 'sfb-quote-text', text: this.message.trim() }),
+        ],
+      }),
+    )
+    this.uploadStatus = el('span', { text: s.uploadingN(1, this.attachments.length) })
+    this.body.appendChild(
+      el('div', {
+        cls: 'sfb-status',
+        attrs: { role: 'status', 'aria-live': 'polite' },
+        kids: [el('span', { cls: 'sfb-spinner' }), this.uploadStatus],
+      }),
+    )
+
+    const list = el('div', { cls: 'sfb-files' })
+    this.attachments.forEach((a) => {
+      const label = el('span', { cls: 'sfb-chip-state', text: s.fileWaiting })
+      const fill = el('span', { attrs: { style: 'width:0%' } })
+      const bar = el('div', { cls: 'sfb-bar', kids: [fill] })
+      bar.style.display = 'none'
+      const mark = el('span', {
+        attrs: { style: 'flex:none;color:var(--sfb-muted)' },
+        kids: [icon(a.file.type.startsWith('video/') ? 'video' : 'image', 17)],
+      })
+      list.appendChild(
+        el('div', {
+          attrs: { style: 'border:1px solid var(--sfb-hairline);border-radius:var(--sfb-radius-sm);padding:9px 11px' },
+          kids: [
+            el('div', {
+              attrs: { style: 'display:flex;align-items:center;gap:10px' },
+              kids: [
+                mark,
+                el('div', {
+                  attrs: { style: 'flex:1;min-width:0' },
+                  kids: [
+                    el('div', { cls: 'sfb-chip-name', text: a.file.name }),
+                    el('div', { cls: 'sfb-chip-size', text: formatBytes(a.file.size, s.lang) }),
+                  ],
+                }),
+                label,
+              ],
+            }),
+            bar,
+          ],
+        }),
+      )
+      this.uploadRows.push({ label, bar, fill, mark })
+    })
+    this.body.appendChild(list)
+    this.body.appendChild(el('div', { cls: 'sfb-hint', text: s.uploadNote }))
+  }
+
+  private setUploadStatus(index: number): void {
+    if (this.uploadStatus) {
+      this.uploadStatus.textContent = this.o.strings.uploadingN(index + 1, this.attachments.length)
+    }
+  }
+
+  private updateUploadRow(index: number): void {
+    const row = this.uploadRows[index]
+    const a = this.attachments[index]
+    if (!row || !a) return
+    const s = this.o.strings
+    const tone =
+      a.state === 'failed' ? 'var(--sfb-danger)' : a.state === 'waiting' ? 'var(--sfb-muted)' : 'var(--sfb-accent)'
+    // Never colour alone: each state carries a word as well as a tone.
+    row.label.textContent =
+      a.state === 'done' ? s.fileDone : a.state === 'failed' ? s.fileFailed : a.state === 'waiting' ? s.fileWaiting : `${a.pct} %`
+    row.label.style.color = tone
+    row.mark.style.color = tone
+    row.bar.style.display = a.state === 'uploading' ? 'block' : 'none'
+    row.fill.style.width = `${a.pct}%`
+  }
+
+  private renderSuccess(failedNames: string[]): void {
+    if (!this.body || !this.foot) return
+    const s = this.o.strings
+    this.phase = 'done'
+    clear(this.body)
+    this.body.className = 'sfb-success'
+
+    const partial = failedNames.length > 0
+    this.body.appendChild(el('div', { cls: 'sfb-success-mark', kids: [icon('check', 26)] }))
+    this.body.appendChild(el('div', { cls: 'sfb-success-title', text: partial ? s.uploadFailedTitle : s.successTitle }))
+    // ⚠ Accent, not red. The report exists; only a file did not arrive. This
+    // reads as a variant of success because that is what it is (design §4.5, row 5).
+    this.body.appendChild(
+      el('p', {
+        cls: 'sfb-success-body',
+        attrs: partial ? { role: 'status', 'aria-live': 'polite' } : {},
+        text: partial ? s.uploadFailedBody(failedNames) : s.successBody,
+      }),
+    )
+
+    const code = el('div', { cls: 'sfb-ref-code', text: this.ref ?? '' })
+    const copyBtn = el('button', {
+      cls: 'sfb-ref-copy',
+      attrs: { type: 'button' },
+      kids: [icon('copy', 16), el('span', { text: s.copy })],
+      on: {
+        click: () => {
+          const label = copyBtn.querySelector('span')
+          void navigator.clipboard
+            ?.writeText(this.ref ?? '')
+            .then(() => {
+              if (label) label.textContent = s.copied
+            })
+            .catch(() => {
+              // Clipboard permission is the host page's business, and the code is
+              // on screen in 32px type either way.
+            })
+        },
+      },
+    })
+    this.body.appendChild(
+      el('div', {
+        cls: 'sfb-ref',
+        kids: [el('div', { cls: 'sfb-ref-label', text: s.refLabel }), code, copyBtn],
+      }),
+    )
+    this.body.appendChild(el('p', { cls: 'sfb-ref-help', text: s.refHelp }))
+    this.renderFooter()
+    copyBtn.focus()
+  }
+}
