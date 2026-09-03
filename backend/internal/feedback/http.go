@@ -283,15 +283,6 @@ func (m *Module) patchSiteConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A key is minted up front and handed to the store, which uses it only if the
-	// site has no configuration row yet — deciding here would mean reading the row
-	// outside the transaction that then writes it. An unused key is thrown away;
-	// an existing one is never replaced by this route (that is rotate's job).
-	plaintext, hash, err := GenerateWidgetKey()
-	if err != nil {
-		m.fail(w, r, "generate widget key", err)
-		return
-	}
 	// ⚠ Only a request that turns feedback ON may create the configuration row.
 	// Creating it mints the widget key and returns the plaintext exactly once, so
 	// a `console_capture`-only PATCH against a site that has never been enabled
@@ -299,6 +290,24 @@ func (m *Module) patchSiteConfig(w http.ResponseWriter, r *http.Request) {
 	// ask about — leaving a site whose key nobody knows, recoverable only by
 	// rotating it.
 	allowCreate := in.Enabled != nil && *in.Enabled
+
+	// A key is minted up front and handed to the store, which uses it only if the
+	// site has no configuration row yet — deciding INSIDE the store would be the
+	// alternative to reading the row here, outside the transaction that then
+	// writes it. An unused key is thrown away; an existing one is never replaced
+	// by this route (that is rotate's job).
+	//
+	// ⚠ Nothing is minted for a request that may not create the row, because
+	// such a request can never use one: a secret generated and discarded on every
+	// settings click is one more thing to rule out when asking "was a key issued
+	// here?".
+	var plaintext, hash string
+	if allowCreate {
+		if plaintext, hash, err = GenerateWidgetKey(); err != nil {
+			m.fail(w, r, "generate widget key", err)
+			return
+		}
+	}
 	cfg, minted, err := m.store.UpsertConfig(r.Context(), id, in.Enabled, in.ConsoleCapture, hash, allowCreate, time.Now().UTC())
 	if errors.Is(err, errConfigMissing) {
 		httpx.WriteError(w, httpx.ErrUnprocessable(

@@ -140,9 +140,18 @@ export class FeedbackDialog {
   private discOpen = false
   private consoleOptOut = false
   private discardPrompt = false
-  /** dwelling is true while `retrySend` is waiting out the ticket's minimum age.
-   *  The phase reads `sending` then, but nothing is in flight and nothing is
-   *  stored — so closing has to ask, exactly as it does on the form. */
+  /** dwelling is true for the whole of the sending phase that precedes the POST:
+   *  the wait on a replacement ticket AND the wait on its minimum age. The phase
+   *  reads `sending` throughout, but nothing is in flight and nothing is stored
+   *  — so closing has to ask, exactly as it does on the form.
+   *
+   *  ⚠ It covers `ticketSettled()` too, not only the dwell. A send that failed
+   *  because the network is down starts a refresh that then takes the full
+   *  10-second config timeout, and "Send again" waits on it in a phase labelled
+   *  Sending: that wait is the LIKELIEST moment for an impatient ✕, and it is a
+   *  moment at which nothing has been posted. Cleared just before the POST goes
+   *  out, and by `reset()`, so an opening the reporter walked away from cannot
+   *  leave it set for the next one. */
   private dwelling = false
   private ref: string | null = null
   /**
@@ -229,10 +238,10 @@ export class FeedbackDialog {
    *  failure. */
   private requestClose(): void {
     // ⚠ `dwelling` is in here as well as `form`. During a real send the report is
-    // already on its way and closing loses nothing that matters; during the
-    // retry's dwell it is not — the POST has not happened — so an impatient ✕ on
-    // a phase that merely READS as sending would throw the typed report away
-    // without ever asking.
+    // already on its way and closing loses nothing that matters; before the POST
+    // it is not — neither while a replacement ticket is being fetched nor while
+    // its dwell runs out — so an impatient ✕ on a phase that merely READS as
+    // sending would throw the typed report away without ever asking.
     if ((this.phase === 'form' || this.dwelling) && this.dirty() && !this.discardPrompt) {
       this.discardPrompt = true
       this.renderFooter()
@@ -255,6 +264,12 @@ export class FeedbackDialog {
     this.discOpen = false
     this.consoleOptOut = false
     this.discardPrompt = false
+    // ⚠ A close during the pre-POST wait abandons that chain without unwinding
+    // it, so the flag is cleared here rather than where it was set. Left set, it
+    // would make the NEXT opening's genuine send ask before closing; and the
+    // abandoned chain must never clear it either, or it would clear a later
+    // opening's dwell and reopen the silent discard this exists to prevent.
+    this.dwelling = false
     this.ref = null
   }
 
@@ -811,6 +826,13 @@ export class FeedbackDialog {
     // click must not start a second submission.
     this.clearAlert()
     this.phase = 'sending'
+    // ⚠ Both flags move before the footer is drawn. A discard prompt raised by a
+    // ✕ is answered by choosing to send — leaving it set would render the
+    // question over the sending phase, the uploads and the success screen, with
+    // a Discard button that closes mid-upload. And `dwelling` covers the wait
+    // below, which is a phase that only READS as sending.
+    this.discardPrompt = false
+    this.dwelling = true
     this.renderFooter()
     this.syncFiles()
 
@@ -842,6 +864,9 @@ export class FeedbackDialog {
     }
     if (sendConsole) payload.console_tail = this.fitConsoleTail(payload)
 
+    // From here the report IS on its way, so closing loses nothing that matters
+    // and no longer asks.
+    this.dwelling = false
     const result = await this.o.api.submit(payload)
     if (!this.live(gen)) return
     if (!result.ok) {
@@ -944,16 +969,22 @@ export class FeedbackDialog {
     const gen = this.generation
     this.clearAlert()
     this.phase = 'sending'
+    this.discardPrompt = false
+    this.dwelling = true
     this.renderFooter()
     this.syncFiles()
+    // ⚠ The flag is set BEFORE this wait, not after it. On a dead network — the
+    // usual reason a send failed — the replacement ticket's fetch runs the full
+    // config timeout, and until this covered it a ✕ during those ten seconds
+    // discarded the typed report with no prompt at all.
     await this.o.api.ticketSettled()
     const owed = this.o.api.ticketOwedMs()
-    if (owed > 0) {
-      this.dwelling = true
-      await new Promise((resolve) => setTimeout(resolve, owed))
-      this.dwelling = false
-    }
+    if (owed > 0) await new Promise((resolve) => setTimeout(resolve, owed))
+    // ⚠ Nothing is cleared on the abandoned path: this timer belongs to an
+    // opening that is over, and clearing a flag the CURRENT opening owns is how
+    // a later dwell ends up unguarded. `reset()` clears it on close instead.
     if (!this.live(gen)) return
+    this.dwelling = false
     this.phase = 'form'
     await this.submit()
   }

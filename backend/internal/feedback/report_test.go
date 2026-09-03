@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/sites"
 )
 
 // TestRefFormat: the reference is quoted back by the reporter, so it must survive
@@ -523,6 +525,13 @@ func TestSiteConfigRoutes(t *testing.T) {
 	}
 	if stored == first.WidgetKey {
 		t.Fatal("the plaintext key was stored — only its SHA-256 may be")
+	}
+	// ⚠ And it is still the FIRST key's hash. This route mints one for the create
+	// path only; a later patch must neither replace the site's key nor mint a
+	// second one it then throws away, because a key nobody was shown is a key
+	// only a rotate can recover from.
+	if !sites.ConstantTimeMatch(first.WidgetKey, stored) {
+		t.Fatal("a later patch replaced the widget key — only rotate may do that")
 	}
 
 	if code, _ := h.do(http.MethodGet, "/api/sites/nope/feedback-config", nil, nil); code != http.StatusNotFound {

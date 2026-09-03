@@ -61,8 +61,14 @@ function asciiOnly(): Plugin {
     },
     writeBundle(options, bundle) {
       const dir = options.dir ?? path.dirname(options.file ?? '')
+      // ⚠ Every emitted file, not only the `.js` ones. The escape above runs on
+      // chunks; a filter here would have made the two halves cover different
+      // sets, so exactly the output that escaping skipped — an asset, a
+      // stylesheet, a chunk from a plugin ordered after this one — would also be
+      // the output nothing checked, and it would ship with raw UTF-8 bytes on a
+      // green build. The widget emits one file today; the guard is for the day
+      // it does not.
       for (const name of Object.keys(bundle)) {
-        if (!name.endsWith('.js')) continue
         const written = readFileSync(path.join(dir, name))
         const offset = written.findIndex((b) => b > 0x7f)
         if (offset >= 0) {

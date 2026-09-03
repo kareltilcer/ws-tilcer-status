@@ -51,6 +51,7 @@ function harness(opts: {
   ticket?: string | null
   ticketOwedMs?: () => number
   refreshTicket?: () => Promise<void>
+  ticketSettled?: () => Promise<void>
 }): Harness {
   const root = document.createElement('div')
   document.body.appendChild(root)
@@ -78,7 +79,7 @@ function harness(opts: {
     // dwell should not have to wait one out.
     ticketOwedMs: () => (opts.ticketOwedMs ? opts.ticketOwedMs() : -60_000),
     refreshTicket: () => (opts.refreshTicket ? opts.refreshTicket() : Promise.resolve()),
-    ticketSettled: () => Promise.resolve(),
+    ticketSettled: () => (opts.ticketSettled ? opts.ticketSettled() : Promise.resolve()),
   }
 
   const dialog = new FeedbackDialog({
@@ -484,6 +485,115 @@ describe('the submission', () => {
       h.byText('button', STRINGS.cs.sendAgain)!.click()
       await flush()
       expect(h.submitted).toHaveLength(1) // still waiting; nothing has been sent
+
+      press(h, 'Escape')
+      expect(h.dialog.isOpen).toBe(true)
+      expect(h.root.textContent).toContain(STRINGS.cs.discardTitle)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // ⚠ The SAME hazard, one await earlier, and the likelier of the two: before
+  // the retry can wait out a dwell it has to wait for the replacement ticket to
+  // arrive, and the send failed because the network is down — so that fetch runs
+  // the full 10-second config timeout. The phase says "Odesílám…" for all of it
+  // while nothing has been posted, and until `dwelling` covered this await too a
+  // ✕ during those ten seconds threw the typed report away without asking.
+  it('asks before discarding while the retry is still waiting for a ticket', async () => {
+    let settle = (): void => {}
+    const held = new Promise<void>((resolve) => {
+      settle = resolve
+    })
+    let settled = 0
+    const h = harness({
+      submit: async () => ({ ok: false, kind: 'network' }),
+      // The first send's own wait resolves; the retry's is the one held open.
+      ticketSettled: () => (++settled > 1 ? held : Promise.resolve()),
+    })
+    h.dialog.open()
+    type(h, 'Rozbité')
+    h.byText('button', STRINGS.cs.send)!.click()
+    await flush()
+
+    h.byText('button', STRINGS.cs.sendAgain)!.click()
+    await flush()
+    expect(h.submitted).toHaveLength(1) // nothing posted; still waiting for the ticket
+    expect(h.root.textContent).toContain(STRINGS.cs.sending)
+
+    press(h, 'Escape')
+    expect(h.dialog.isOpen).toBe(true)
+    expect(h.root.textContent).toContain(STRINGS.cs.discardTitle)
+    settle()
+    await flush()
+  })
+
+  // ⚠ The alert's "Odeslat znovu" lives in the BODY and the discard question in
+  // the FOOTER, so both are on screen at once — and a reporter who pressed ✕ and
+  // then decided to retry has answered the question by retrying. Left standing,
+  // it rendered over the sending phase, the uploads and the success screen, with
+  // a Discard button that closed the dialog mid-upload.
+  it('clears a standing discard prompt when the reporter retries instead of answering it', async () => {
+    let attempt = 0
+    const h = harness({
+      submit: async () =>
+        ++attempt === 1
+          ? { ok: false, kind: 'network' }
+          : { ok: true, accepted: { ref: 'R-7QK2', uploads: [] } },
+    })
+    h.dialog.open()
+    type(h, 'Rozbité')
+    h.byText('button', STRINGS.cs.send)!.click()
+    await flush()
+
+    press(h, 'Escape')
+    expect(h.root.textContent).toContain(STRINGS.cs.discardTitle)
+
+    h.byText('button', STRINGS.cs.sendAgain)!.click()
+    await flush()
+    expect(h.submitted).toHaveLength(2)
+    expect(h.dialog.isOpen).toBe(true)
+    expect(h.root.textContent).toContain(STRINGS.cs.successTitle)
+    expect(h.root.textContent).not.toContain(STRINGS.cs.discardTitle)
+  })
+
+  // ⚠ `dwelling` is one flag shared by every opening, and a close does not
+  // unwind the chain that set it — the abandoned `setTimeout` still resumes. If
+  // it cleared the flag on its way out it would clear a LATER opening's dwell,
+  // reopening the silent discard the flag exists to close. The abandoned chain
+  // therefore clears nothing and `reset()` does it on close.
+  it('does not let an abandoned opening clear a later one’s dwell', async () => {
+    vi.useFakeTimers()
+    try {
+      let issuedAt = Date.now()
+      const h = harness({
+        submit: async () => ({ ok: false, kind: 'network' }),
+        ticketOwedMs: () => 3_500 - (Date.now() - issuedAt),
+        refreshTicket: async () => {
+          issuedAt = Date.now()
+        },
+      })
+      // Opening 1: into the dwell, then walked away from.
+      h.dialog.open()
+      type(h, 'Rozbité')
+      h.byText('button', STRINGS.cs.send)!.click()
+      await flush()
+      h.byText('button', STRINGS.cs.sendAgain)!.click()
+      await flush()
+      await vi.advanceTimersByTimeAsync(200)
+      press(h, 'Escape')
+      h.byText('button', STRINGS.cs.discard)!.click()
+      expect(h.dialog.isOpen).toBe(false)
+
+      // Opening 2, starting late enough that opening 1's timer fires mid-dwell.
+      h.dialog.open()
+      type(h, 'Zase rozbité')
+      h.byText('button', STRINGS.cs.send)!.click()
+      await flush()
+      h.byText('button', STRINGS.cs.sendAgain)!.click()
+      await flush()
+      await vi.advanceTimersByTimeAsync(3_400) // past opening 1's 3 500 ms mark
+      expect(h.submitted).toHaveLength(2) // opening 2 is still dwelling
 
       press(h, 'Escape')
       expect(h.dialog.isOpen).toBe(true)

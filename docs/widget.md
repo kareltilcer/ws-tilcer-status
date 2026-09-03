@@ -169,6 +169,14 @@ layout. Without it the widget renders, unstyled, as a column of bare controls �
 loses `position:fixed;width:0`, so it can push your own page around. (Nothing here is `eval`: the
 widget needs no `script-src 'unsafe-eval'` and no `'unsafe-inline'` for script.)
 
+⚠ **`require-trusted-types-for 'script'` is not supported.** It is not on the list above because
+there is no directive value that makes the widget work under it: the icon glyphs are built by
+assigning to `innerHTML`, which is a Trusted Types sink, so enforcing that policy makes the assignment
+throw and — because every entry point is wrapped (§10) — the widget renders **nothing**, silently.
+Building the glyphs element by element would remove the dependency; it is not worth the bytes against
+§V3-8's 15 kB budget until a host actually enforces the policy. A host that adopts Trusted Types
+needs `trusted-types` in report-only mode, or a v2 bundle.
+
 ✅ Measured 2026-09-02: no site in the fleet sends a document CSP, so this blocks nothing today. It
 is a **tripwire**, not a task — the day anyone adds one to `home`, `fin` or `karel`, this list is
 what they need in front of them.
@@ -221,6 +229,7 @@ with nothing anywhere to say why. If you mirror the bundle somewhere else, keep 
 | Report lands, file does not | The PUT failed twice. The report keeps its text and the dashboard shows the attachment as `missing`. Check the bucket's CORS policy (§8) and the host's CSP (§7). |
 | Czech renders as `OdeÅ¡le se takÃ©` | The bundle is being served without a charset (§9). |
 | Nothing in the console, nothing in status | A CSP is blocking the script or the connection (§7). |
+| The script loads, `StatusFeedback.open()` does nothing | The host enforces `require-trusted-types-for 'script'` (§7). Unsupported, and it fails silently by design. |
 
 The widget **never throws into the host app**. Every entry point is wrapped, and every failure is
 silent except the dialog's own error states — so an exception in your app's console is not the
