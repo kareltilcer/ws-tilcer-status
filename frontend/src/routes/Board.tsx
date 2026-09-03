@@ -1,10 +1,10 @@
-import { useState, type CSSProperties, type ReactNode } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import * as api from '@/api/endpoints'
 import { qk } from '@/api/keys'
 import { paths } from '@/app/routes'
-import { COLOR, StatusPill, UnreadBadge, primaryButton } from '@/components/ui'
+import { COLOR, FilterChip, StateBlock, StatusPill, UnreadBadge, primaryButton } from '@/components/ui'
 import { relativeTime, uptimeText } from '@/lib/format'
 import type { Color, SiteSummary } from '@/api/types'
 
@@ -40,9 +40,9 @@ export function Board() {
 
       {!isLoading && !isError && sites.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '18px 0' }}>
-          <Chip label="All" count={sites.length} active={filter === null} onClick={() => setFilter(null)} />
+          <FilterChip label="All" count={sites.length} active={filter === null} onClick={() => setFilter(null)} />
           {COLORS.map((c) => (
-            <Chip key={c} label={COLOR[c].name} count={counts(c)} dot={COLOR[c].fill} active={filter === c} onClick={() => setFilter(filter === c ? null : c)} />
+            <FilterChip key={c} label={COLOR[c].name} count={counts(c)} dot={COLOR[c].fill} active={filter === c} onClick={() => setFilter(filter === c ? null : c)} />
           ))}
         </div>
       )}
@@ -66,32 +66,6 @@ export function Board() {
         </div>
       )}
     </div>
-  )
-}
-
-function Chip({ label, count, dot, active, onClick }: { label: string; count: number; dot?: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 7,
-        height: 30,
-        padding: '0 11px',
-        borderRadius: 999,
-        border: `1px solid ${active ? 'var(--border-strong)' : 'var(--border)'}`,
-        background: active ? 'var(--s3)' : 'var(--s1)',
-        color: 'var(--text)',
-        fontSize: 12.5,
-        fontWeight: 600,
-        cursor: 'pointer',
-      }}
-    >
-      {dot && <span style={{ height: 8, width: 8, borderRadius: '50%', background: dot }} />}
-      {label}
-      <span style={{ opacity: 0.6, fontVariantNumeric: 'tabular-nums' }}>{count}</span>
-    </button>
   )
 }
 
@@ -176,15 +150,3 @@ function SkeletonGrid() {
   )
 }
 
-function StateBlock({ icon, title, body, children }: { icon: string; title: string; body: string; children?: ReactNode }) {
-  return (
-    <div style={{ display: 'grid', placeItems: 'center', minHeight: 360, textAlign: 'center' }}>
-      <div style={{ maxWidth: 380 }}>
-        <div style={{ margin: '0 auto 16px', display: 'grid', placeItems: 'center', height: 56, width: 56, borderRadius: 14, background: 'var(--accent-soft)', color: 'var(--accent)', fontSize: 24 }}>{icon}</div>
-        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>{title}</div>
-        <p style={{ margin: '0 0 18px', fontSize: 13.5, color: 'var(--muted)' }}>{body}</p>
-        {children}
-      </div>
-    </div>
-  )
-}

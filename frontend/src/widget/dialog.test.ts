@@ -43,9 +43,12 @@ interface Harness {
 
 function harness(opts: {
   consoleCapture?: boolean
+  capture?: ConsoleCapture
   submit?: (body: Submission) => Promise<SubmitResult>
   put?: (slot: UploadSlot, file: Blob, onProgress: (p: number) => void) => Upload
   ticket?: string | null
+  ticketAgeMs?: () => number
+  refreshTicket?: () => Promise<void>
 }): Harness {
   const root = document.createElement('div')
   document.body.appendChild(root)
@@ -69,7 +72,11 @@ function harness(opts: {
       claimed.push(ref)
     },
     ticket: () => (opts.ticket === undefined ? 'ticket.sig' : opts.ticket),
-    refreshTicket: async () => {},
+    // Old enough by default: every test that is not about the dwell should not
+    // have to wait one out.
+    ticketAgeMs: () => (opts.ticketAgeMs ? opts.ticketAgeMs() : 60_000),
+    refreshTicket: () => (opts.refreshTicket ? opts.refreshTicket() : Promise.resolve()),
+    ticketSettled: () => Promise.resolve(),
   }
 
   const dialog = new FeedbackDialog({
@@ -77,7 +84,7 @@ function harness(opts: {
     strings: STRINGS.cs,
     limits,
     consoleCapture: opts.consoleCapture ?? false,
-    capture,
+    capture: opts.capture ?? capture,
     context: () => context,
     api,
     onClosed: () => {
@@ -246,6 +253,77 @@ describe('the submission', () => {
     expect(h.q<HTMLTextAreaElement>('textarea')!.value).toBe('Rozbité')
     expect(h.byText('button', STRINGS.cs.sendAgain)).not.toBeNull()
   })
+
+  // ⚠ The retry has to post a ticket the server will accept. The replacement is
+  // minted when the failure is SHOWN, and the retry waits out whatever dwell it
+  // still owes — a ticket minted at the moment of the click is younger than
+  // STATUS_FEEDBACK_MIN_DWELL_MS and is refused as a script, every time, which
+  // made "Odeslat znovu" a button that could never work.
+  it('retries with a ticket old enough to pass the dwell floor', async () => {
+    vi.useFakeTimers()
+    try {
+      let issuedAt = Date.now()
+      let refreshes = 0
+      const h = harness({
+        submit: async () => ({ ok: false, kind: 'network' }),
+        ticketAgeMs: () => Date.now() - issuedAt,
+        refreshTicket: async () => {
+          refreshes++
+          issuedAt = Date.now()
+        },
+      })
+      h.dialog.open()
+      type(h, 'Rozbité')
+      h.byText('button', STRINGS.cs.send)!.click()
+      await flush()
+      // The replacement is minted with the alert, not with the click on it.
+      expect(refreshes).toBe(1)
+
+      h.byText('button', STRINGS.cs.sendAgain)!.click()
+      await flush()
+      expect(h.submitted).toHaveLength(1) // still waiting out the dwell
+      expect(h.root.textContent).toContain(STRINGS.cs.sending)
+
+      await vi.advanceTimersByTimeAsync(4_000)
+      await flush()
+      expect(h.submitted).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // A 413 is the one send failure the reporter can fix, so it must not be
+  // dressed up as a dropped connection they can only retry into.
+  it('names the length when the body is over the cap, instead of blaming the connection', async () => {
+    const h = harness({ submit: async () => ({ ok: false, kind: 'tooLarge' }) })
+    h.dialog.open()
+    type(h, 'Dlouhé hlášení')
+    h.byText('button', STRINGS.cs.send)!.click()
+    await flush()
+    expect(h.root.textContent).toContain(STRINGS.cs.tooLongTitle)
+    expect(h.root.textContent).not.toContain(STRINGS.cs.sendFailBody)
+    expect(h.q<HTMLTextAreaElement>('textarea')!.value).toBe('Dlouhé hlášení')
+  })
+
+  // The tail is the only part of the body the widget generates rather than
+  // receives, so it is the part that gives way to a long report.
+  it('trims the console tail to what the rest of the payload leaves of the body cap', async () => {
+    const noisy = Array.from({ length: 50 }, (_, i) => `[home] line ${i} ${'x'.repeat(180)}`)
+    const h = harness({
+      consoleCapture: true,
+      capture: { lines: () => noisy, lastError: () => null },
+    })
+    h.dialog.open()
+    type(h, 'ě'.repeat(2000)) // 4 000 bytes of Czech on its own
+    h.byText('button', STRINGS.cs.send)!.click()
+    await flush()
+
+    const body = h.submitted[0]
+    expect(body.console_tail!.length).toBeLessThan(noisy.length)
+    expect(new TextEncoder().encode(JSON.stringify(body)).length).toBeLessThanOrEqual(8192)
+    // What survives is the NEWEST end — the lines nearest the failure.
+    expect(body.console_tail![body.console_tail!.length - 1]).toBe(noisy[noisy.length - 1])
+  })
 })
 
 describe('uploads', () => {
@@ -265,6 +343,42 @@ describe('uploads', () => {
     expect(h.root.textContent).toContain(STRINGS.cs.tooLargeTitle)
     expect(h.root.textContent).toContain('velky.png')
     expect(h.all('.sfb-chip')).toHaveLength(0)
+  })
+
+  // Telling someone whose file reads as 0 bytes to "attach an image instead"
+  // names the one thing they did do.
+  it('refuses an empty file as empty, not as the wrong type', () => {
+    const h = harness({})
+    h.dialog.open()
+    pick(h, [png('prazdny.png', 0)])
+    expect(h.root.textContent).toContain(STRINGS.cs.emptyFileTitle)
+    expect(h.root.textContent).not.toContain(STRINGS.cs.wrongTypeBody)
+    expect(h.all('.sfb-chip')).toHaveLength(0)
+  })
+
+  // ⚠ The server signs one slot per file DECLARED, each for an exact content
+  // type and byte length, and the upload pairs them by index — so the list has
+  // to stop being editable the moment Send is pressed.
+  it('freezes the attachment list while the report is in flight', async () => {
+    let release: (r: SubmitResult) => void = () => {}
+    const h = harness({
+      submit: () => new Promise<SubmitResult>((resolve) => { release = resolve }),
+    })
+    h.dialog.open()
+    type(h, 'Dva soubory')
+    pick(h, [png('a.png'), png('b.png')])
+    h.byText('button', STRINGS.cs.send)!.click()
+    await flush()
+
+    const remove = h.all<HTMLButtonElement>('.sfb-chip .sfb-iconbtn')
+    expect(remove).toHaveLength(2)
+    expect(remove.every((b) => b.disabled)).toBe(true)
+    remove[0].click()
+    expect(h.all('.sfb-chip')).toHaveLength(2)
+    expect(h.submitted[0].files).toHaveLength(2)
+
+    release({ ok: true, accepted: { ref: 'R-5TT1', uploads: [] } })
+    await flush(20)
   })
 
   it('refuses a type outside the allow-list in plain words', () => {

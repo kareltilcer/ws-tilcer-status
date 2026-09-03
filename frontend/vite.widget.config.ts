@@ -22,6 +22,13 @@ const root = path.dirname(fileURLToPath(import.meta.url))
  * `frontend/nginx.conf` now sends `charset=utf-8`, which fixes it at the server.
  * This fixes it in the artifact — the half that survives a CDN, a proxy, or a
  * host that copies the file somewhere else and serves it however it likes.
+ *
+ * Asking the code generator instead (`esbuild: { charset: 'ascii' }`) is not
+ * available: Vite owns that option and omits it from its own `ESBuildOptions`.
+ * Rewriting the emitted chunk is safe because `\uXXXX` means the same character
+ * in every context a non-ASCII one can legally appear in — string, template,
+ * regex, identifier — and a surrogate pair escapes to the two halves that
+ * compose it. The throw below is the post-condition that proves the artifact.
  */
 function asciiOnly(): Plugin {
   return {

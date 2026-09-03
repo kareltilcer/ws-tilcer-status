@@ -15,6 +15,11 @@ export const qk = {
   report: (ref: string) => ['report', ref] as const,
   // One key per attachment: the URL under it is a presigned bearer token that
   // expires in minutes, so it is cached briefly and never shared between reports.
-  attachmentUrl: (ref: string, attachmentId: number) => ['report', ref, 'attachment', attachmentId] as const,
+  //
+  // ⚠ It sits OUTSIDE the ['report', ref] prefix on purpose. Invalidation in
+  // TanStack Query matches by prefix, so nesting these under the report would
+  // make every triage click re-mint a presigned URL per attachment and swap
+  // every <img src> on the page.
+  attachmentUrl: (ref: string, attachmentId: number) => ['attachment', ref, attachmentId] as const,
   feedbackConfig: (siteId: string) => ['site', siteId, 'feedback-config'] as const,
 }

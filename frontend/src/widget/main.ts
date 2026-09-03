@@ -74,10 +74,32 @@ function boot(): void {
 
       let ticket: string | null = cfg.ticket
       let ticketAt = Date.now()
-      const refreshTicket = async () => {
-        const next = await fetchWidgetConfig(target)
-        ticket = next.enabled && next.ticket ? next.ticket : null
-        ticketAt = Date.now()
+      let refreshing: Promise<void> | null = null
+
+      /**
+       * refreshTicket replaces the held ticket, at most one request at a time.
+       *
+       * ⚠ A failed refresh KEEPS the ticket it has. `fetchWidgetConfig` collapses
+       * a disabled site, a 429 and a dead network into the same `{enabled:false}`
+       * (V3-D35), so it cannot tell "gone" from "not right now" — and dropping
+       * the ticket on the second reading would let one blip kill the dialog for
+       * the life of the page, with the launcher still on screen. A site that
+       * really was disabled answers the submit with a 403 instead.
+       */
+      const refreshTicket = (): Promise<void> => {
+        if (refreshing) return refreshing
+        refreshing = (async () => {
+          try {
+            const next = await fetchWidgetConfig(target)
+            if (next.enabled && next.ticket) {
+              ticket = next.ticket
+              ticketAt = Date.now()
+            }
+          } finally {
+            refreshing = null
+          }
+        })()
+        return refreshing
       }
 
       const container = document.createElement('div')
@@ -115,7 +137,12 @@ function boot(): void {
           put: (slot, file, onProgress) => putObject(slot, file, onProgress),
           claim: (ref) => claimUploads(target, ref),
           ticket: () => ticket,
+          ticketAgeMs: () => Date.now() - ticketAt,
           refreshTicket,
+          // ⚠ open() starts a refresh for a ticket near its expiry and does not
+          // wait for it. Reading the ticket without settling that first would
+          // submit the very ticket the refresh is replacing.
+          ticketSettled: () => refreshing ?? Promise.resolve(),
         },
         onClosed: () => {
           setLauncherExpanded(launcher, false)

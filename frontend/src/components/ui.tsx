@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { AttachmentState, Color, Level, ReportKind, ReportState } from '@/api/types'
 
 // The status color system (design comp). Each state carries a fill, an AA-tuned
@@ -201,6 +201,92 @@ export function AttachmentStateLabel({ state }: { state: AttachmentState }) {
     >
       {state}
     </span>
+  )
+}
+
+/** FilterChip is the one filter toggle in the app — the board's colours and the
+ *  inbox's states are the same control with a different label. `aria-pressed`
+ *  is not optional: these are toggles, and a screen reader has no other way to
+ *  hear which one is on. */
+export function FilterChip({
+  label,
+  count,
+  dot,
+  active,
+  onClick,
+}: {
+  label: string
+  count?: number
+  dot?: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 7,
+        height: 30,
+        padding: '0 12px',
+        borderRadius: 999,
+        border: `1px solid ${active ? 'var(--border-strong)' : 'var(--border)'}`,
+        background: active ? 'var(--s3)' : 'var(--s1)',
+        color: 'var(--text)',
+        fontSize: 12.5,
+        fontWeight: 600,
+        textTransform: 'capitalize',
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+      }}
+    >
+      {dot && <span aria-hidden style={{ height: 8, width: 8, borderRadius: '50%', background: dot }} />}
+      {label}
+      {count !== undefined && <span style={{ opacity: 0.6, fontVariantNumeric: 'tabular-nums' }}>{count}</span>}
+    </button>
+  )
+}
+
+/** StateBlock is the centred empty / error / nothing-matches treatment, shared by
+ *  the board, the inbox and the report page so the three cannot drift. */
+export function StateBlock({
+  icon,
+  title,
+  body,
+  danger,
+  children,
+}: {
+  icon: string
+  title: string
+  body: ReactNode
+  danger?: boolean
+  children?: ReactNode
+}) {
+  return (
+    <div style={{ display: 'grid', placeItems: 'center', minHeight: 380, textAlign: 'center' }}>
+      <div style={{ maxWidth: 400 }}>
+        <div
+          style={{
+            margin: '0 auto 16px',
+            display: 'grid',
+            placeItems: 'center',
+            height: 56,
+            width: 56,
+            borderRadius: 14,
+            fontSize: 24,
+            background: danger ? 'var(--danger-soft)' : 'color-mix(in oklab, var(--accent) 14%, transparent)',
+            color: danger ? 'var(--danger-text)' : 'var(--accent)',
+          }}
+        >
+          {icon}
+        </div>
+        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>{title}</div>
+        <p style={{ margin: '0 0 18px', fontSize: 13.5, color: 'var(--muted)' }}>{body}</p>
+        {children}
+      </div>
+    </div>
   )
 }
 

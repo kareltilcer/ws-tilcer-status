@@ -36,9 +36,22 @@ describe('installConsoleCapture', () => {
     vi.resetModules()
   })
 
+  // ⚠ installConsoleCapture patches five methods, so the teardown restores five.
+  // Restoring only `log` leaves this file's later tests running through the
+  // first module instance's buffer — a stale capture chain that a future
+  // assertion on console.warn would read from.
+  const PATCHED = ['log', 'info', 'warn', 'error', 'debug'] as const
+
+  function snapshotConsole(): () => void {
+    const saved = PATCHED.map((m) => [m, console[m]] as const)
+    return () => {
+      for (const [m, fn] of saved) console[m] = fn as typeof console.log
+    }
+  }
+
   it('keeps the last 50 lines, caps each at 200 characters, and still logs', async () => {
     const { installConsoleCapture } = await import('./consoleTail')
-    const original = console.log
+    const restore = snapshotConsole()
     const seen: unknown[][] = []
     console.log = (...args: unknown[]) => {
       seen.push(args)
@@ -55,12 +68,17 @@ describe('installConsoleCapture', () => {
       // widget is on the page.
       expect(seen).toHaveLength(61)
     } finally {
-      console.log = original
+      restore()
     }
   })
 
   it('is installed once, however many times it is asked for', async () => {
     const { installConsoleCapture } = await import('./consoleTail')
-    expect(installConsoleCapture()).toBe(installConsoleCapture())
+    const restore = snapshotConsole()
+    try {
+      expect(installConsoleCapture()).toBe(installConsoleCapture())
+    } finally {
+      restore()
+    }
   })
 })

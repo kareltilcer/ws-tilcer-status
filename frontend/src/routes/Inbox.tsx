@@ -1,11 +1,11 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import * as api from '@/api/endpoints'
 import type { ReportFilters } from '@/api/endpoints'
 import { qk } from '@/api/keys'
 import { paths } from '@/app/routes'
-import { KindChip, StateChip, cardStyle, ghostButton, primaryButton } from '@/components/ui'
+import { FilterChip, KindChip, StateBlock, StateChip, cardStyle, ghostButton, primaryButton } from '@/components/ui'
 import { relativeTime } from '@/lib/format'
 import type { ReportKind, ReportState, ReportSummary } from '@/api/types'
 
@@ -48,9 +48,9 @@ export function Inbox() {
 
       {(reports.length > 0 || filtered) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', margin: '18px 0' }}>
-          <Chip label="All" active={state === null} onClick={() => setState(null)} />
+          <FilterChip label="All" active={state === null} onClick={() => setState(null)} />
           {STATES.map((s) => (
-            <Chip key={s} label={s} active={state === s} onClick={() => setState(state === s ? null : s)} />
+            <FilterChip key={s} label={s} active={state === s} onClick={() => setState(state === s ? null : s)} />
           ))}
           <div style={{ flex: 1 }} />
           <select
@@ -85,7 +85,7 @@ export function Inbox() {
       {q.isLoading && <Skeletons />}
 
       {q.isError && (
-        <Empty
+        <StateBlock
           icon="⚠"
           danger
           title="Couldn't load the inbox"
@@ -94,11 +94,11 @@ export function Inbox() {
           <button onClick={() => void q.refetch()} style={ghostButton}>
             Retry
           </button>
-        </Empty>
+        </StateBlock>
       )}
 
       {!q.isLoading && !q.isError && reports.length === 0 && !filtered && (
-        <Empty
+        <StateBlock
           icon="✉"
           title="No reports yet"
           body="Nothing has been written from inside the apps. Turn feedback on for a site and paste its embed snippet — the first report shows up here the moment someone sends one."
@@ -106,11 +106,11 @@ export function Inbox() {
           <button onClick={() => nav(paths.board)} style={primaryButton}>
             Pick a site to enable
           </button>
-        </Empty>
+        </StateBlock>
       )}
 
       {!q.isLoading && !q.isError && reports.length === 0 && filtered && (
-        <Empty icon="✉" title="Nothing matches" body="No report has this state, site and kind together.">
+        <StateBlock icon="✉" title="Nothing matches" body="No report has this state, site and kind together.">
           <button
             onClick={() => {
               setState(null)
@@ -121,7 +121,7 @@ export function Inbox() {
           >
             Clear filters
           </button>
-        </Empty>
+        </StateBlock>
       )}
 
       {reports.length > 0 && (
@@ -154,32 +154,6 @@ const selectStyle = {
   fontFamily: 'inherit',
   cursor: 'pointer',
 } as const
-
-function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      aria-pressed={active}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 7,
-        height: 30,
-        padding: '0 12px',
-        borderRadius: 999,
-        border: `1px solid ${active ? 'var(--border-strong)' : 'var(--border)'}`,
-        background: active ? 'var(--s3)' : 'var(--s1)',
-        color: 'var(--text)',
-        fontSize: 12.5,
-        fontWeight: 600,
-        textTransform: 'capitalize',
-        cursor: 'pointer',
-      }}
-    >
-      {label}
-    </button>
-  )
-}
 
 function Row({ report, onClick }: { report: ReportSummary; onClick: () => void }) {
   const fresh = report.state === 'new'
@@ -258,45 +232,6 @@ function Skeletons() {
           <div className="om-skel" style={{ height: 11, width: '30%', marginTop: 9 }} />
         </div>
       ))}
-    </div>
-  )
-}
-
-function Empty({
-  icon,
-  title,
-  body,
-  danger,
-  children,
-}: {
-  icon: string
-  title: string
-  body: string
-  danger?: boolean
-  children?: ReactNode
-}) {
-  return (
-    <div style={{ display: 'grid', placeItems: 'center', minHeight: 380, textAlign: 'center' }}>
-      <div style={{ maxWidth: 400 }}>
-        <div
-          style={{
-            margin: '0 auto 16px',
-            display: 'grid',
-            placeItems: 'center',
-            height: 56,
-            width: 56,
-            borderRadius: 14,
-            fontSize: 24,
-            background: danger ? 'var(--danger-soft)' : 'color-mix(in oklab, var(--accent) 14%, transparent)',
-            color: danger ? 'var(--danger-text)' : 'var(--accent)',
-          }}
-        >
-          {icon}
-        </div>
-        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>{title}</div>
-        <p style={{ margin: '0 0 18px', fontSize: 13.5, color: 'var(--muted)' }}>{body}</p>
-        {children}
-      </div>
     </div>
   )
 }

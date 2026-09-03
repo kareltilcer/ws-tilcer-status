@@ -59,7 +59,9 @@ Compile-time modular monolith:
   `STATUS_ALLOWED_ORIGINS` — there is exactly one origin allow-list (V3-D50). The gated group stays
   same-origin. ⚠ `Access-Control-Allow-Credentials` is **never** sent: those endpoints authenticate by
   key, not by cookie. Every public path also gets an explicit `OPTIONS` handler (derived in
-  `NewRouter`), because chi runs group middleware only on a matched route.
+  `NewRouter`), because chi runs group middleware only on a matched route. `Retry-After` is
+  **exposed** (`Access-Control-Expose-Headers`): only seven response headers are CORS-safelisted and
+  that is not one of them, so without it the widget's 429 countdown silently becomes its fallback.
 - Color is **computed on read** in list/detail (orange ages out by time); `cached_color` is a
   write-through fallback updated after every check, ingest, and triage.
 - The **dashboard** is English only (unlike the Czech `home`/`fin` UIs). The **widget** is the one

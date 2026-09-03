@@ -20,6 +20,14 @@ var corsAllowMethods = strings.Join([]string{http.MethodGet, http.MethodPost, ht
 // corsMaxAge bounds how long a browser may cache a preflight result.
 const corsMaxAge = 10 * time.Minute
 
+// corsExposeHeaders are the RESPONSE headers a cross-origin caller may read.
+//
+// ⚠ Only seven response headers are CORS-safelisted, and Retry-After is not one
+// of them: without this, `res.headers.get('Retry-After')` on a 429 is null in
+// every browser, and the widget's "try again in N minutes" silently becomes its
+// hard-coded fallback no matter what the limiter actually computed.
+var corsExposeHeaders = strings.Join([]string{"Retry-After"}, ", ")
+
 // NewCORS returns middleware that answers cross-origin requests for the PUBLIC
 // group only — /api/auth/*, crash ingest, and (v3) the widget routes. The gated
 // group stays same-origin: the dashboard is served from the status origin and
@@ -62,6 +70,9 @@ func NewCORS(allowedOrigins []string) func(http.Handler) http.Handler {
 			}
 
 			h.Set("Access-Control-Allow-Origin", origin)
+			// Expose-Headers belongs on the real response, not the preflight — a
+			// preflight carries no body headers to expose.
+			h.Set("Access-Control-Expose-Headers", corsExposeHeaders)
 			if r.Method == http.MethodOptions {
 				h.Set("Access-Control-Allow-Methods", corsAllowMethods)
 				h.Set("Access-Control-Allow-Headers", corsAllowHeaders)

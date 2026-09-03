@@ -7,7 +7,7 @@ import { qk } from '@/api/keys'
 import { paths } from '@/app/routes'
 import { useAuth } from '@/app/auth'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { AttachmentStateLabel, KindChip, StateChip, cardStyle, ghostButton, primaryButton } from '@/components/ui'
+import { AttachmentStateLabel, KindChip, StateBlock, StateChip, cardStyle, ghostButton, primaryButton } from '@/components/ui'
 import { useMediaQuery } from '@/lib/useMediaQuery'
 import { fileSize, relativeTime } from '@/lib/format'
 import type { AttachmentSummary, Report, ReportState } from '@/api/types'
@@ -103,20 +103,22 @@ export function ReportDetail() {
     return (
       <div>
         {back}
-        <div style={{ display: 'grid', placeItems: 'center', minHeight: 340, textAlign: 'center' }}>
-          <div style={{ maxWidth: 380 }}>
-            <div style={{ margin: '0 auto 16px', display: 'grid', placeItems: 'center', height: 56, width: 56, borderRadius: 14, background: 'var(--danger-soft)', color: 'var(--danger-text)', fontSize: 24 }}>⚠</div>
-            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>No report with that reference</div>
-            <p style={{ margin: '0 0 18px', fontSize: 13.5, color: 'var(--muted)' }}>
+        <StateBlock
+          icon="⚠"
+          danger
+          title="No report with that reference"
+          body={
+            <>
               <code style={{ fontFamily: 'var(--mono)' }}>{ref}</code> doesn't match a stored report. It may have been
               deleted, or misheard — the alphabet has no I, L, O or U, so a <b style={{ color: 'var(--text)' }}>0</b> is
               never an <b style={{ color: 'var(--text)' }}>O</b>.
-            </p>
-            <button onClick={() => nav(paths.reports)} style={ghostButton}>
-              Back to inbox
-            </button>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <button onClick={() => nav(paths.reports)} style={ghostButton}>
+            Back to inbox
+          </button>
+        </StateBlock>
       </div>
     )
   }
@@ -311,7 +313,30 @@ function AttachmentCard({ reportRef, attachment }: { reportRef: string; attachme
   )
 }
 
+/**
+ * webLink returns the page URL only when it is one the dashboard may hand to
+ * window.open.
+ *
+ * ⚠ `page_url` is attacker-controlled. The widget key lives in the source of a
+ * public host page, so anyone who reads it can post a report carrying whatever
+ * this field will hold, and the server stores it as text with no scheme check.
+ * `window.open` is not safe for a `javascript:` URL just because it is not an
+ * <a href>: the URL is evaluated, and this dashboard is the one place a stored
+ * one would run with an admin session behind it. http and https only.
+ */
+function webLink(pageUrl: string | null): string | null {
+  if (!pageUrl) return null
+  try {
+    const parsed = new URL(pageUrl)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : null
+  } catch {
+    // Not a URL at all — a relative path, or something that was never one.
+    return null
+  }
+}
+
 function Context({ report }: { report: Report }) {
+  const href = webLink(report.page_url)
   const rows: [string, string | null][] = [
     ['referrer', report.referrer],
     ['user agent', report.user_agent],
@@ -332,12 +357,16 @@ function Context({ report }: { report: Report }) {
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '11px 13px', background: 'var(--s2)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
               <span style={{ flex: 'none', width: 88, fontSize: 12, color: 'var(--subtle)', paddingTop: 2 }}>page url</span>
               <code style={{ flex: 1, minWidth: 200, fontFamily: 'var(--mono)', fontSize: 11.5, wordBreak: 'break-all' }}>{report.page_url}</code>
-              <button
-                onClick={() => window.open(report.page_url!, '_blank', 'noopener,noreferrer')}
-                style={{ flex: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, height: 28, padding: '0 10px', border: '1px solid var(--border-strong)', background: 'var(--s3)', color: 'var(--text)', borderRadius: 7, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
-              >
-                Open
-              </button>
+              {href ? (
+                <button
+                  onClick={() => window.open(href, '_blank', 'noopener,noreferrer')}
+                  style={{ flex: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, height: 28, padding: '0 10px', border: '1px solid var(--border-strong)', background: 'var(--s3)', color: 'var(--text)', borderRadius: 7, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                  Open
+                </button>
+              ) : (
+                <span style={{ flex: 'none', fontSize: 11.5, color: 'var(--warn-text)' }}>not a web address</span>
+              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '10px 13px', borderBottom: '1px solid var(--border)', background: 'color-mix(in oklab, var(--warn) 8%, transparent)' }}>
               <span aria-hidden style={{ color: 'var(--warn-text)', flex: 'none', marginTop: 1 }}>⚠</span>

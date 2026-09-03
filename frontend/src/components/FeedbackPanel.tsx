@@ -34,7 +34,13 @@ export function FeedbackPanel({ siteId, openReports }: { siteId: string; openRep
   // ⚠ The deployment-level switch, not the site's: with no object storage there
   // is nowhere to put an attachment, so enabling is a 503. The control says so
   // instead of failing on click.
-  const storageReady = metaQ.data?.feedback_enabled !== false
+  //
+  // ⚠ Three states, not two. `metaQ.data === undefined` is "we do not know yet"
+  // — it is the answer both while the request is in flight and forever after it
+  // failed — and reading it as "configured" is how a deployment with no object
+  // storage ends up offering the switch this block exists to withhold.
+  const storageReady = metaQ.data?.feedback_enabled === true
+  const storageUnknown = metaQ.data === undefined
 
   const update = useMutation({
     mutationFn: (body: { enabled?: boolean; console_capture?: boolean }) => api.updateFeedbackConfig(siteId, body),
@@ -85,7 +91,18 @@ export function FeedbackPanel({ siteId, openReports }: { siteId: string; openRep
         )}
       </div>
 
-      {!storageReady ? (
+      {storageUnknown && metaQ.isError ? (
+        <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 9, background: 'var(--s2)' }}>
+          <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1 }}>
+            Couldn't read this deployment's settings, so it isn't known whether feedback can be enabled here.
+          </span>
+          <button onClick={() => void metaQ.refetch()} style={ghostButton}>
+            Retry
+          </button>
+        </div>
+      ) : storageUnknown || cfgQ.isLoading ? (
+        <div className="om-skel" style={{ height: 96, width: '100%', marginTop: 14, borderRadius: 9 }} />
+      ) : !storageReady ? (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 13, marginTop: 14, padding: 14, border: '1px dashed var(--border-strong)', borderRadius: 9, background: 'var(--s2)' }}>
           <span aria-hidden style={{ display: 'grid', placeItems: 'center', height: 36, width: 36, borderRadius: 9, background: 'var(--s3)', color: 'var(--muted)', flex: 'none' }}>⏻</span>
           <div>
@@ -99,8 +116,6 @@ export function FeedbackPanel({ siteId, openReports }: { siteId: string; openRep
             <Toggle checked={false} disabled label="Unavailable" onChange={() => {}} />
           </div>
         </div>
-      ) : cfgQ.isLoading ? (
-        <div className="om-skel" style={{ height: 96, width: '100%', marginTop: 14, borderRadius: 9 }} />
       ) : cfgQ.isError || !cfg ? (
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 9, background: 'var(--s2)' }}>
           <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1 }}>Couldn't load the feedback configuration.</span>

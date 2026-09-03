@@ -77,6 +77,8 @@ export interface Strings {
   cannotAttach: string
   wrongTypeTitle: string
   wrongTypeBody: string
+  emptyFileTitle: string
+  emptyFileBody: string
   tooManyTitle: string
   tooManyBody: (maxFiles: number) => string
 
@@ -87,6 +89,11 @@ export interface Strings {
   sendFailTitle: string
   sendFailBody: string
   sendAgain: string
+
+  /** The 413: the text itself is over the server's whole-body cap, which is the
+   *  one send failure the reporter can actually do something about. */
+  tooLongTitle: string
+  tooLongBody: string
 
   uploadFailedTitle: string
   uploadFailedBody: (names: string[]) => string
@@ -158,6 +165,8 @@ const cs: Strings = {
   wrongTypeTitle: 'Tenhle soubor přiložit neumíme',
   wrongTypeBody:
     'Přiložte obrázek (PNG, JPG, WebP, GIF) nebo video (MP4, WebM). Dokumenty a archivy neprojdou.',
+  emptyFileTitle: 'Soubor je prázdný',
+  emptyFileBody: 'Tenhle soubor má nula bajtů. Zkuste ho uložit znovu, nebo pošlete hlášení bez něj.',
   tooManyTitle: 'Víc souborů už nejde',
   tooManyBody: (n) =>
     `Přiložit jde nejvýš ${n} ${czechPlural(n, 'soubor', 'soubory', 'souborů')}. Některý napřed odeberte.`,
@@ -170,6 +179,10 @@ const cs: Strings = {
   sendFailTitle: 'Odeslání se nepovedlo',
   sendFailBody: 'Spojení se přerušilo. Text zůstal vyplněný, nic jste neztratili.',
   sendAgain: 'Odeslat znovu',
+
+  tooLongTitle: 'Hlášení je moc dlouhé',
+  tooLongBody:
+    'Text se nevešel do limitu. Zkraťte ho prosím o pár vět — všechno ostatní zůstalo vyplněné.',
 
   uploadFailedTitle: 'Hlášení dorazilo',
   uploadFailedBody: (names) =>
@@ -242,6 +255,8 @@ const en: Strings = {
   wrongTypeTitle: 'We cannot attach that file',
   wrongTypeBody:
     'Attach an image (PNG, JPG, WebP, GIF) or a video (MP4, WebM). Documents and archives will not go through.',
+  emptyFileTitle: 'That file is empty',
+  emptyFileBody: 'This file is zero bytes. Try saving it again, or send the report without it.',
   tooManyTitle: 'No more files',
   tooManyBody: (n) => `You can attach at most ${n} file${n === 1 ? '' : 's'}. Remove one first.`,
 
@@ -253,6 +268,9 @@ const en: Strings = {
   sendFailTitle: 'Sending did not work',
   sendFailBody: 'The connection dropped. Your text is still here — nothing was lost.',
   sendAgain: 'Send again',
+
+  tooLongTitle: 'That report is too long',
+  tooLongBody: 'The text did not fit the limit. Please shorten it by a few sentences — everything else is still filled in.',
 
   uploadFailedTitle: 'Your report reached us',
   uploadFailedBody: (names) =>

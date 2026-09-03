@@ -7,6 +7,7 @@
 // definition, unreadable from outside.
 
 import type { ConsoleCapture } from './consoleTail'
+import { trimToBudget, utf8Length } from './consoleTail'
 import { clear, el, icon } from './dom'
 import type { Limits } from './files'
 import { validateFile } from './files'
@@ -16,6 +17,36 @@ import type { SubmitResult, Upload } from './api'
 import type { Kind, Submission, UploadSlot } from './types'
 
 const MAX_MESSAGE_CHARS = 4000
+
+/**
+ * MAX_BODY_BYTES mirrors the default of `STATUS_FEEDBACK_MAX_TEXT_BYTES`, the
+ * server's cap on the WHOLE submission body.
+ *
+ * ⚠ It is smaller than the sum of the field limits the same contract allows: a
+ * 4 000-character message is up to 8 000 bytes in Czech on its own, before a
+ * page_url, a referrer and a console tail. The widget cannot ask what the
+ * deployment set, so it trims the one part of the body it generates rather than
+ * receives — the console tail — to whatever the rest of the payload leaves. A
+ * report that is over the cap on its text alone still 413s, and now says so.
+ */
+const MAX_BODY_BYTES = 8192
+
+/** BODY_SLACK covers the difference between our byte count of the payload and
+ *  the bytes the runtime's own JSON.stringify puts on the wire (escapes it
+ *  chooses, the ticket's length, a header or two of rounding). */
+const BODY_SLACK = 256
+
+/**
+ * MIN_TICKET_AGE_MS is the client's mirror of the server's minimum dwell
+ * (`STATUS_FEEDBACK_MIN_DWELL_MS`, 3 000 by default; configuration refuses
+ * anything at or above 30 s).
+ *
+ * ⚠ A ticket minted at the moment "Send again" is clicked is YOUNGER than that
+ * floor and is refused as a script — every time, on any connection whose round
+ * trip is under three seconds. The retry therefore waits out whatever dwell the
+ * fresh ticket still owes before it posts.
+ */
+const MIN_TICKET_AGE_MS = 3_500
 
 /** ReportContext is everything the widget attaches without being asked. It is
  *  also exactly what the disclosure block shows, because a person who can see
@@ -39,9 +70,14 @@ export interface DialogApi {
   claim(ref: string): Promise<void>
   /** ticket returns the current unspent submission ticket, or null. */
   ticket(): string | null
-  /** refreshTicket fetches a new one. Its failure is silent — the retry it backs
-   *  will simply fail again with the same message. */
+  /** ticketAgeMs is how long ago the held ticket was issued. The server refuses
+   *  one younger than its minimum dwell, so the retry has to know. */
+  ticketAgeMs(): number
+  /** refreshTicket fetches a new one. Its failure is silent — and leaves the
+   *  ticket it already holds in place. */
   refreshTicket(): Promise<void>
+  /** ticketSettled resolves once any in-flight refresh has landed. */
+  ticketSettled(): Promise<void>
 }
 
 export interface DialogOptions {
@@ -455,6 +491,9 @@ export class FeedbackDialog {
   private onFilesPicked(): void {
     const input = this.fileInput
     if (!input || !input.files) return
+    // The list is frozen once Send is pressed: the server signs one slot per
+    // file DECLARED, and the upload pairs them by index.
+    if (this.phase !== 'form') return
     const s = this.o.strings
     const picked = Array.from(input.files)
     input.value = ''
@@ -470,6 +509,8 @@ export class FeedbackDialog {
         this.showAlert('warn', s.tooManyTitle, s.tooManyBody(this.o.limits.maxFiles))
       } else if (rejection.reason === 'type') {
         this.showAlert('warn', s.wrongTypeTitle, `${file.name} · ${s.wrongTypeBody}`)
+      } else if (rejection.reason === 'empty') {
+        this.showAlert('warn', s.emptyFileTitle, `${file.name} · ${s.emptyFileBody}`)
       } else {
         this.showAlert(
           'danger',
@@ -486,6 +527,11 @@ export class FeedbackDialog {
     if (!this.filesEl || !this.pickBtn || !this.attachHintEl) return
     const s = this.o.strings
     const limits = this.o.limits
+    // Locked from the moment Send is pressed. Removing a chip while the POST is
+    // in flight would leave the slots the server signed pointing at the wrong
+    // files — each one signed for a content type and an exact byte length, so
+    // the mismatch surfaces as R2 refusing a file nothing was wrong with.
+    const locked = this.phase !== 'form'
     clear(this.filesEl)
     this.attachments.forEach((a, i) => {
       this.filesEl?.appendChild(
@@ -505,10 +551,15 @@ export class FeedbackDialog {
             }),
             el('button', {
               cls: 'sfb-iconbtn',
-              attrs: { type: 'button', 'aria-label': `${s.remove}: ${a.file.name}` },
+              attrs: {
+                type: 'button',
+                'aria-label': `${s.remove}: ${a.file.name}`,
+                ...(locked ? { disabled: 'disabled' } : {}),
+              },
               kids: [icon('x', 18)],
               on: {
                 click: () => {
+                  if (this.phase !== 'form') return
                   this.attachments.splice(i, 1)
                   this.syncFiles()
                 },
@@ -519,7 +570,7 @@ export class FeedbackDialog {
       )
     })
     const full = this.attachments.length >= limits.maxFiles
-    this.pickBtn.disabled = full
+    this.pickBtn.disabled = full || locked
     clear(this.pickBtn)
     this.pickBtn.appendChild(icon('clip', 17))
     this.pickBtn.appendChild(el('span', { text: full ? s.attachFullBtn : s.attach }))
@@ -641,15 +692,22 @@ export class FeedbackDialog {
       this.msgInput?.focus()
       return
     }
-    const ticket = this.o.api.ticket()
-    if (!ticket) {
-      this.failSend()
-      return
-    }
-
+    // ⚠ The phase moves before the first await, not after it: everything below
+    // pairs the slots the server signs with `this.attachments` BY INDEX, so the
+    // list must stop being editable the moment Send is pressed — and a second
+    // click must not start a second submission.
     this.clearAlert()
     this.phase = 'sending'
     this.renderFooter()
+    this.syncFiles()
+
+    await this.o.api.ticketSettled()
+    const ticket = this.o.api.ticket()
+    if (!ticket) {
+      this.backToForm()
+      this.failSend('network')
+      return
+    }
 
     const ctx = this.o.context()
     const sendConsole = this.o.consoleCapture && !this.consoleOptOut
@@ -663,23 +721,25 @@ export class FeedbackDialog {
       viewport: ctx.viewport,
       locale: ctx.locale,
       app_release: ctx.appRelease,
-      console_tail: sendConsole ? this.o.capture.lines() : null,
+      console_tail: null,
       last_error: sendConsole ? this.o.capture.lastError() : null,
       website: this.honeypot?.value ?? '',
       files: this.attachments.map((a) => ({ content_type: a.file.type, byte_size: a.file.size })),
     }
+    if (sendConsole) payload.console_tail = this.fitConsoleTail(payload)
 
     const result = await this.o.api.submit(payload)
     if (!this.isOpen) return
     if (!result.ok) {
-      this.phase = 'form'
-      this.renderFooter()
+      this.backToForm()
       if (result.kind === 'rate') {
         const minutes = Math.max(1, Math.ceil(result.retryAfterSeconds / 60))
+        // ⚠ No ticket refresh on this path: a 429 never reached validation, so
+        // the one the dialog holds is unspent and already old enough to use.
         this.showAlert('warn', s.rateTitle, s.rateBody, { label: s.retryIn(minutes), onClick: () => void this.submit() })
         return
       }
-      this.failSend()
+      this.failSend(result.kind === 'tooLarge' ? 'tooLarge' : 'network')
       return
     }
 
@@ -704,20 +764,67 @@ export class FeedbackDialog {
     await this.runUploads(slots)
   }
 
-  /** failSend is the shared treatment for a dropped connection, a 5xx, a 413/422
-   *  and a refused key. Only the first is really "the connection", but the other
-   *  three are equally outside the reporter's control, and the one thing they all
-   *  need to hear is that the text they typed is still there. The retry refreshes
-   *  the ticket first, which is what fixes the common 422 (a ticket that expired
-   *  while the dialog sat open). */
-  private failSend(): void {
+  /** backToForm returns the dialog to an editable state after a failed send —
+   *  the footer's Send button and the attachment controls the sending phase
+   *  locked. */
+  private backToForm(): void {
+    this.phase = 'form'
+    this.renderFooter()
+    this.syncFiles()
+  }
+
+  /**
+   * fitConsoleTail trims the console lines to whatever the rest of the payload
+   * leaves of the server's whole-body cap.
+   *
+   * The tail is measured against the payload it will travel in rather than
+   * against a fixed budget, because the field it competes with — the message —
+   * is the one that must never be the thing dropped.
+   */
+  private fitConsoleTail(payload: Submission): string[] {
+    const lines = this.o.capture.lines()
+    if (lines.length === 0) return lines
+    const rest = utf8Length(JSON.stringify({ ...payload, console_tail: [] }))
+    return trimToBudget(lines, Math.max(0, MAX_BODY_BYTES - rest - BODY_SLACK))
+  }
+
+  /**
+   * failSend is the shared treatment for a dropped connection, a 5xx, a 422 and
+   * a refused key: all outside the reporter's control, and the one thing they
+   * need to hear is that the text they typed is still there. `tooLarge` is the
+   * exception — that one IS theirs to fix, so it says which thing to shorten.
+   *
+   * ⚠ The ticket is refreshed HERE, when the failure is shown, rather than in
+   * the retry's click handler. A ticket minted at the moment of the click is
+   * younger than the server's minimum dwell and is refused every time, so a
+   * retry that mints one first can never succeed; minting it now lets it age
+   * while the reporter reads this, and `retrySend` waits out what is left.
+   */
+  private failSend(kind: 'network' | 'tooLarge'): void {
     const s = this.o.strings
-    this.showAlert('danger', s.sendFailTitle, s.sendFailBody, {
+    const large = kind === 'tooLarge'
+    void this.o.api.refreshTicket()
+    this.showAlert('danger', large ? s.tooLongTitle : s.sendFailTitle, large ? s.tooLongBody : s.sendFailBody, {
       label: s.sendAgain,
-      onClick: () => {
-        void this.o.api.refreshTicket().then(() => this.submit())
-      },
+      onClick: () => void this.retrySend(),
     })
+  }
+
+  /** retrySend posts again once the replacement ticket is both here and old
+   *  enough to be accepted. The wait is shown as "sending" rather than as a
+   *  button that appears to do nothing. */
+  private async retrySend(): Promise<void> {
+    if (this.phase !== 'form') return
+    this.clearAlert()
+    this.phase = 'sending'
+    this.renderFooter()
+    this.syncFiles()
+    await this.o.api.ticketSettled()
+    const owed = MIN_TICKET_AGE_MS - this.o.api.ticketAgeMs()
+    if (owed > 0) await new Promise((resolve) => setTimeout(resolve, owed))
+    if (!this.isOpen) return
+    this.phase = 'form'
+    await this.submit()
   }
 
   private async runUploads(slots: UploadSlot[]): Promise<void> {

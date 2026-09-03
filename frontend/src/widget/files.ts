@@ -12,6 +12,10 @@ export type Rejection =
   | { reason: 'type' }
   | { reason: 'size'; limit: number; video: boolean }
   | { reason: 'count' }
+  /** empty is its own reason, not a type problem: telling someone whose file
+   *  reads as 0 bytes to "attach an image instead" names the one thing they did
+   *  do. The server's own wording for it is `byte_size must be at least 1`. */
+  | { reason: 'empty' }
 
 /** limitsFrom reads the caps out of a config response, with the documented
  *  defaults for a server that omitted them. */
@@ -31,6 +35,9 @@ export function isVideo(contentType: string): boolean {
   return contentType.toLowerCase().startsWith('video/')
 }
 
+/** limitFor is the one place the video/image cap is chosen. It has to stay in
+ *  step with the server's `resolveFiles`, which is easier to see when there is a
+ *  single copy of the rule. */
 export function limitFor(contentType: string, limits: Limits): number {
   return isVideo(contentType) ? limits.maxVideoBytes : limits.maxImageBytes
 }
@@ -53,9 +60,11 @@ export function validateFile(
   if (alreadyAttached >= limits.maxFiles) return { reason: 'count' }
   const type = file.type.toLowerCase().split(';')[0].trim()
   if (!limits.accept.includes(type)) return { reason: 'type' }
-  const video = isVideo(type)
-  const limit = video ? limits.maxVideoBytes : limits.maxImageBytes
-  if (file.size > limit) return { reason: 'size', limit, video }
-  if (file.size <= 0) return { reason: 'type' }
+  // Emptiness before the cap: a 0-byte file is neither too large nor the wrong
+  // type, and it happens for real — a screenshot still being written, a file on a
+  // disconnected share, a cloud placeholder the OS never hydrated.
+  if (file.size <= 0) return { reason: 'empty' }
+  const limit = limitFor(type, limits)
+  if (file.size > limit) return { reason: 'size', limit, video: isVideo(type) }
   return null
 }
