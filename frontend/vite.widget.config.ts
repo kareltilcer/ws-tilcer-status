@@ -99,8 +99,17 @@ export default defineConfig({
     // whatever is added to public/ next.
     copyPublicDir: false,
     // Old enough for the phones this is actually used on, since the bundle ships
-    // no polyfills and must not throw on parse in the host page.
-    target: 'es2019',
+    // no polyfills and a parse error means no widget at all on that device.
+    // es2020 is Safari 13.1 / Chrome 80 / Firefox 72 — March 2020, and every
+    // iPhone that can run iOS 13.
+    //
+    // ⚠ It is also a size lever, and the size target is tight (§V3-8: under
+    // 15 kB gzipped). Measured on this bundle: es2019 14 975 · **es2020 14 754** ·
+    // es2022 14 424. Down-levelling `?.` and `??` for es2019 cost 221 bytes for
+    // browsers older than the oldest one anybody in this household holds. es2022
+    // would buy another 330 and is the next lever if the budget needs it — the
+    // cost there is Safari 15.4, March 2022, which is a real if unlikely phone.
+    target: 'es2020',
     lib: {
       entry: path.resolve(root, 'src/widget/main.ts'),
       formats: ['iife'],
