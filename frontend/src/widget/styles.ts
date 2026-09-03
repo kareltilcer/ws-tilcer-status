@@ -9,8 +9,22 @@
 // appearance, asserted on every host — a white surface, one deep-teal accent, one
 // radius pair, a system font stack.
 //
-// Five rules inside carry weight beyond their looks and have no comment of their
+// Six rules inside carry weight beyond their looks and have no comment of their
 // own, because everything in the template literal ships to every host page:
+//
+//   :host > *                carries the font stack and the line height, and
+//                            ⚠ `:host` must not. The host element also has an
+//                            INLINE `all:initial` (main.ts), and an inline style
+//                            is an outer-context declaration: for normal rules
+//                            the outer context beats the inner one, so
+//                            `:host { font-family: var(--sfb-font) }` lost to
+//                            `font-family: initial` and the whole widget
+//                            inherited the UA's default serif at line-height
+//                            `normal` — on every host page, measured in Chrome.
+//                            Custom properties survive `all`, so the token
+//                            itself is still readable from here; only the two
+//                            inherited declarations have to be applied to
+//                            elements the host cannot reach.
 //
 //   .sfb-wrap                is the backdrop AND the centring wrapper, one
 //                            element. Two full-viewport fixed layers would mean
@@ -65,9 +79,8 @@ export const WIDGET_CSS = `
   --sfb-shadow: 0 12px 32px -10px rgba(16,22,28,.30), 0 2px 6px rgba(16,22,28,.10);
   --sfb-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --sfb-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-family: var(--sfb-font);
-  line-height: 1.45;
 }
+:host > * { font-family: var(--sfb-font); line-height: 1.45; }
 * { box-sizing: border-box; }
 button, input, textarea { font: inherit; color: inherit; margin: 0; }
 :focus-visible { outline: 2px solid var(--sfb-accent); outline-offset: 2px; }

@@ -93,7 +93,13 @@ export function Inbox() {
 
       {loading && <Skeletons />}
 
-      {q.isError && (
+      {/* ⚠ Only when THIS query returned nothing of its own. A failed
+          `fetchNextPage` also sets `isError`, with every earlier page still in
+          `q.data` — so this block used to render on top of rows that had loaded,
+          saying the request "failed before any page of reports came back". That
+          page's failure is reported on its own button instead. `stale` still
+          counts as nothing: those rows belong to the filter you just left. */}
+      {q.isError && (stale || reports.length === 0) && (
         <StateBlock
           icon="⚠"
           danger
@@ -141,7 +147,7 @@ export function Inbox() {
           {q.hasNextPage && (
             <div style={{ padding: '6px 0 0', textAlign: 'center' }}>
               <button onClick={() => void q.fetchNextPage()} disabled={q.isFetchingNextPage || stale} style={ghostButton}>
-                {q.isFetchingNextPage ? 'Loading…' : 'Load older reports'}
+                {q.isFetchingNextPage ? 'Loading…' : q.isError ? "That page didn't load — try again" : 'Load older reports'}
               </button>
             </div>
           )}

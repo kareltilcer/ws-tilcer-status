@@ -25,6 +25,12 @@ export interface WidgetConfig {
    *  than the sum of the field limits, and the one limit the widget must enforce
    *  itself. */
   max_text_bytes?: number
+  /** min_dwell_ms is how old the held ticket must be before the server will
+   *  accept a submission carrying it. ⚠ It is read, not assumed: a retry mints a
+   *  replacement ticket, and posting one younger than this is refused as a
+   *  script — forever, on a deployment that raised the dial past the default the
+   *  widget used to hardcode. */
+  min_dwell_ms?: number
   accept?: string[]
   console_capture?: boolean
   strings_version?: number

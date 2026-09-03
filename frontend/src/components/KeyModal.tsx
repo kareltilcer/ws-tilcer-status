@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
 
 /**
  * KeyModal shows a freshly-issued key exactly once.
@@ -25,10 +26,17 @@ export function KeyModal({
 }) {
   const [copied, setCopied] = useState(false)
   const copy = () => {
-    void navigator.clipboard?.writeText(keyValue).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
+    // ⚠ The catch matters more here than anywhere else in the dashboard: this key
+    // is shown exactly once. A rejected `writeText` used to leave the button
+    // saying "Copy" with an unhandled rejection in the console and no way for the
+    // reader to tell that nothing reached their clipboard.
+    void navigator.clipboard
+      ?.writeText(keyValue)
+      .then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      })
+      .catch(() => toast.error('Could not copy — select the key and copy it yourself'))
   }
 
   return (

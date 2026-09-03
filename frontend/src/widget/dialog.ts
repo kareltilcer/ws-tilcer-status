@@ -23,18 +23,6 @@ const MAX_MESSAGE_CHARS = 4000
  *  chooses, the ticket's length, a header or two of rounding). */
 const BODY_SLACK = 256
 
-/**
- * MIN_TICKET_AGE_MS is the client's mirror of the server's minimum dwell
- * (`STATUS_FEEDBACK_MIN_DWELL_MS`, 3 000 by default; configuration refuses
- * anything at or above 30 s).
- *
- * ⚠ A ticket minted at the moment "Send again" is clicked is YOUNGER than that
- * floor and is refused as a script — every time, on any connection whose round
- * trip is under three seconds. The retry therefore waits out whatever dwell the
- * fresh ticket still owes before it posts.
- */
-const MIN_TICKET_AGE_MS = 3_500
-
 /** ReportContext is everything the widget attaches without being asked. It is
  *  also exactly what the disclosure block shows, because a person who can see
  *  what they are attaching can decline to attach it (PRD §V3-8). */
@@ -57,9 +45,15 @@ export interface DialogApi {
   claim(ref: string): Promise<void>
   /** ticket returns the current unspent submission ticket, or null. */
   ticket(): string | null
-  /** ticketAgeMs is how long ago the held ticket was issued. The server refuses
-   *  one younger than its minimum dwell, so the retry has to know. */
-  ticketAgeMs(): number
+  /** ticketOwedMs is how much longer the held ticket must age before the server
+   *  will accept it — zero or negative once it is old enough.
+   *
+   *  ⚠ The dwell it is measured against is `min_dwell_ms` from the config, not a
+   *  constant here. This dialog does not read the config, so the one place that
+   *  does (`main.ts`) owes the answer, and a deployment that raises the dial
+   *  cannot leave a retry waiting a fixed 3.5 s for a ticket the server will
+   *  refuse anyway. */
+  ticketOwedMs(): number
   /** refreshTicket fetches a new one. Its failure is silent — and leaves the
    *  ticket it already holds in place. */
   refreshTicket(): Promise<void>
@@ -612,14 +606,20 @@ export class FeedbackDialog {
     const s = this.o.strings
     const picked = Array.from(input.files)
     input.value = ''
+    let alerted = false
     for (const file of picked) {
       const rejection = validateFile(file, this.o.limits, this.attachments.length)
       if (!rejection) {
         this.attachments.push({ file, type: normalizeType(file.type), state: 'waiting', pct: 0 })
         continue
       }
-      // ⚠ One rejection ends the loop: three alerts stacked on top of each other
-      // would bury the one the reporter can act on.
+      // ⚠ Only the FIRST rejection is announced — three alerts stacked on top of
+      // each other would bury the one the reporter can act on — but the loop goes
+      // on. Ending it here dropped every valid file picked after a bad one: a
+      // reporter who multi-selected two screenshots and a 90 MB clip between them
+      // was told about the clip and quietly lost the second screenshot.
+      if (alerted) continue
+      alerted = true
       if (rejection.reason === 'count') {
         this.showAlert('warn', s.tooManyTitle, s.tooManyBody(this.o.limits.maxFiles))
       } else if (rejection.reason === 'type') {
@@ -633,7 +633,6 @@ export class FeedbackDialog {
           `${file.name} · ${s.tooLargeBody(rejection.video, formatBytes(rejection.limit, s.lang), formatBytes(file.size, s.lang))}`,
         )
       }
-      break
     }
     this.syncFiles()
   }
@@ -948,7 +947,7 @@ export class FeedbackDialog {
     this.renderFooter()
     this.syncFiles()
     await this.o.api.ticketSettled()
-    const owed = MIN_TICKET_AGE_MS - this.o.api.ticketAgeMs()
+    const owed = this.o.api.ticketOwedMs()
     if (owed > 0) {
       this.dwelling = true
       await new Promise((resolve) => setTimeout(resolve, owed))

@@ -116,6 +116,11 @@ function boot(): void {
       // Inline, because a host page's own `div { … }` rules beat anything a
       // `:host` rule inside the shadow root can say. Fixed and zero-sized so the
       // container cannot add so much as a line box to the host's layout.
+      //
+      // ⚠ It beats OUR `:host` rules by the same rule, which is why the font
+      // stack and the line height live on `:host > *` in styles.ts. `all:initial`
+      // here means `font-family: initial` on the host, and an element-attached
+      // declaration in the outer context outranks a rule from the inner one.
       container.setAttribute('style', 'all:initial;position:fixed;top:0;left:0;width:0;height:0')
       const shadow = container.attachShadow({ mode: 'closed' })
       const style = document.createElement('style')
@@ -147,7 +152,16 @@ function boot(): void {
           put: (slot, file, onProgress) => putObject(slot, file, onProgress),
           claim: (ref) => claimUploads(target, ref),
           ticket: () => ticket,
-          ticketAgeMs: () => Date.now() - ticketAt,
+          // ⚠ Read from the config, not hardcoded. A ticket minted at the moment
+          // "Send again" is clicked is younger than the server's minimum dwell
+          // and is refused as a script; the retry waits out what this returns.
+          // The half second is slack for the round trip that mints it.
+          //
+          // Absent falls back to the server's own default — an older server that
+          // does not publish the field (this file is cached in host pages for a
+          // year), or a dwell of exactly 0, which `omitempty` drops. Both make
+          // the retry wait a little longer than it must; neither makes it fail.
+          ticketOwedMs: () => (cfg.min_dwell_ms ?? 3000) + 500 - (Date.now() - ticketAt),
           refreshTicket,
           // ⚠ open() starts a refresh for a ticket near its expiry and does not
           // wait for it. Reading the ticket without settling that first would

@@ -81,6 +81,26 @@ export function trimToBudget(lines: string[], budget = MAX_TAIL_BYTES): string[]
   return kept.reverse()
 }
 
+/**
+ * MAX_VALUES bounds how far into an object graph `formatArg` walks before the
+ * result is cut to MAX_LINE_CHARS anyway.
+ *
+ * ⚠ This runs on the HOST's `console.log`, once per call, on an argument the
+ * host chose. `console.log('state', store)` with a large store used to serialize
+ * the entire graph so that all but 200 characters of it could be thrown away —
+ * the widget spending someone else's frame budget inside their own app. Three
+ * hundred values is far more text than survives the cut in every shape a console
+ * argument takes.
+ *
+ * ⚠ It bounds RECURSION, not one wide container. A replacer that returns
+ * `undefined` stops `JSON.stringify` descending, but the stringifier still walks
+ * the elements of an array it has already entered, emitting `null` for each — so
+ * a million-element array at the top level is cheaper than it was and still not
+ * cheap. Capping that too costs bytes this bundle does not have (§V3-8); the
+ * case that was actually reported, a deep store logged in a loop, is covered.
+ */
+const MAX_VALUES = 300
+
 /** formatArg renders one console argument without ever throwing — a getter that
  *  throws, or a circular structure, must not take the host's console with it. */
 export function formatArg(v: unknown): string {
@@ -89,7 +109,8 @@ export function formatArg(v: unknown): string {
   if (v === undefined) return 'undefined'
   if (v instanceof Error) return `${v.name}: ${v.message}`
   try {
-    const s = JSON.stringify(v)
+    let n = 0
+    const s = JSON.stringify(v, (_k, x) => (n++ > MAX_VALUES ? undefined : x))
     return s === undefined ? String(v) : s
   } catch {
     try {

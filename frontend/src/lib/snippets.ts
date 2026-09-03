@@ -5,8 +5,15 @@
 // snippet is the one place that has to name it out loud.
 export const STATUS_ORIGIN = 'https://status.tilcer.cz'
 
-/** curlIngestSnippet is the crash-ingest one-liner, shown once beside a fresh
- *  `ik_` key. */
+/**
+ * curlIngestSnippet is the crash-ingest one-liner.
+ *
+ * `ingestKey` is the plaintext `ik_` value beside a freshly issued key and the
+ * `$STATUS_INGEST_KEY` shell variable on the site page, which is the only thing
+ * that differs between the two places it is shown — so it is the only thing the
+ * caller passes. The endpoint, the header name and the body shape live here
+ * once.
+ */
 export function curlIngestSnippet(siteId: string, ingestKey: string): string {
   return [
     `curl -sS -X POST ${STATUS_ORIGIN}/api/ingest/${siteId} \\`,

@@ -41,6 +41,19 @@ describe('formatArg', () => {
     expect(formatArg(undefined)).toBe('undefined')
     expect(formatArg({ a: 1 })).toBe('{"a":1}')
   })
+
+  // ⚠ This runs on the HOST's console.log, once per call, on an argument the
+  // host chose. Serializing the whole of `console.log('state', store)` only to
+  // keep 200 characters of it is the widget spending someone else's frame
+  // budget inside their own app.
+  it('stops descending into a large object long before the line cap could need it', () => {
+    const deep = (n: number): unknown => (n === 0 ? 'leaf' : { n, name: 'x'.repeat(40), next: deep(n - 1) })
+    const big = deep(2_000)
+    const out = formatArg(big)
+    expect(out.length).toBeLessThan(JSON.stringify(big).length / 5)
+    // Still far more than the 200 characters a captured line keeps.
+    expect(out.length).toBeGreaterThan(1000)
+  })
 })
 
 describe('installConsoleCapture', () => {

@@ -119,7 +119,14 @@ type WidgetConfig struct {
 	// the body it generates — the console tail — to what the rest leaves. A
 	// deployment that lowers STATUS_FEEDBACK_MAX_TEXT_BYTES without saying so
 	// would 413 reports the widget had every reason to believe were in budget.
-	MaxTextBytes   int64    `json:"max_text_bytes,omitempty"`
+	MaxTextBytes int64 `json:"max_text_bytes,omitempty"`
+	// MinDwellMs is STATUS_FEEDBACK_MIN_DWELL_MS, for the same reason
+	// MaxTextBytes is published. ⚠ The widget's "Send again" mints a fresh ticket
+	// and has to WAIT OUT this dwell before posting it, or the retry is refused
+	// as a script every time — a loop the reporter cannot escape. The widget
+	// mirrored the 3 000 ms default as a constant; a deployment that raised the
+	// dial (configuration accepts anything under 30 s) broke that loop silently.
+	MinDwellMs     int64    `json:"min_dwell_ms,omitempty"`
 	Accept         []string `json:"accept,omitempty"`
 	ConsoleCapture bool     `json:"console_capture,omitempty"`
 	StringsVersion int      `json:"strings_version,omitempty"`

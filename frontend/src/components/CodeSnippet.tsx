@@ -1,18 +1,16 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { STATUS_ORIGIN } from '@/lib/snippets'
+import { STATUS_ORIGIN, curlIngestSnippet } from '@/lib/snippets'
 
 type Tab = 'curl' | 'go' | 'js'
 
 function snippets(siteId: string): Record<Tab, string> {
   const url = `${STATUS_ORIGIN}/api/ingest/${siteId}`
   return {
-    curl: [
-      `curl -sS -X POST ${url} \\`,
-      `  -H "X-Ingest-Key: $STATUS_INGEST_KEY" \\`,
-      `  -H "Content-Type: application/json" \\`,
-      `  -d '{"message":"something broke","level":"error"}'`,
-    ].join('\n'),
+    // The same one-liner the key modal hands out, with the shell variable in
+    // place of the key nobody can read back. It had been written out a second
+    // time here, so the endpoint and the header name existed twice.
+    curl: curlIngestSnippet(siteId, '$STATUS_INGEST_KEY'),
     go: [
       `// STATUS_INGEST_URL=${url}`,
       `// STATUS_INGEST_KEY=ik_...`,
@@ -43,7 +41,13 @@ const tabs: { key: Tab; label: string }[] = [
  *  should not have to be made twice to avoid drift. */
 export function CopyableCode({ code }: { code: string }) {
   const copy = () => {
-    void navigator.clipboard?.writeText(code).then(() => toast.success('Snippet copied'))
+    // ⚠ `writeText` rejects on a denied permission, an unfocused document and
+    // Safari's user-gesture rule. Without the catch that rejection is unhandled
+    // and the user is told nothing at all.
+    void navigator.clipboard
+      ?.writeText(code)
+      .then(() => toast.success('Snippet copied'))
+      .catch(() => toast.error('Could not copy — select the snippet and copy it yourself'))
   }
   return (
     <div style={{ position: 'relative' }}>

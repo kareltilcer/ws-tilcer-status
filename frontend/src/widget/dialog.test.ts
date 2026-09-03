@@ -49,7 +49,7 @@ function harness(opts: {
   submit?: (body: Submission) => Promise<SubmitResult>
   put?: (slot: UploadSlot, file: Blob, onProgress: (p: number) => void) => Upload
   ticket?: string | null
-  ticketAgeMs?: () => number
+  ticketOwedMs?: () => number
   refreshTicket?: () => Promise<void>
 }): Harness {
   const root = document.createElement('div')
@@ -74,9 +74,9 @@ function harness(opts: {
       claimed.push(ref)
     },
     ticket: () => (opts.ticket === undefined ? 'ticket.sig' : opts.ticket),
-    // Old enough by default: every test that is not about the dwell should not
-    // have to wait one out.
-    ticketAgeMs: () => (opts.ticketAgeMs ? opts.ticketAgeMs() : 60_000),
+    // Old enough by default (nothing owed): every test that is not about the
+    // dwell should not have to wait one out.
+    ticketOwedMs: () => (opts.ticketOwedMs ? opts.ticketOwedMs() : -60_000),
     refreshTicket: () => (opts.refreshTicket ? opts.refreshTicket() : Promise.resolve()),
     ticketSettled: () => Promise.resolve(),
   }
@@ -240,6 +240,26 @@ describe('opening and closing', () => {
   })
 })
 
+describe('the widget’s typography', () => {
+  // ⚠ The host element carries an inline `all:initial` (main.ts), which expands
+  // to `font-family: initial; line-height: initial`. An inline style is an
+  // element-attached declaration in the OUTER encapsulation context, and for
+  // normal rules the outer context wins — so `:host { font-family: var(--sfb-font) }`
+  // lost to it and every string in the dialog and the launcher rendered in the
+  // UA's default serif at line-height `normal`, on every host page (measured in
+  // Chrome: the shadow child computed "Times New Roman"). Nothing outside the
+  // shadow root can select what is inside it, so the two inherited declarations
+  // have to sit below the host rather than on it.
+  it('applies the font stack below the host, where the host page cannot outrank it', () => {
+    const host = WIDGET_CSS.match(/:host\s*\{([^}]*)\}/)![1]
+    expect(host).not.toMatch(/font-family\s*:/)
+    expect(host).not.toMatch(/line-height\s*:/)
+    const kids = WIDGET_CSS.match(/:host\s*>\s*\*\s*\{([^}]*)\}/)![1]
+    expect(kids).toMatch(/font-family:\s*var\(--sfb-font\)/)
+    expect(kids).toMatch(/line-height:/)
+  })
+})
+
 describe('the kind picker', () => {
   // ⚠ The stylesheet is the only thing that makes the choice VISIBLE — the accent
   // fill and the check glyph both hang off an attribute selector. Round 2 moved
@@ -396,14 +416,22 @@ describe('the submission', () => {
   // still owes — a ticket minted at the moment of the click is younger than
   // STATUS_FEEDBACK_MIN_DWELL_MS and is refused as a script, every time, which
   // made "Odeslat znovu" a button that could never work.
-  it('retries with a ticket old enough to pass the dwell floor', async () => {
+  //
+  // ⚠ The dwell here is 10 s, deliberately longer than the 3 500 ms the widget
+  // used to hardcode as a mirror of the server's default. STATUS_FEEDBACK_MIN_DWELL_MS
+  // is a dial a deployment may set to anything under 30 s, and against the fixed
+  // constant every retry on such a deployment posted a ticket the server refused
+  // — "Send again" that could never work, forever. The wait now comes from
+  // `min_dwell_ms` in the config, through `ticketOwedMs`.
+  it('waits out a configured dwell longer than the old hardcoded one', async () => {
     vi.useFakeTimers()
     try {
+      const dwell = 10_000
       let issuedAt = Date.now()
       let refreshes = 0
       const h = harness({
         submit: async () => ({ ok: false, kind: 'network' }),
-        ticketAgeMs: () => Date.now() - issuedAt,
+        ticketOwedMs: () => dwell - (Date.now() - issuedAt),
         refreshTicket: async () => {
           refreshes++
           issuedAt = Date.now()
@@ -421,7 +449,12 @@ describe('the submission', () => {
       expect(h.submitted).toHaveLength(1) // still waiting out the dwell
       expect(h.root.textContent).toContain(STRINGS.cs.sending)
 
+      // Past the old constant, nowhere near this deployment's dwell.
       await vi.advanceTimersByTimeAsync(4_000)
+      await flush()
+      expect(h.submitted).toHaveLength(1)
+
+      await vi.advanceTimersByTimeAsync(7_000)
       await flush()
       expect(h.submitted).toHaveLength(2)
     } finally {
@@ -439,7 +472,7 @@ describe('the submission', () => {
       let issuedAt = Date.now()
       const h = harness({
         submit: async () => ({ ok: false, kind: 'network' }),
-        ticketAgeMs: () => Date.now() - issuedAt,
+        ticketOwedMs: () => 3_500 - (Date.now() - issuedAt),
         refreshTicket: async () => {
           issuedAt = Date.now()
         },
@@ -511,6 +544,22 @@ describe('uploads', () => {
     expect(h.root.textContent).toContain(STRINGS.cs.tooLargeTitle)
     expect(h.root.textContent).toContain('velky.png')
     expect(h.all('.sfb-chip')).toHaveLength(0)
+  })
+
+  // ⚠ One picker dialog, three files, the bad one in the middle. The rejection
+  // used to end the loop, so the screenshot chosen AFTER the oversized clip was
+  // dropped with no chip and no second alert — the reporter was told about the
+  // clip and quietly lost a file they had picked. One alert is still right; one
+  // alert is not a reason to abandon the rest of the selection.
+  it('keeps the valid files picked after a rejected one, and still shows one alert', () => {
+    const h = harness({})
+    h.dialog.open()
+    pick(h, [png('a.png'), png('velky.png', 11 * 1024 * 1024), png('b.png')])
+    expect(h.all('.sfb-chip')).toHaveLength(2)
+    expect(h.root.textContent).toContain('a.png')
+    expect(h.root.textContent).toContain('b.png')
+    expect(h.all('.sfb-alert')).toHaveLength(1)
+    expect(h.root.textContent).toContain(STRINGS.cs.tooLargeTitle)
   })
 
   // Telling someone whose file reads as 0 bytes to "attach an image instead"

@@ -517,6 +517,30 @@ func TestDisabledSiteRendersNoLauncher(t *testing.T) {
 	}
 }
 
+// TestConfigPublishesTheMinimumDwell: the dial has to reach the client that has
+// to obey it.
+//
+// ⚠ The widget's "Send again" mints a replacement ticket and must wait out this
+// dwell before posting it, or `checkTiming` refuses the retry as a script —
+// every time, so the button can never work. The widget mirrored the 3 000 ms
+// default as a constant of its own, which is correct for exactly one value of a
+// setting configuration accepts anywhere under 30 s.
+func TestConfigPublishesTheMinimumDwell(t *testing.T) {
+	cfg := testConfig()
+	cfg.MinDwell = 9 * time.Second
+	h := newHarness(t, cfg)
+
+	code, body := h.do(http.MethodGet, "/api/ingest/"+testSite+"/feedback/config", nil, widgetHeaders(h.key))
+	if code != http.StatusOK {
+		t.Fatalf("config = %d, want 200 (%s)", code, body)
+	}
+	var out WidgetConfig
+	mustJSON(t, body, &out)
+	if out.MinDwellMs != 9000 {
+		t.Fatalf("min_dwell_ms = %d, want 9000 — a client that cannot read the dwell cannot wait it out", out.MinDwellMs)
+	}
+}
+
 // TestConfigWithoutStorageIsDisabled: a deployment with no object storage reports
 // every site as disabled, whatever its row says. A switch must not be flippable
 // into a state the process cannot serve.

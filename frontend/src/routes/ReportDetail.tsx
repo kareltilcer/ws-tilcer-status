@@ -106,7 +106,13 @@ export function ReportDetail() {
     )
   }
 
-  if (q.isError || !report) {
+  // ⚠ `q.isError` is deliberately NOT in this condition. A failed BACKGROUND
+  // refetch — and every triage click invalidates this key, so there is one after
+  // each of them — sets `isError` while `data` still holds the report that is on
+  // screen. Reading it here replaced a report that exists, and had just been
+  // patched successfully, with "no report with that reference … it may have been
+  // deleted". Absent data is the only thing this block can honestly claim.
+  if (!report) {
     return (
       <div>
         {back}
@@ -291,6 +297,21 @@ function AttachmentCard({ reportRef, attachment }: { reportRef: string; attachme
     // prefix to avoid; the window-focus default is the other way in.
     refetchOnWindowFocus: false,
   })
+  // ⚠ The URL outlives nothing: it is a five-minute bearer token, and while this
+  // card stays mounted nothing re-mints it. An admin who reads a report for six
+  // minutes and then presses play sent range requests against an expired URL, R2
+  // answered 403, and the player stopped with no message — `isError` is false,
+  // because minting had succeeded. A poll is the wrong answer (it would swap
+  // every <img src> on the page every few minutes, and reload a video mid-play),
+  // so the media asks for a fresh one when it actually fails. Capped at one: an
+  // object that is broken rather than expired must not spin the mint endpoint
+  // against the service's single writer connection.
+  const [reminted, setReminted] = useState(false)
+  const remint = () => {
+    if (reminted) return
+    setReminted(true)
+    void q.refetch()
+  }
   const isVideo = attachment.content_type.startsWith('video/')
   const size = fileSize(attachment.byte_size)
   const shortType = attachment.content_type.split('/')[1]?.toUpperCase() ?? attachment.content_type
@@ -316,9 +337,9 @@ function AttachmentCard({ reportRef, attachment }: { reportRef: string; attachme
         ) : !q.data ? (
           <div className="om-skel" style={{ height: '100%', width: '100%', borderRadius: 0 }} />
         ) : isVideo ? (
-          <video src={q.data.url} controls preload="metadata" style={{ maxHeight: '100%', maxWidth: '100%' }} />
+          <video src={q.data.url} onError={remint} controls preload="metadata" style={{ maxHeight: '100%', maxWidth: '100%' }} />
         ) : (
-          <img src={q.data.url} alt="Attachment from the reporter" style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }} />
+          <img src={q.data.url} onError={remint} alt="Attachment from the reporter" style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }} />
         )}
       </div>
       <div style={{ padding: '9px 11px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>

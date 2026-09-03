@@ -30,8 +30,6 @@ export function FeedbackPanel({ siteId, openReports }: { siteId: string; openRep
   const [confirmRotate, setConfirmRotate] = useState(false)
 
   const metaQ = useQuery({ queryKey: qk.meta(), queryFn: () => api.getMeta(), staleTime: 5 * 60_000 })
-  const cfgQ = useQuery({ queryKey: qk.feedbackConfig(siteId), queryFn: () => api.getFeedbackConfig(siteId) })
-  const cfg = cfgQ.data
   // ⚠ The deployment-level switch, not the site's: with no object storage there
   // is nowhere to put an attachment, so enabling is a 503. The control says so
   // instead of failing on click.
@@ -42,6 +40,17 @@ export function FeedbackPanel({ siteId, openReports }: { siteId: string; openRep
   // storage ends up offering the switch this block exists to withhold.
   const storageReady = metaQ.data?.feedback_enabled === true
   const storageUnknown = metaQ.data === undefined
+
+  // Gated on the same condition that decides whether the configuration is ever
+  // rendered. Without it a deployment with no object storage still asked for a
+  // per-site config it would never show, on every site-detail load, against a
+  // service with one writer connection.
+  const cfgQ = useQuery({
+    queryKey: qk.feedbackConfig(siteId),
+    queryFn: () => api.getFeedbackConfig(siteId),
+    enabled: storageReady,
+  })
+  const cfg = cfgQ.data
 
   const update = useMutation({
     mutationFn: (body: { enabled?: boolean; console_capture?: boolean }) => api.updateFeedbackConfig(siteId, body),
@@ -117,7 +126,10 @@ export function FeedbackPanel({ siteId, openReports }: { siteId: string; openRep
             <Toggle checked={false} disabled label="Unavailable" onChange={() => {}} />
           </div>
         </div>
-      ) : cfgQ.isError || !cfg ? (
+      ) : /* ⚠ Not `cfgQ.isError || !cfg`: a save invalidates this key, so a failed
+             background refetch would replace the panel — toggles, key row and
+             snippet — with an error card immediately after a save that worked. */
+      !cfg ? (
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 9, background: 'var(--s2)' }}>
           <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1 }}>Couldn't load the feedback configuration.</span>
           <button onClick={() => void cfgQ.refetch()} style={ghostButton}>

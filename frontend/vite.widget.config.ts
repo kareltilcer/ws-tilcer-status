@@ -31,6 +31,16 @@ const root = path.dirname(fileURLToPath(import.meta.url))
  * regex, identifier — and a surrogate pair escapes to the two halves that
  * compose it.
  *
+ * ⚠ It also invalidates the `gzip:` figure Vite prints for this chunk — and only
+ * that one, which is what makes the line hard to distrust. The size before the
+ * `│` is the file this hook wrote; the gzip figure beside it is measured on the
+ * code as it stood BEFORE the escapes, which gzips about 90 bytes WORSE (`\uXXXX`
+ * runs compress better than the UTF-8 they replace). Read straight, the console
+ * says a bundle that is 14 9xx gzipped is over §V3-8's 15 kB. The budget is about
+ * the artifact, so measure the artifact:
+ *
+ *   node -e "const z=require('zlib'),f=require('fs');console.log(z.gzipSync(f.readFileSync('dist/widget/v1.js')).length)"
+ *
  * ⚠ The post-condition reads the file back OFF DISK, in `writeBundle`. Re-testing
  * the same regex on the string the global replace above has just produced cannot
  * fail — it is the replace's own output — and would have proved nothing about the
