@@ -128,16 +128,16 @@ spammed widget can be revoked without silencing that site's crash reporting.
 
 | Path | Cache | Meaning |
 |---|---|---|
-| `/widget/v1.js` | `public, max-age=300` | The v1 **contract**, frozen for its life. The code is not. |
+| `/widget/v1.js` | `public, max-age=31536000, immutable` | The v1 contract, frozen for its life. |
 | `/widget/latest.js` | 302 → `/widget/v1.js`, `max-age=300` | Follows the current major. |
 
 Pin `v1.js`. A breaking change becomes `/widget/v2.js` and every existing embed keeps working.
 
-⚠ **`v1.js` is deliberately not `immutable`.** The filename is fixed and the file is not: every
-non-breaking fix to the widget ships under this exact URL. A year-long `immutable` would leave a
-browser that had already loaded it serving the broken copy out of disk cache, without so much as a
-conditional request — inside your app, for a year, with nothing on our side able to reach it. Five
-minutes of freshness on a file this size is the cheaper mistake.
+⚠ **What `immutable` costs, since your users are the ones who pay it.** The filename is fixed and
+unhashed, so a browser that has loaded the widget once will not issue even a conditional request for
+a year. A non-breaking fix to v1 therefore cannot reach it: the repair ships as `v2.js` and your
+embed has to be updated to see it. That is the trade PRD FR-24 chose, and it is one line of
+`frontend/nginx.conf` to revisit.
 
 ⚠ **Keep the `.js` extension.** Nginx serves `/widget/*.js` from the filesystem with no SPA
 fallback, so an unknown version 404s. An extensionless path would fall through to the SPA and hand

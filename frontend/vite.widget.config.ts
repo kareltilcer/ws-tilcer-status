@@ -47,10 +47,13 @@ function asciiOnly(): Plugin {
 
 // The widget is a SECOND build, not a second entry in the SPA build (FR-24).
 // The SPA emits hashed filenames so it can be cached for a year; the widget needs
-// one fixed, guessable name that a host page can hardcode — `/widget/v1.js`, whose
-// CONTRACT is frozen for the life of v1 and whose code is not, which is why nginx
-// serves it revalidated rather than immutable. A breaking change becomes v2.js and
-// every existing embed keeps working.
+// one fixed, guessable name that a host page can hardcode — `/widget/v1.js`,
+// cached for a year and immutable, because its contract is frozen for the life of
+// v1. A breaking change becomes v2.js and every existing embed keeps working.
+//
+// ⚠ The filename is unhashed, so `immutable` also means a non-breaking fix cannot
+// reach a browser that already has this file: it ships as v2.js instead. That
+// trade is FR-24's and §V3-11 checks for it; frontend/nginx.conf carries the note.
 export default defineConfig({
   plugins: [asciiOnly()],
   build: {
