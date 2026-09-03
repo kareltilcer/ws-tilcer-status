@@ -719,6 +719,12 @@ paths:
         `enabled: false` is the kill switch — the widget stops rendering on the
         next page load and a submission from a stale page gets 403, without any
         key being rotated. Requires `admin`.
+
+        ⚠ Only a request that sets `enabled: true` may CREATE a site's
+        configuration. Creating it mints the widget key and returns the
+        plaintext exactly once, so a request that changes some other setting on
+        a site that has never had feedback enabled is a 422 rather than a silent
+        key issue nobody would see again.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -742,7 +748,13 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
-          $ref: "#/components/responses/ValidationError"
+          description: >-
+            The body set no field, or it would have created the site's
+            configuration without enabling feedback — see the note above.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "503":
           description: >-
             The deployment has no object storage configured
@@ -815,6 +827,12 @@ paths:
         is what makes the minimum-dwell check meaningful: a `dwell_ms` field sent
         by the client is a number the client chooses, whereas the ticket's issue
         time is signed by the server.
+
+        ⚠ All three widget responses are sent `Cache-Control: no-store`. Two of
+        them carry single-use credentials — this one a ticket, the submission a
+        set of presigned upload URLs — and an intermediary that served one
+        reporter's ticket to another would dead-end the second dialog with a 422
+        nobody could act on.
       security:
         - widgetKey: []
       responses:
@@ -1492,7 +1510,12 @@ components:
               type: [string, "null"]
             internal_note:
               type: [string, "null"]
-              description: Admin-only; never leaves the dashboard and never reaches the reporter.
+              description: >-
+                Admin-only; never leaves the dashboard and never reaches the
+                reporter. This route is session-gated rather than admin-gated —
+                any session may read a report — so the field itself is the gate:
+                it is `null` for a caller without the `admin` role, whether or
+                not a note exists.
             resolved_at:
               type: [string, "null"]
               format: date-time

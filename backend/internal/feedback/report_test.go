@@ -316,7 +316,7 @@ func TestConsoleTailIsOptIn(t *testing.T) {
 
 	// With the opt-in on, the lines are kept — and capped.
 	on := true
-	if _, _, err := h.mod.store.UpsertConfig(context.Background(), testSite, nil, &on, "", time.Now().UTC()); err != nil {
+	if _, _, err := h.mod.store.UpsertConfig(context.Background(), testSite, nil, &on, "", false, time.Now().UTC()); err != nil {
 		t.Fatalf("opt in: %v", err)
 	}
 	body = h.submission()
@@ -394,6 +394,86 @@ func TestRotateWidgetKeyInvalidatesTheOldOne(t *testing.T) {
 
 // TestSiteConfigRoutes covers FR-14: absence means off, the plaintext is shown
 // exactly once, and an unknown site is a 404.
+// TestInternalNoteIsAdminOnly holds the code to what the contract says about
+// that field.
+//
+// ⚠ `openapi.yaml` calls internal_note "Admin-only" and FR-21 says the same, but
+// GET /api/reports/{ref} is only session-gated — PATCH and DELETE beside it carry
+// RequireAdmin and it does not. The gate is therefore on the field: any session
+// may read a report, only an admin sees the note Karel wrote about it.
+func TestInternalNoteIsAdminOnly(t *testing.T) {
+	h := newHarness(t, testConfig())
+	ref := h.submitWithFile(64).Ref
+
+	if code, _ := h.do(http.MethodPatch, "/api/reports/"+ref,
+		map[string]any{"internal_note": "same root cause as fin R-9XB3"}, nil); code != http.StatusOK {
+		t.Fatalf("set the note: %d", code)
+	}
+
+	var asAdmin Report
+	code, body := h.do(http.MethodGet, "/api/reports/"+ref, nil, nil)
+	mustJSON(t, body, &asAdmin)
+	if code != http.StatusOK || asAdmin.InternalNote == nil {
+		t.Fatalf("an admin must see the note: %d %s", code, body)
+	}
+
+	var asEditor Report
+	code, body = h.do(http.MethodGet, "/api/reports/"+ref, nil, map[string]string{"X-Test-Roles": "editor"})
+	if code != http.StatusOK {
+		t.Fatalf("a non-admin session may still read the report: %d %s", code, body)
+	}
+	mustJSON(t, body, &asEditor)
+	if asEditor.InternalNote != nil {
+		t.Fatalf("internal_note reached a non-admin session: %q", *asEditor.InternalNote)
+	}
+	// The rest of the report is not a secret — only the note is.
+	if asEditor.Ref != ref || asEditor.Message == "" {
+		t.Fatalf("the report itself must survive the redaction: %+v", asEditor)
+	}
+}
+
+// TestConsoleCaptureAloneCannotMintAKey pins the invariant that keeps a widget
+// key from being spent on a request that did not ask for one.
+//
+// ⚠ The configuration row cannot exist without a widget key, and a key is shown
+// exactly once — in the response to the request that minted it. So a
+// console_capture-only PATCH against a site that has never had feedback enabled
+// used to create the row, mint the key and return it in a modal nobody asked
+// for: a site whose key was displayed once, unnoticed, and recoverable only by
+// rotating it.
+func TestConsoleCaptureAloneCannotMintAKey(t *testing.T) {
+	h := newHarness(t, testConfig())
+	h.seedSite("fin", "Fin") // a site that has never had feedback enabled
+
+	code, body := h.do(http.MethodPatch, "/api/sites/fin/feedback-config",
+		map[string]any{"console_capture": true}, nil)
+	if code != http.StatusUnprocessableEntity {
+		t.Fatalf("console_capture on an unconfigured site = %d, want 422: %s", code, body)
+	}
+
+	// Nothing was created, so nothing was minted: the site still reads as
+	// disabled and its next enable is still the one and only key display.
+	var cfg FeedbackConfig
+	code, body = h.do(http.MethodGet, "/api/sites/fin/feedback-config", nil, nil)
+	mustJSON(t, body, &cfg)
+	if code != http.StatusOK || cfg.Enabled || cfg.WidgetKeySetAt != nil {
+		t.Fatalf("a refused PATCH must leave no configuration behind: %d %s", code, body)
+	}
+
+	// Enabling still works, and is what issues the key.
+	var withKey FeedbackConfigWithKey
+	code, body = h.do(http.MethodPatch, "/api/sites/fin/feedback-config", map[string]any{"enabled": true}, nil)
+	mustJSON(t, body, &withKey)
+	if code != http.StatusOK || withKey.WidgetKey == "" {
+		t.Fatalf("enabling must mint and return the key exactly once: %d %s", code, body)
+	}
+	// And with the row in place, the setting it refused a moment ago applies.
+	if code, body := h.do(http.MethodPatch, "/api/sites/fin/feedback-config",
+		map[string]any{"console_capture": true}, nil); code != http.StatusOK {
+		t.Fatalf("console_capture on a configured site = %d, want 200: %s", code, body)
+	}
+}
+
 func TestSiteConfigRoutes(t *testing.T) {
 	h := newHarness(t, testConfig())
 	h.seedSite("karel", "Karel") // no configuration row at all

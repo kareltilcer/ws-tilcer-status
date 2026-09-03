@@ -56,7 +56,7 @@ func (m *Module) widgetConfig(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	t := newTicket(siteID, now)
 	if err := m.store.InsertTicket(r.Context(), t, now.Add(ticketTTL)); err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "issue ticket", err)
 		return
 	}
 	token := signTicket(t, m.cfg.TicketSecret)
@@ -130,8 +130,7 @@ func (m *Module) submit(w http.ResponseWriter, r *http.Request) {
 		// holding a perfectly valid ticket that it is invalid, and leaves their
 		// dialog dead until a full reload mints another one.
 		if errors.Is(err, errSubmissionInternal) {
-			m.logger.Error("feedback submit", "site", siteID, "err", err)
-			httpx.WriteError(w, httpx.ErrInternal(""))
+			m.fail(w, r, "spend ticket", err)
 			return
 		}
 		httpx.WriteError(w, httpx.ErrUnprocessable(err.Error()))
@@ -140,7 +139,7 @@ func (m *Module) submit(w http.ResponseWriter, r *http.Request) {
 
 	ref, slots, err := m.store.InsertReport(r.Context(), report, files, now)
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "insert report", err)
 		return
 	}
 
@@ -200,7 +199,7 @@ func (m *Module) claim(w http.ResponseWriter, r *http.Request) {
 	// site's report.
 	pending, found, err := m.store.PendingForRef(r.Context(), siteID, ref)
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "load pending attachments", err)
 		return
 	}
 	if !found {
@@ -217,7 +216,7 @@ func (m *Module) claim(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, blob.ErrNotFound):
 			// Never uploaded, or the PUT was refused for a signature mismatch.
 			if err := m.store.SettleAttachment(r.Context(), p.ID, AttachMissing, p.Declared, now); err != nil {
-				httpx.WriteError(w, httpx.ErrInternal(""))
+				m.fail(w, r, "settle attachment", err)
 				return
 			}
 		case err != nil:
@@ -227,7 +226,7 @@ func (m *Module) claim(w http.ResponseWriter, r *http.Request) {
 		case size != p.Declared:
 			// Smaller than declared: the client stalled mid-body.
 			if err := m.store.SettleAttachment(r.Context(), p.ID, AttachMissing, size, now); err != nil {
-				httpx.WriteError(w, httpx.ErrInternal(""))
+				m.fail(w, r, "settle attachment", err)
 				return
 			}
 		default:
@@ -237,7 +236,7 @@ func (m *Module) claim(w http.ResponseWriter, r *http.Request) {
 			// "improve" this into a guarantee it cannot make — that would need a
 			// signed checksum, which was considered and declined in FR-18.
 			if err := m.store.SettleAttachment(r.Context(), p.ID, AttachStored, size, now); err != nil {
-				httpx.WriteError(w, httpx.ErrInternal(""))
+				m.fail(w, r, "settle attachment", err)
 				return
 			}
 		}
@@ -245,7 +244,7 @@ func (m *Module) claim(w http.ResponseWriter, r *http.Request) {
 
 	out, err := m.store.AttachmentsForRef(r.Context(), ref)
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "read claimed attachments", err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, ClaimResult{Attachments: out})
@@ -277,13 +276,13 @@ func (m *Module) authorize(w http.ResponseWriter, r *http.Request, siteID string
 	// existence check only runs when there is no row — the miss, not the hot path.
 	cfg, err := m.store.Config(r.Context(), siteID)
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "read feedback config", err)
 		return nil, false
 	}
 	if cfg == nil {
 		exists, err := m.sitesStore.Exists(r.Context(), siteID)
 		if err != nil {
-			httpx.WriteError(w, httpx.ErrInternal(""))
+			m.fail(w, r, "look up site", err)
 			return nil, false
 		}
 		if !exists {
@@ -323,16 +322,32 @@ func (m *Module) authorize(w http.ResponseWriter, r *http.Request, siteID string
 // limit applies the per-key and per-IP token buckets, answering 429 with
 // Retry-After. The client IP comes from the request metadata the router already
 // resolved under STATUS_TRUSTED_PROXY_COUNT — never a second XFF parser (V3-D23).
+//
+// ⚠ The order is load-bearing, and so is the refund. `Allow` decides and charges
+// in one call, so whichever bucket is consulted first pays even when the second
+// one refuses. The per-key bucket is the SITE's — shared by every reporter on it
+// — and the per-IP bucket is one caller's own, so charging the key first let a
+// single abusive IP spend the whole site's allowance on requests it was itself
+// being refused for: everyone else got a 429 they had done nothing to earn. The
+// caller's own bucket is therefore charged first, and the shared one is refunded
+// if it turns out to be the one that says no.
 func (m *Module) limit(w http.ResponseWriter, r *http.Request, keyLimiter, ipLimiter *ratelimit.Limiter, keyHash string) bool {
-	if ok, retry := keyLimiter.Allow(keyHash); !ok {
-		writeRateLimited(w, retry)
-		return false
-	}
-	if ip := reqctx.IP(r.Context()); ip != "" {
+	ip := reqctx.IP(r.Context())
+	if ip != "" {
 		if ok, retry := ipLimiter.Allow(ip); !ok {
 			writeRateLimited(w, retry)
 			return false
 		}
+	}
+	if ok, retry := keyLimiter.Allow(keyHash); !ok {
+		// The site is over its budget, which is not this caller's doing: give
+		// their own token back so a refusal here does not also cost them the next
+		// request they make once the site's bucket refills.
+		if ip != "" {
+			ipLimiter.Refund(ip)
+		}
+		writeRateLimited(w, retry)
+		return false
 	}
 	return true
 }

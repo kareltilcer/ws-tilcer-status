@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"io/fs"
 	"log/slog"
+	"net/http"
 	"sync"
 	"time"
 
@@ -174,9 +175,28 @@ func (m *Module) RegisterRoutes(r chi.Router) {
 // StripAPIPrefix's derived re-prefix set and demonstrably works in production, so
 // the reporting path is the half least likely to be broken by a proxy setting.
 func (m *Module) RegisterPublicRoutes(api chi.Router) {
-	api.Get("/ingest/{siteId}/feedback/config", m.widgetConfig)
-	api.Post("/ingest/{siteId}/feedback", m.submit)
-	api.Post("/ingest/{siteId}/feedback/{ref}/claim", m.claim)
+	api.Group(func(r chi.Router) {
+		r.Use(noStore)
+		r.Get("/ingest/{siteId}/feedback/config", m.widgetConfig)
+		r.Post("/ingest/{siteId}/feedback", m.submit)
+		r.Post("/ingest/{siteId}/feedback/{ref}/claim", m.claim)
+	})
+}
+
+// noStore marks the widget's public responses as uncacheable.
+//
+// ⚠ Two of the three carry single-use credentials — the configuration response
+// carries a submission ticket, the 202 carries presigned upload URLs — and none
+// of them currently sends any cache directive at all, which leaves an
+// intermediary computing freshness heuristically. A cache that served one
+// reporter's ticket to another would dead-end the second reporter's dialog with
+// a 422 they can do nothing about, and a shared upload URL is a write into
+// somebody else's report.
+func noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // storageReady reports whether this deployment can actually serve a report end to
