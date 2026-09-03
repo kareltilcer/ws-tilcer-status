@@ -74,15 +74,24 @@ func (s *Store) Config(ctx context.Context, siteID string) (*siteConfig, error) 
 	return &c, nil
 }
 
-// UpsertConfig applies a patch, creating the row (with keyHash, minted by the
-// caller) when it is absent. It returns the resulting configuration and whether
-// the key it was handed was actually used — the plaintext is shown once, and only
-// when it is the key the site now has.
+// UpsertConfig applies a patch, creating the row when it is absent. It returns
+// the resulting configuration and the plaintext of the widget key, which is
+// non-empty on exactly the request that created the row — the one request that
+// will ever be able to show it.
+//
+// ⚠ `mintKey` is a minter rather than a key, and nil means "this request may not
+// create the row" (the old `allowCreate`). Both halves matter. Creating the row
+// mints the widget key and a key is shown exactly once, in the response to the
+// request that minted it, so only a request that turns feedback ON may create it
+// (FR-14) — and a request that CAN create the row still only mints when it
+// actually does, which a pre-minted key handed in from outside could not express:
+// every enable of an already-configured site generated a secret and threw it
+// away, leaving "was a key issued here?" with one more thing to rule out.
 //
 // The read and the write share one transaction: BeginTx issues BEGIN IMMEDIATE
 // here (the DSN's _txlock), so two concurrent patches cannot both find the row
 // absent and both try to insert it.
-func (s *Store) UpsertConfig(ctx context.Context, siteID string, enabled, console *bool, keyHash string, allowCreate bool, now time.Time) (out *siteConfig, minted bool, err error) {
+func (s *Store) UpsertConfig(ctx context.Context, siteID string, enabled, console *bool, mintKey func() (plaintext, hash string, err error), now time.Time) (out *siteConfig, issued string, err error) {
 	ts := timeutil.Format(now)
 	err = appdb.WithTx(ctx, s.db, func(tx *sql.Tx) error {
 		var c siteConfig
@@ -92,13 +101,15 @@ func (s *Store) UpsertConfig(ctx context.Context, siteID string, enabled, consol
 			Scan(&c.SiteID, &c.Enabled, &c.WidgetKeyHash, &c.WidgetKeySetAt, &c.ConsoleCapture, &c.UpdatedAt)
 		switch {
 		case errors.Is(scanErr, sql.ErrNoRows):
-			// ⚠ Creating the row mints the widget key, and a key is shown exactly
-			// once — in the response to the request that minted it. So only a
-			// request that turns feedback ON may create it (FR-14). The decision is
-			// made here, inside the transaction that would do the writing, rather
-			// than by reading the row first and deciding outside it.
-			if !allowCreate {
+			// ⚠ The decision is made here, inside the transaction that would do
+			// the writing, rather than by reading the row first and deciding
+			// outside it — and so, now, is the minting.
+			if mintKey == nil {
 				return errConfigMissing
+			}
+			plaintext, keyHash, mintErr := mintKey()
+			if mintErr != nil {
+				return mintErr
 			}
 			c = siteConfig{SiteID: siteID, WidgetKeyHash: keyHash, WidgetKeySetAt: ts, UpdatedAt: ts}
 			if enabled != nil {
@@ -114,7 +125,7 @@ func (s *Store) UpsertConfig(ctx context.Context, siteID string, enabled, consol
 				c.SiteID, c.Enabled, c.WidgetKeyHash, c.WidgetKeySetAt, c.ConsoleCapture, ts, ts); err != nil {
 				return err
 			}
-			out, minted = &c, true
+			out, issued = &c, plaintext
 			return nil
 		case scanErr != nil:
 			return scanErr
@@ -135,9 +146,9 @@ func (s *Store) UpsertConfig(ctx context.Context, siteID string, enabled, consol
 		return nil
 	})
 	if err != nil {
-		return nil, false, err
+		return nil, "", err
 	}
-	return out, minted, nil
+	return out, issued, nil
 }
 
 // SetWidgetKeyHash rotates the key on an existing row, or creates the row

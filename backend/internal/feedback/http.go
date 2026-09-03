@@ -94,6 +94,12 @@ type reportPatchReq struct {
 // jsonNull is the literal an explicit null decodes to.
 var jsonNull = []byte("null")
 
+// errReportVanished names the read-back below finding nothing, so that the 500
+// it produces reaches the log as something rather than as `err=<nil>`. It is the
+// one way into `fail` that has no error of its own, and an ERROR line with no
+// error in it is the state `fail` was written to end.
+var errReportVanished = errors.New("feedback: the patched report could not be read back")
+
 // patchReport handles PATCH /api/reports/{ref} (admin): state, internal note,
 // kind.
 //
@@ -146,7 +152,10 @@ func (m *Module) patchReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rep, err := m.store.Get(r.Context(), ref)
-	if err != nil || rep == nil {
+	if err == nil && rep == nil {
+		err = errReportVanished
+	}
+	if err != nil {
 		// A report that patched a moment ago and cannot be read back now is a
 		// database problem, not a 404: reporting it as "unknown report" would
 		// send the reader looking for a row that is still there.
@@ -283,32 +292,23 @@ func (m *Module) patchSiteConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ⚠ Only a request that turns feedback ON may create the configuration row.
-	// Creating it mints the widget key and returns the plaintext exactly once, so
-	// a `console_capture`-only PATCH against a site that has never been enabled
-	// would otherwise burn that single display on a setting the caller did not
-	// ask about — leaving a site whose key nobody knows, recoverable only by
-	// rotating it.
-	allowCreate := in.Enabled != nil && *in.Enabled
-
-	// A key is minted up front and handed to the store, which uses it only if the
-	// site has no configuration row yet — deciding INSIDE the store would be the
-	// alternative to reading the row here, outside the transaction that then
-	// writes it. An unused key is thrown away; an existing one is never replaced
-	// by this route (that is rotate's job).
+	// ⚠ Only a request that turns feedback ON may create the configuration row,
+	// and `mintKey == nil` is how that is said. Creating it mints the widget key
+	// and returns the plaintext exactly once, so a `console_capture`-only PATCH
+	// against a site that has never been enabled would otherwise burn that single
+	// display on a setting the caller did not ask about — leaving a site whose
+	// key nobody knows, recoverable only by rotating it.
 	//
-	// ⚠ Nothing is minted for a request that may not create the row, because
-	// such a request can never use one: a secret generated and discarded on every
-	// settings click is one more thing to rule out when asking "was a key issued
-	// here?".
-	var plaintext, hash string
-	if allowCreate {
-		if plaintext, hash, err = GenerateWidgetKey(); err != nil {
-			m.fail(w, r, "generate widget key", err)
-			return
-		}
+	// ⚠ A minter rather than a key, so that the row's absence — which is only
+	// known inside the transaction that writes it — is also what decides whether
+	// a secret is generated at all. Handing in a pre-minted key made every enable
+	// of an already-configured site generate one and throw it away. An existing
+	// key is never replaced by this route either way; that is rotate's job.
+	var mintKey func() (string, string, error)
+	if in.Enabled != nil && *in.Enabled {
+		mintKey = GenerateWidgetKey
 	}
-	cfg, minted, err := m.store.UpsertConfig(r.Context(), id, in.Enabled, in.ConsoleCapture, hash, allowCreate, time.Now().UTC())
+	cfg, issuedKey, err := m.store.UpsertConfig(r.Context(), id, in.Enabled, in.ConsoleCapture, mintKey, time.Now().UTC())
 	if errors.Is(err, errConfigMissing) {
 		httpx.WriteError(w, httpx.ErrUnprocessable(
 			"feedback is not configured for this site — enable it first, which is what issues its widget key"))
@@ -318,11 +318,9 @@ func (m *Module) patchSiteConfig(w http.ResponseWriter, r *http.Request) {
 		m.fail(w, r, "upsert feedback config", err)
 		return
 	}
-	out := FeedbackConfigWithKey{FeedbackConfig: wireConfig(id, cfg)}
-	if minted {
-		// Shown once and never again: only the SHA-256 is stored.
-		out.WidgetKey = plaintext
-	}
+	// Shown once and never again: only the SHA-256 is stored. Non-empty on
+	// exactly the request that created the row.
+	out := FeedbackConfigWithKey{FeedbackConfig: wireConfig(id, cfg), WidgetKey: issuedKey}
 	httpx.JSON(w, http.StatusOK, out)
 }
 

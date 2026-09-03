@@ -144,12 +144,9 @@ func (h *harness) seedSite(id, name string) {
 // enable turns feedback on for a site and returns the plaintext widget key.
 func (h *harness) enable(siteID string) string {
 	h.t.Helper()
-	plaintext, hash, err := GenerateWidgetKey()
-	if err != nil {
-		h.t.Fatalf("widget key: %v", err)
-	}
 	on := true
-	if _, _, err := h.mod.store.UpsertConfig(context.Background(), siteID, &on, nil, hash, true, time.Now().UTC()); err != nil {
+	_, plaintext, err := h.mod.store.UpsertConfig(context.Background(), siteID, &on, nil, GenerateWidgetKey, time.Now().UTC())
+	if err != nil {
 		h.t.Fatalf("enable: %v", err)
 	}
 	return plaintext
@@ -251,9 +248,9 @@ func TestGuardChainOrder(t *testing.T) {
 	h := newHarness(t, testConfig())
 	h.seedSite("fin", "Fin") // exists, but feedback was never enabled
 	disabledKey := func() string {
-		plaintext, hash, _ := GenerateWidgetKey()
 		off := false
-		if _, _, err := h.mod.store.UpsertConfig(context.Background(), "fin", &off, nil, hash, true, time.Now().UTC()); err != nil {
+		_, plaintext, err := h.mod.store.UpsertConfig(context.Background(), "fin", &off, nil, GenerateWidgetKey, time.Now().UTC())
+		if err != nil {
 			t.Fatalf("disable fin: %v", err)
 		}
 		return plaintext
@@ -594,7 +591,7 @@ func TestTicketRules(t *testing.T) {
 func TestDisabledSiteRendersNoLauncher(t *testing.T) {
 	h := newHarness(t, testConfig())
 	off := false
-	if _, _, err := h.mod.store.UpsertConfig(context.Background(), testSite, &off, nil, "", false, time.Now().UTC()); err != nil {
+	if _, _, err := h.mod.store.UpsertConfig(context.Background(), testSite, &off, nil, nil, time.Now().UTC()); err != nil {
 		t.Fatalf("disable: %v", err)
 	}
 	code, body := h.do(http.MethodGet, "/api/ingest/"+testSite+"/feedback/config", nil, widgetHeaders(h.key))

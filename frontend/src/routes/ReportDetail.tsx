@@ -283,7 +283,10 @@ function Attachments({ report }: { report: Report }) {
         <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>
           Attachments <span style={{ fontWeight: 500, color: 'var(--subtle)', fontSize: 13 }}>· {report.attachments.length}</span>
         </h2>
-        <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>View links are minted on demand and expire in 5 min</span>
+        {/* ⚠ No number. The lifetime is STATUS_FEEDBACK_VIEW_TTL, which this
+            screen does not read — naming a figure here made the page assert a
+            setting the deployment might not be running. */}
+        <span style={{ fontSize: 11.5, color: 'var(--subtle)' }}>View links are minted on demand and expire shortly after</span>
       </div>
       {report.attachments.length === 0 ? (
         <div style={{ display: 'grid', placeItems: 'center', minHeight: 88, border: '1px dashed var(--border)', borderRadius: 9, color: 'var(--muted)', fontSize: 13, textAlign: 'center', padding: 14 }}>
@@ -300,16 +303,30 @@ function Attachments({ report }: { report: Report }) {
   )
 }
 
+/** viewUrlLifetime is what is left of a minted view URL, less a margin: the
+ *  browser's clock and the signer's are not the same clock, and a link that is
+ *  reused in its last seconds is one the bucket may already have stopped
+ *  honouring. Zero for anything absent or already expired, which is React
+ *  Query's "stale", so the next mount mints a fresh one. */
+function viewUrlLifetime(expiresAt: string | undefined): number {
+  const at = expiresAt ? Date.parse(expiresAt) : NaN
+  return Number.isNaN(at) ? 0 : Math.max(0, at - Date.now() - 30_000)
+}
+
 function AttachmentCard({ reportRef, attachment }: { reportRef: string; attachment: AttachmentSummary }) {
   const stored = attachment.state === 'stored'
   const q = useQuery({
     queryKey: qk.attachmentUrl(reportRef, attachment.id),
     queryFn: () => api.attachmentUrl(reportRef, attachment.id),
     enabled: stored,
-    // The URL is a bearer token valid for five minutes; re-mint rather than
-    // hold one longer than the server would honour.
-    staleTime: 4 * 60_000,
-    gcTime: 4 * 60_000,
+    // ⚠ How long the URL may be reused comes from the `expires_at` the same
+    // response carries, not from a constant here. STATUS_FEEDBACK_VIEW_TTL is a
+    // dial (the default is five minutes), and against a hardcoded four every
+    // deployment that shortened it served a cached link for minutes after the
+    // bucket had stopped honouring it — every image on the report broken, and
+    // the one permitted re-mint spent on the first of them.
+    staleTime: (q) => viewUrlLifetime(q.state.data?.expires_at),
+    gcTime: 5 * 60_000,
     retry: false,
     // ⚠ Off, against the app-wide default. Coming back to the tab after four
     // minutes would otherwise re-mint every attachment's URL at once and swap

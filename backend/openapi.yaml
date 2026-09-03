@@ -659,7 +659,10 @@ paths:
         Returns a presigned GET valid for `STATUS_FEEDBACK_VIEW_TTL` (default
         5 minutes). The bucket is private and has no public base URL, so this is
         the only way to see an attachment. ⚠ The URL is a bearer token for its
-        lifetime — anyone it is forwarded to can open it until it expires.
+        lifetime — anyone it is forwarded to can open it until it expires, which
+        is why the response is sent `Cache-Control: no-store`, as the widget's
+        credential-bearing responses are. It is the only response on the
+        session-gated side that carries one.
 
         R2 serves range requests against it, which is why video seeks correctly
         without the service implementing ranges itself.

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import * as api from '@/api/endpoints'
 import type { ReportFilters } from '@/api/endpoints'
 import { qk } from '@/api/keys'
@@ -14,8 +14,20 @@ const KINDS: ReportKind[] = ['bug', 'idea', 'other']
 
 export function Inbox() {
   const nav = useNavigate()
-  const [state, setState] = useState<ReportState | null>(null)
-  const [site, setSite] = useState<string>('')
+  // The filter a badge arrived with — an unread count is a count of something,
+  // and landing on a list that is not that something leaves the reader to
+  // rebuild it. Read at mount only: from here on the chips own the filter, and
+  // re-reading would undo a click every time the router re-rendered.
+  //
+  // ⚠ Validated rather than trusted. `location.state` survives a reload from the
+  // history entry and is whatever was last put there; an unrecognised state name
+  // would activate no chip while still filtering the query, leaving a list the
+  // toolbar says is unfiltered.
+  const seed = (useLocation().state ?? {}) as { state?: string; site?: string }
+  const [state, setState] = useState<ReportState | null>(
+    STATES.includes(seed.state as ReportState) ? (seed.state as ReportState) : null,
+  )
+  const [site, setSite] = useState<string>(seed.site ?? '')
   const [kind, setKind] = useState<ReportKind | ''>('')
 
   const filters: ReportFilters = {

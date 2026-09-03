@@ -161,7 +161,10 @@ func (m *Module) RegisterRoutes(r chi.Router) {
 	r.Get("/reports/{ref}", m.getReport)
 	r.With(httpx.RequireAdmin).Patch("/reports/{ref}", m.patchReport)
 	r.With(httpx.RequireAdmin).Delete("/reports/{ref}", m.deleteReport)
-	r.Get("/reports/{ref}/attachments/{attachmentId}/url", m.attachmentURL)
+	// ⚠ `noStore` here as well as on the public group, and for the same reason:
+	// the body is a presigned URL, which is a bearer token for its lifetime.
+	// It is the only response on the gated side that carries a credential.
+	r.With(noStore).Get("/reports/{ref}/attachments/{attachmentId}/url", m.attachmentURL)
 	r.Get("/sites/{id}/feedback-config", m.getSiteConfig)
 	r.With(httpx.RequireAdmin).Patch("/sites/{id}/feedback-config", m.patchSiteConfig)
 	r.With(httpx.RequireAdmin).Post("/sites/{id}/rotate-widget-key", m.rotateWidgetKey)
@@ -183,15 +186,18 @@ func (m *Module) RegisterPublicRoutes(api chi.Router) {
 	})
 }
 
-// noStore marks the widget's public responses as uncacheable.
+// noStore marks a response that carries a credential as uncacheable. It is on
+// all three public widget routes and on the gated attachment-view route — every
+// response in this module whose body is worth something to whoever holds it.
 //
-// ⚠ Two of the three carry single-use credentials — the configuration response
-// carries a submission ticket, the 202 carries presigned upload URLs — and none
-// of them currently sends any cache directive at all, which leaves an
-// intermediary computing freshness heuristically. A cache that served one
-// reporter's ticket to another would dead-end the second reporter's dialog with
-// a 422 they can do nothing about, and a shared upload URL is a write into
-// somebody else's report.
+// ⚠ Two of the public three carry single-use credentials — the configuration
+// response carries a submission ticket, the 202 carries presigned upload URLs —
+// and none of them sent any cache directive at all, which leaves an intermediary
+// computing freshness heuristically. A cache that served one reporter's ticket to
+// another would dead-end the second reporter's dialog with a 422 they can do
+// nothing about, and a shared upload URL is a write into somebody else's report.
+// The view URL is the same shape on the admin's side: a link that opens the
+// object for anyone holding it until it expires.
 func noStore(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")

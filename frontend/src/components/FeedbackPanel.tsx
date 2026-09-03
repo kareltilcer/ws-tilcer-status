@@ -92,7 +92,15 @@ export function FeedbackPanel({ siteId, openReports }: { siteId: string; openRep
         </div>
         {!!openReports && (
           <button
-            onClick={() => nav(paths.reports)}
+            // ⚠ The badge counts reports in state `new` for THIS site, and its
+            // label says so, so that is the list it has to land on. Unfiltered,
+            // an admin who clicked "2 new reports" on `home` got every report
+            // from every site in every state — resolved and declined among them
+            // — and had to rebuild the filter the number came from. The inbox
+            // seeds its chips from this rather than from the URL: a filter in
+            // the address bar is a shareable link to a private queue, and these
+            // chips are a view, not a place.
+            onClick={() => nav(paths.reports, { state: { state: 'new', site: siteId } })}
             style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer' }}
             aria-label={`${openReports} new report${openReports === 1 ? '' : 's'} — open the inbox`}
           >

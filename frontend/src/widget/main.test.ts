@@ -198,8 +198,9 @@ describe('a handler never throws into the host page', () => {
     expect(seen.filter((m) => m.includes('sfb-boom'))).toEqual([])
   })
 
-  // The async half: `submit()` and `retrySend()` are bound as click handlers and
-  // both return a promise. Node, not jsdom, is what reports an unhandled one
+  // The async half: `submit()` is bound as a click handler — on the footer's own
+  // button and on the failure alert's retry — and returns a promise from both.
+  // Node, not jsdom, is what reports an unhandled one
   // here — reached through globalThis because the SPA's tsconfig carries DOM
   // types only, and widening it for one test is the larger change.
   it('swallows a rejected promise a handler returns', async () => {

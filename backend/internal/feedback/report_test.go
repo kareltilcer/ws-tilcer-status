@@ -318,7 +318,7 @@ func TestConsoleTailIsOptIn(t *testing.T) {
 
 	// With the opt-in on, the lines are kept — and capped.
 	on := true
-	if _, _, err := h.mod.store.UpsertConfig(context.Background(), testSite, nil, &on, "", false, time.Now().UTC()); err != nil {
+	if _, _, err := h.mod.store.UpsertConfig(context.Background(), testSite, nil, &on, nil, time.Now().UTC()); err != nil {
 		t.Fatalf("opt in: %v", err)
 	}
 	body = h.submission()
@@ -542,6 +542,47 @@ func TestSiteConfigRoutes(t *testing.T) {
 	}
 	if code, _ := h.do(http.MethodPatch, "/api/sites/karel/feedback-config", map[string]any{}, nil); code != http.StatusUnprocessableEntity {
 		t.Fatalf("empty patch = %d, want 422", code)
+	}
+}
+
+// TestReEnablingMintsNothing — a key is minted by whichever request CREATES the
+// configuration row, and by no other.
+//
+// ⚠ The route decides whether a request MAY create the row (only one that turns
+// feedback on), but whether it DOES is known only inside the transaction that
+// looks. Handing the store a pre-minted key collapsed the two: every "turn
+// feedback back on" — the most ordinary patch the panel sends — generated a
+// secret, found the row already there and threw it away. Nothing leaked, but a
+// system where the question "was a key issued here?" has to have an answer should
+// not be manufacturing keys that were issued nowhere. The minter is called from
+// inside the ErrNoRows branch, so this counts the answer directly rather than
+// inferring it from a response that looks the same either way.
+func TestReEnablingMintsNothing(t *testing.T) {
+	h := newHarness(t, testConfig())
+	h.seedSite("karel", "Karel")
+	mints := 0
+	minter := func() (string, string, error) {
+		mints++
+		return GenerateWidgetKey()
+	}
+	on, off := true, false
+
+	if _, issued, err := h.mod.store.UpsertConfig(context.Background(), "karel", &on, nil, minter, time.Now().UTC()); err != nil {
+		t.Fatalf("first enable: %v", err)
+	} else if mints != 1 || issued == "" {
+		t.Fatalf("the create must mint exactly one key and return it: mints=%d issued=%q", mints, issued)
+	}
+
+	// Off and on again, which is the patch pair the panel's switch sends.
+	for _, v := range []*bool{&off, &on} {
+		if _, issued, err := h.mod.store.UpsertConfig(context.Background(), "karel", v, nil, minter, time.Now().UTC()); err != nil {
+			t.Fatalf("toggle: %v", err)
+		} else if issued != "" {
+			t.Fatalf("a patch that did not create the row returned a key: %q", issued)
+		}
+	}
+	if mints != 1 {
+		t.Fatalf("minted %d keys, want 1 — only the request that created the row may mint", mints)
 	}
 }
 

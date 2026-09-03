@@ -51,7 +51,7 @@ export interface DialogApi {
    *  ⚠ The dwell it is measured against is `min_dwell_ms` from the config, not a
    *  constant here. This dialog does not read the config, so the one place that
    *  does (`main.ts`) owes the answer, and a deployment that raises the dial
-   *  cannot leave a retry waiting a fixed 3.5 s for a ticket the server will
+   *  cannot leave a send waiting a fixed 3.5 s for a ticket the server will
    *  refuse anyway. */
   ticketOwedMs(): number
   /** refreshTicket fetches a new one. Its failure is silent — and leaves the
@@ -93,7 +93,20 @@ export interface DialogOptions {
   onClosed: () => void
 }
 
-type Phase = 'form' | 'sending' | 'uploading' | 'done'
+/**
+ * Phase is the whole of the dialog's progress through a report, and `presend` is
+ * the reason it is spelled out rather than carried in flags beside it.
+ *
+ * ⚠ `presend` is the window between pressing Send and the body going out: the
+ * wait on a replacement ticket, and the wait on that ticket becoming old enough
+ * for the server to accept it. It READS as sending — the footer says so — but
+ * nothing has been posted and nothing is stored, so closing has to ask exactly
+ * as it does on the form. It was a `dwelling` boolean beside the phase for three
+ * review rounds, and each round found the next way for that flag to outlive, or
+ * be cleared by, the send it belonged to. A phase cannot: every transition that
+ * ends a send names the state it ends in, so there is nothing left to clear.
+ */
+type Phase = 'form' | 'presend' | 'sending' | 'uploading' | 'done'
 type FileState = 'waiting' | 'uploading' | 'done' | 'failed'
 
 interface Attachment {
@@ -140,19 +153,6 @@ export class FeedbackDialog {
   private discOpen = false
   private consoleOptOut = false
   private discardPrompt = false
-  /** dwelling is true for the whole of the sending phase that precedes the POST:
-   *  the wait on a replacement ticket AND the wait on its minimum age. The phase
-   *  reads `sending` throughout, but nothing is in flight and nothing is stored
-   *  — so closing has to ask, exactly as it does on the form.
-   *
-   *  ⚠ It covers `ticketSettled()` too, not only the dwell. A send that failed
-   *  because the network is down starts a refresh that then takes the full
-   *  10-second config timeout, and "Send again" waits on it in a phase labelled
-   *  Sending: that wait is the LIKELIEST moment for an impatient ✕, and it is a
-   *  moment at which nothing has been posted. Cleared just before the POST goes
-   *  out, and by `reset()`, so an opening the reporter walked away from cannot
-   *  leave it set for the next one. */
-  private dwelling = false
   private ref: string | null = null
   /**
    * generation counts openings. Every await in the submit chain resumes against
@@ -237,12 +237,12 @@ export class FeedbackDialog {
    *  before discarding text the reporter typed, because losing that is the real
    *  failure. */
   private requestClose(): void {
-    // ⚠ `dwelling` is in here as well as `form`. During a real send the report is
+    // ⚠ `presend` is in here as well as `form`. During a real send the report is
     // already on its way and closing loses nothing that matters; before the POST
     // it is not — neither while a replacement ticket is being fetched nor while
     // its dwell runs out — so an impatient ✕ on a phase that merely READS as
     // sending would throw the typed report away without ever asking.
-    if ((this.phase === 'form' || this.dwelling) && this.dirty() && !this.discardPrompt) {
+    if ((this.phase === 'form' || this.phase === 'presend') && this.dirty() && !this.discardPrompt) {
       this.discardPrompt = true
       this.renderFooter()
       return
@@ -264,12 +264,6 @@ export class FeedbackDialog {
     this.discOpen = false
     this.consoleOptOut = false
     this.discardPrompt = false
-    // ⚠ A close during the pre-POST wait abandons that chain without unwinding
-    // it, so the flag is cleared here rather than where it was set. Left set, it
-    // would make the NEXT opening's genuine send ask before closing; and the
-    // abandoned chain must never clear it either, or it would clear a later
-    // opening's dwell and reopen the silent discard this exists to prevent.
-    this.dwelling = false
     this.ref = null
   }
 
@@ -661,6 +655,14 @@ export class FeedbackDialog {
     // files — each one signed for a content type and an exact byte length, so
     // the mismatch surfaces as R2 refusing a file nothing was wrong with.
     const locked = this.phase !== 'form'
+    // ⚠ The message freezes with them. `submit` reads the text before its waits
+    // and posts that, so a correction typed during `presend` — up to the whole
+    // of the server's dwell, on a young ticket — appeared in the field, was
+    // accepted by the caret, and then never travelled: the reporter watched
+    // their fix land and filed the version without it. `readOnly` rather than
+    // `disabled`, so the text stays selectable and focus is not yanked out of
+    // the control the reporter is looking at.
+    if (this.msgInput) this.msgInput.readOnly = locked
     clear(this.filesEl)
     this.attachments.forEach((a, i) => {
       this.filesEl?.appendChild(
@@ -780,16 +782,6 @@ export class FeedbackDialog {
           ],
         }),
       )
-    } else if (this.phase === 'form' || this.phase === 'sending') {
-      const sending = this.phase === 'sending'
-      this.foot.appendChild(
-        el('button', {
-          cls: 'sfb-btn',
-          attrs: { type: 'button', ...(sending ? { disabled: 'disabled' } : {}) },
-          text: sending ? s.sending : s.send,
-          on: { click: () => this.submit() },
-        }),
-      )
     } else if (this.phase === 'done') {
       this.foot.appendChild(
         el('button', {
@@ -797,6 +789,18 @@ export class FeedbackDialog {
           attrs: { type: 'button' },
           text: s.close,
           on: { click: () => this.close() },
+        }),
+      )
+    } else if (this.phase !== 'uploading') {
+      // `presend` reads as sending, because from the reporter's side it is: they
+      // pressed Send and the widget is working on it.
+      const sending = this.phase !== 'form'
+      this.foot.appendChild(
+        el('button', {
+          cls: 'sfb-btn',
+          attrs: { type: 'button', ...(sending ? { disabled: 'disabled' } : {}) },
+          text: sending ? s.sending : s.send,
+          on: { click: () => this.submit() },
         }),
       )
     }
@@ -825,20 +829,43 @@ export class FeedbackDialog {
     // list must stop being editable the moment Send is pressed — and a second
     // click must not start a second submission.
     this.clearAlert()
-    this.phase = 'sending'
-    // ⚠ Both flags move before the footer is drawn. A discard prompt raised by a
-    // ✕ is answered by choosing to send — leaving it set would render the
-    // question over the sending phase, the uploads and the success screen, with
-    // a Discard button that closes mid-upload. And `dwelling` covers the wait
-    // below, which is a phase that only READS as sending.
+    this.phase = 'presend'
+    // ⚠ Before the footer is drawn. A discard prompt raised by a ✕ is answered
+    // by choosing to send — leaving it set would render the question over the
+    // sending phase, the uploads and the success screen, with a Discard button
+    // that closes mid-upload. A reporter pressing Send IS an answer; a timer
+    // resuming below is not, which is what the check after the waits is for.
     this.discardPrompt = false
-    this.dwelling = true
     this.renderFooter()
     this.syncFiles()
 
+    // The two waits every send owes, in the one place a send starts. The ticket
+    // has to be here, and then it has to be old enough: the server refuses one
+    // younger than `min_dwell_ms` as a script, and that refusal is a 422 the
+    // reporter reads as "the connection dropped". Both are `presend`, so a ✕
+    // during either asks before throwing the report away.
+    //
+    // ⚠ The dwell is owed on the FIRST send too, not only on a retry. `open()`
+    // refreshes a ticket near its expiry and `failSend` mints a replacement, so
+    // a reporter who pastes a prepared sentence — or who presses the footer's
+    // own Send after a failure rather than the alert's button — posts a ticket
+    // minted seconds ago and is told the send failed, with nothing wrong.
     await this.o.api.ticketSettled()
+    const owed = this.o.api.ticketOwedMs()
+    if (owed > 0) await new Promise((resolve) => setTimeout(resolve, owed))
+    // ⚠ Nothing is cleared on the abandoned path: the timer above belongs to an
+    // opening that is over, and `reset()` has already returned the current one
+    // to `form`. Every write below this line is on the far side of `live`.
     if (!this.live(gen)) return
-    if (this.heldForDiscard()) return
+    // A ✕ during either wait raised the discard question and nobody has answered
+    // it. Sending now would be the widget answering its own modal question — the
+    // same failure as discarding without asking, from the other side. Back to the
+    // form leaves the decision with the reporter: Keep editing restores the
+    // footer's own Send, Discard closes.
+    if (this.discardPrompt) {
+      this.backToForm()
+      return
+    }
     const ticket = this.o.api.ticket()
     if (!ticket) {
       this.backToForm()
@@ -866,8 +893,9 @@ export class FeedbackDialog {
     if (sendConsole) payload.console_tail = this.fitConsoleTail(payload)
 
     // From here the report IS on its way, so closing loses nothing that matters
-    // and no longer asks.
-    this.dwelling = false
+    // and no longer asks. The footer does not change — `presend` and `sending`
+    // draw the same disabled button — so there is nothing to re-render.
+    this.phase = 'sending'
     const result = await this.o.api.submit(payload)
     if (!this.live(gen)) return
     if (!result.ok) {
@@ -910,45 +938,17 @@ export class FeedbackDialog {
     await this.runUploads(slots, gen)
   }
 
-  /** backToForm returns the dialog to an editable state after a failed send —
-   *  the footer's Send button and the attachment controls the sending phase
-   *  locked.
-   *
-   *  ⚠ It clears `dwelling` too, because it is the one transition that ends a
-   *  send. The no-ticket bail-out above reaches it BEFORE the POST, where the
-   *  flag is still set, and left standing it outlives its own send for the whole
-   *  of the following form phase. Inert only for as long as `requestClose`
-   *  happens to OR the flag with the form phase; clearing it here keeps the
-   *  invariant the flag is named for — true only while a send is pending. */
+  /** backToForm is the single transition that ends a send without one being
+   *  stored: a failure, and the standing-discard-question case above. It undoes
+   *  everything `presend` did — the phase itself, the footer's disabled button,
+   *  and the attachment controls that phase locked — so nothing about a send
+   *  survives it. Drawing the footer is part of that: with the question still
+   *  standing it draws the question, which is what a reporter who has not
+   *  answered it should still be looking at. */
   private backToForm(): void {
     this.phase = 'form'
-    this.dwelling = false
     this.renderFooter()
     this.syncFiles()
-  }
-
-  /**
-   * heldForDiscard stops a queued send when a ✕ has raised the discard question
-   * and nobody has answered it yet.
-   *
-   * ⚠ Both pre-POST waits — the replacement ticket and its dwell — park while
-   * the dialog stays open, so a ✕ during either raises the question and then the
-   * resume ran straight on, cleared the prompt and posted. The widget answering
-   * its own modal question is the same failure as discarding without asking,
-   * from the other side: the reporter asked to throw the report away and it was
-   * filed instead.
-   *
-   * Returning to the form (rather than closing) leaves the decision with them:
-   * Keep editing puts the footer's own Send back, Discard closes. Answering by
-   * retrying is still the case `submit` and `retrySend` clear the flag for, up
-   * front — that is a reporter choosing to send, not a timer doing it for them.
-   */
-  private heldForDiscard(): boolean {
-    if (!this.discardPrompt) return false
-    this.phase = 'form'
-    this.dwelling = false
-    this.syncFiles()
-    return true
   }
 
   /**
@@ -977,11 +977,12 @@ export class FeedbackDialog {
    * need to hear is that the text they typed is still there. `tooLarge` is the
    * exception — that one IS theirs to fix, so it says which thing to shorten.
    *
-   * ⚠ The ticket is refreshed HERE, when the failure is shown, rather than in
-   * the retry's click handler. A ticket minted at the moment of the click is
-   * younger than the server's minimum dwell and is refused every time, so a
-   * retry that mints one first can never succeed; minting it now lets it age
-   * while the reporter reads this, and `retrySend` waits out what is left.
+   * ⚠ The ticket is refreshed HERE, when the failure is shown, rather than when
+   * the retry is pressed. A ticket minted at the moment of the click is younger
+   * than the server's minimum dwell and is refused every time; minting it now
+   * lets it age while the reporter reads this, and `submit` waits out whatever
+   * is left of the dwell either way — through this button or through the
+   * footer's own Send, which is the same path.
    */
   private failSend(kind: 'network' | 'tooLarge'): void {
     const s = this.o.strings
@@ -990,39 +991,8 @@ export class FeedbackDialog {
     this.showAlert('danger', large ? s.tooLongTitle : s.sendFailTitle, large ? s.tooLongBody : s.sendFailBody, {
       label: s.sendAgain,
       // Returned, not `void`ed: `el` only catches a rejection it can see.
-      onClick: () => this.retrySend(),
+      onClick: () => this.submit(),
     })
-  }
-
-  /** retrySend posts again once the replacement ticket is both here and old
-   *  enough to be accepted. The wait is shown as "sending" rather than as a
-   *  button that appears to do nothing. */
-  private async retrySend(): Promise<void> {
-    if (this.phase !== 'form') return
-    const gen = this.generation
-    this.clearAlert()
-    this.phase = 'sending'
-    this.discardPrompt = false
-    this.dwelling = true
-    this.renderFooter()
-    this.syncFiles()
-    // ⚠ The flag is set BEFORE this wait, not after it. On a dead network — the
-    // usual reason a send failed — the replacement ticket's fetch runs the full
-    // config timeout, and until this covered it a ✕ during those ten seconds
-    // discarded the typed report with no prompt at all.
-    await this.o.api.ticketSettled()
-    const owed = this.o.api.ticketOwedMs()
-    if (owed > 0) await new Promise((resolve) => setTimeout(resolve, owed))
-    // ⚠ Nothing is cleared on the abandoned path: this timer belongs to an
-    // opening that is over, and clearing a flag the CURRENT opening owns is how
-    // a later dwell ends up unguarded. `reset()` clears it on close instead.
-    if (!this.live(gen)) return
-    // A ✕ during either wait above raised the discard question and it is still
-    // unanswered — sending now would be the widget answering it.
-    if (this.heldForDiscard()) return
-    this.dwelling = false
-    this.phase = 'form'
-    await this.submit()
   }
 
   private async runUploads(slots: UploadSlot[], gen: number): Promise<void> {

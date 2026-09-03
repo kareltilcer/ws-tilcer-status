@@ -412,36 +412,60 @@ describe('the submission', () => {
     expect(h.byText('button', STRINGS.cs.sendAgain)).not.toBeNull()
   })
 
-  // ⚠ The retry has to post a ticket the server will accept. The replacement is
-  // minted when the failure is SHOWN, and the retry waits out whatever dwell it
-  // still owes — a ticket minted at the moment of the click is younger than
-  // STATUS_FEEDBACK_MIN_DWELL_MS and is refused as a script, every time, which
-  // made "Odeslat znovu" a button that could never work.
+  // ⚠ A send has to post a ticket the server will accept. A ticket younger than
+  // STATUS_FEEDBACK_MIN_DWELL_MS is refused as a script, every time, and the 422
+  // it comes back as reads to the reporter as "spojení vypadlo" — a failure with
+  // nothing wrong and nothing to do about it.
   //
+  // ⚠ Owed by the FIRST send as much as by the retry, which is what this covers
+  // that the retry's own test does not. `open()` refreshes a ticket near its
+  // expiry and `failSend` mints a replacement, so a ticket seconds old is an
+  // ordinary thing for the footer's own Send to be holding: a reporter pasting a
+  // prepared sentence, or pressing Send rather than the alert's button after a
+  // failure. Posting it minted the next young ticket to fail on, and so on.
+  it('waits for a freshly minted ticket to age before it posts, on the first send too', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = harness({ ticketOwedMs: () => 3_500 })
+      h.dialog.open()
+      type(h, 'Rozbité')
+      h.byText('button', STRINGS.cs.send)!.click()
+      await flush()
+      expect(h.submitted).toHaveLength(0) // nothing posted; the ticket is too young
+      expect(h.root.textContent).toContain(STRINGS.cs.sending)
+
+      await vi.advanceTimersByTimeAsync(3_500)
+      await flush()
+      expect(h.submitted).toHaveLength(1)
+      expect(h.root.textContent).toContain('R-7QK2')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   // ⚠ The dwell here is 10 s, deliberately longer than the 3 500 ms the widget
   // used to hardcode as a mirror of the server's default. STATUS_FEEDBACK_MIN_DWELL_MS
   // is a dial a deployment may set to anything under 30 s, and against the fixed
   // constant every retry on such a deployment posted a ticket the server refused
-  // — "Send again" that could never work, forever. The wait now comes from
+  // — "Send again" that could never work, forever. The wait comes from
   // `min_dwell_ms` in the config, through `ticketOwedMs`.
   it('waits out a configured dwell longer than the old hardcoded one', async () => {
     vi.useFakeTimers()
     try {
-      const dwell = 10_000
-      let issuedAt = Date.now()
       let refreshes = 0
       const h = harness({
         submit: async () => ({ ok: false, kind: 'network' }),
-        ticketOwedMs: () => dwell - (Date.now() - issuedAt),
+        ticketOwedMs: () => 10_000,
         refreshTicket: async () => {
           refreshes++
-          issuedAt = Date.now()
         },
       })
       h.dialog.open()
       type(h, 'Rozbité')
       h.byText('button', STRINGS.cs.send)!.click()
+      await vi.advanceTimersByTimeAsync(10_000)
       await flush()
+      expect(h.submitted).toHaveLength(1)
       // The replacement is minted with the alert, not with the click on it.
       expect(refreshes).toBe(1)
 
@@ -463,6 +487,78 @@ describe('the submission', () => {
     }
   })
 
+  // ⚠ `submit` reads the message before its waits and posts what it read, so
+  // anything typed during `presend` cannot travel — and the field accepted it,
+  // caret and all, which is how a reporter comes to watch their own correction
+  // land and then file the version without it. The attachment list has been
+  // frozen at Send since v1 for the same reason; the text is frozen with it.
+  it('freezes the message while a send is pending, rather than taking an edit it will not post', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = harness({ ticketOwedMs: () => 3_500 })
+      h.dialog.open()
+      type(h, 'Rozbité')
+      h.byText('button', STRINGS.cs.send)!.click()
+      await flush()
+      expect(h.q<HTMLTextAreaElement>('textarea')!.readOnly).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(3_500)
+      await flush()
+      expect(h.submitted[0].message).toBe('Rozbité')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // ⚠ And it thaws again on a failure, or the retry the alert offers would be a
+  // button over a field nobody can correct — which is the one send failure the
+  // reporter CAN act on (`tooLarge`, "shorten it and try again").
+  it('returns the message to the reporter when the send fails', async () => {
+    const h = harness({ submit: async () => ({ ok: false, kind: 'tooLarge' }) })
+    h.dialog.open()
+    type(h, 'Dlouhé hlášení')
+    h.byText('button', STRINGS.cs.send)!.click()
+    await flush()
+    expect(h.q<HTMLTextAreaElement>('textarea')!.readOnly).toBe(false)
+    type(h, 'Kratší')
+    h.byText('button', STRINGS.cs.sendAgain)!.click()
+    await flush()
+    expect(h.submitted[1].message).toBe('Kratší')
+  })
+
+  // ⚠ The same question as the retry's, one send earlier. The pre-POST wait used
+  // to be reachable only through the retry, so the flag that made a ✕ ask during
+  // it was set only there; `presend` is a phase every send passes through, and
+  // the wait ending under a standing question does not answer it.
+  it('asks before discarding while the first send is waiting on its ticket', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = harness({ ticketOwedMs: () => 3_500 })
+      h.dialog.open()
+      type(h, 'Rozbité')
+      h.byText('button', STRINGS.cs.send)!.click()
+      await flush()
+      press(h, 'Escape')
+      expect(h.dialog.isOpen).toBe(true)
+      expect(h.root.textContent).toContain(STRINGS.cs.discardTitle)
+
+      await vi.advanceTimersByTimeAsync(3_500)
+      await flush()
+      expect(h.submitted).toHaveLength(0)
+      expect(h.root.textContent).toContain(STRINGS.cs.discardTitle)
+
+      // Keeping it hands back a form the reporter can send themselves, with the
+      // footer's own Send in it rather than a disabled "Odesílám…".
+      h.byText('button', STRINGS.cs.keepEditing)!.click()
+      h.byText('button', STRINGS.cs.send)!.click()
+      await vi.advanceTimersByTimeAsync(3_500)
+      await flush()
+      expect(h.submitted).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   // ⚠ The retry's dwell READS as "Odesílám…" but nothing is in flight and
   // nothing is stored: the POST has not happened yet. Closing on the phase alone
   // therefore threw away a report that only existed in the textarea, without the
@@ -470,17 +566,14 @@ describe('the submission', () => {
   it('asks before discarding while the retry is only waiting out the dwell', async () => {
     vi.useFakeTimers()
     try {
-      let issuedAt = Date.now()
       const h = harness({
         submit: async () => ({ ok: false, kind: 'network' }),
-        ticketOwedMs: () => 3_500 - (Date.now() - issuedAt),
-        refreshTicket: async () => {
-          issuedAt = Date.now()
-        },
+        ticketOwedMs: () => 3_500,
       })
       h.dialog.open()
       type(h, 'Rozbité')
       h.byText('button', STRINGS.cs.send)!.click()
+      await vi.advanceTimersByTimeAsync(3_500) // the first send's own dwell
       await flush()
       h.byText('button', STRINGS.cs.sendAgain)!.click()
       await flush()
@@ -503,6 +596,7 @@ describe('the submission', () => {
       h.byText('button', STRINGS.cs.keepEditing)!.click()
       expect(h.root.textContent).not.toContain(STRINGS.cs.discardTitle)
       h.byText('button', STRINGS.cs.send)!.click()
+      await vi.advanceTimersByTimeAsync(3_500)
       await flush()
       expect(h.submitted).toHaveLength(2)
     } finally {
@@ -580,43 +674,34 @@ describe('the submission', () => {
     expect(h.root.textContent).not.toContain(STRINGS.cs.discardTitle)
   })
 
-  // ⚠ `dwelling` is one flag shared by every opening, and a close does not
-  // unwind the chain that set it — the abandoned `setTimeout` still resumes. If
-  // it cleared the flag on its way out it would clear a LATER opening's dwell,
-  // reopening the silent discard the flag exists to close. The abandoned chain
-  // therefore clears nothing and `reset()` does it on close.
-  it('does not let an abandoned opening clear a later one’s dwell', async () => {
+  // ⚠ One opening's pre-send timer outlives it: closing does not unwind the
+  // chain that set it, so the abandoned `setTimeout` still fires — against a
+  // dialog that has since been reopened on somebody's second attempt. It must
+  // reach nothing of that later opening: not post its report, and not return it
+  // to a state where a ✕ discards silently. Every line after the wait is on the
+  // far side of `live(gen)`, and there is no longer a flag beside the phase for
+  // the abandoned chain to clear on its way past.
+  it('does not let an abandoned opening’s timer disturb a later one', async () => {
     vi.useFakeTimers()
     try {
-      let issuedAt = Date.now()
-      const h = harness({
-        submit: async () => ({ ok: false, kind: 'network' }),
-        ticketOwedMs: () => 3_500 - (Date.now() - issuedAt),
-        refreshTicket: async () => {
-          issuedAt = Date.now()
-        },
-      })
-      // Opening 1: into the dwell, then walked away from.
+      const h = harness({ ticketOwedMs: () => 3_500 })
+      // Opening 1: into the pre-send wait, then walked away from.
       h.dialog.open()
       type(h, 'Rozbité')
       h.byText('button', STRINGS.cs.send)!.click()
-      await flush()
-      h.byText('button', STRINGS.cs.sendAgain)!.click()
       await flush()
       await vi.advanceTimersByTimeAsync(200)
       press(h, 'Escape')
       h.byText('button', STRINGS.cs.discard)!.click()
       expect(h.dialog.isOpen).toBe(false)
 
-      // Opening 2, starting late enough that opening 1's timer fires mid-dwell.
+      // Opening 2, starting late enough that opening 1's timer fires mid-wait.
       h.dialog.open()
       type(h, 'Zase rozbité')
       h.byText('button', STRINGS.cs.send)!.click()
       await flush()
-      h.byText('button', STRINGS.cs.sendAgain)!.click()
-      await flush()
       await vi.advanceTimersByTimeAsync(3_400) // past opening 1's 3 500 ms mark
-      expect(h.submitted).toHaveLength(2) // opening 2 is still dwelling
+      expect(h.submitted).toHaveLength(0) // opening 1 reached nothing
 
       press(h, 'Escape')
       expect(h.dialog.isOpen).toBe(true)
