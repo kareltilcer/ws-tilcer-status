@@ -10,16 +10,26 @@ import (
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/httpx"
 )
 
-// meta is the client-facing service metadata (currently just the configurable
-// uptime window) so the SPA can label the cached uptime_pct with its real window
-// instead of hardcoding a day count that drifts from STATUS_UPTIME_WINDOW.
+// meta is the client-facing service metadata the SPA needs to label its UI: the
+// configurable uptime window, so the board does not hardcode a day count that
+// drifts from STATUS_UPTIME_WINDOW, and (v3) whether this deployment has the
+// feedback module configured at all.
+//
+// ⚠ FeedbackEnabled is a plain deployment fact, not a per-site switch — the
+// per-site kill switch is GET/PATCH /api/sites/{id}/feedback-config. It is here
+// because a dashboard that renders the feedback panel on a deployment with no
+// object storage offers a switch whose only possible answer is 503.
 type meta struct {
-	UptimeWindowDays int `json:"uptime_window_days"`
+	UptimeWindowDays int  `json:"uptime_window_days"`
+	FeedbackEnabled  bool `json:"feedback_enabled"`
 }
 
 // getMeta handles GET /api/meta.
 func (m *Module) getMeta(w http.ResponseWriter, _ *http.Request) {
-	httpx.JSON(w, http.StatusOK, meta{UptimeWindowDays: m.uptimeWindowDays})
+	httpx.JSON(w, http.StatusOK, meta{
+		UptimeWindowDays: m.uptimeWindowDays,
+		FeedbackEnabled:  m.feedbackEnabled,
+	})
 }
 
 // getChecks handles GET /api/sites/{id}/checks.

@@ -150,7 +150,22 @@ Secrets live in Coolify only — never in the repo.
 | `STATUS_INGEST_RATE` | `60/min` | per-site ingest rate |
 | `STATUS_INGEST_BURST` | `120` | per-site token-bucket burst |
 | `STATUS_REOPEN_ON_REGRESSION` | `true` | reopen resolved groups on new events |
-| `STATUS_DAILY_JOB_AT` | `00:15` | daily rollup+purge time (UTC) |
+| `STATUS_DAILY_JOB_AT` | `00:15` | daily rollup → purge → feedback sweep time (UTC) |
+| `STATUS_FEEDBACK_ENABLED` | `false` | master switch for the feedback module. **When true, every `STATUS_R2_*` var below plus the ticket secret and IP hash salt is required at boot** |
+| `STATUS_R2_ENDPOINT` | — | `https://<account>.r2.cloudflarestorage.com` |
+| `STATUS_R2_BUCKET` | — | `ws-tilcer-status-feedback` |
+| `STATUS_R2_ACCESS_KEY_ID` / `STATUS_R2_SECRET_ACCESS_KEY` | — | ⚠ a token scoped to the **attachments bucket alone** — it must not reach the Litestream bucket |
+| `STATUS_FEEDBACK_TICKET_SECRET` | — | HMAC secret for single-use submission tickets |
+| `STATUS_IP_HASH_SALT` | — | salt for the reporter IP digest (**the IP itself is never stored**) |
+| `STATUS_FEEDBACK_MAX_FILES` | `3` | attachments per report |
+| `STATUS_FEEDBACK_MAX_IMAGE_MB` / `STATUS_FEEDBACK_MAX_VIDEO_MB` | `10` / `50` | per-file caps, signed into the upload URL |
+| `STATUS_FEEDBACK_MAX_TEXT_BYTES` | `8192` | report body cap → 413 |
+| `STATUS_FEEDBACK_RATE` / `STATUS_FEEDBACK_BURST` | `20/h` / `5` | per widget key |
+| `STATUS_FEEDBACK_IP_RATE` / `STATUS_FEEDBACK_IP_BURST` | `5/h` / `3` | per client IP, across all sites |
+| `STATUS_FEEDBACK_UPLOAD_TTL` | `10m` | presigned PUT lifetime (**must be < `UNCLAIMED_TTL`**) |
+| `STATUS_FEEDBACK_VIEW_TTL` | `5m` | presigned GET lifetime |
+| `STATUS_FEEDBACK_UNCLAIMED_TTL` | `24h` | sweep threshold **and** the GC's minimum object age |
+| `STATUS_FEEDBACK_MIN_DWELL_MS` | `3000` | minimum time between a ticket being issued and a submission |
 | `LITESTREAM_ENABLED` | `true` | R2 replication (set `false` for the local harness) |
 | `LITESTREAM_R2_ENDPOINT` / `LITESTREAM_R2_BUCKET` / `LITESTREAM_ACCESS_KEY_ID` / `LITESTREAM_SECRET_ACCESS_KEY` | — | R2 creds (prefix `status/`) |
 
@@ -181,3 +196,21 @@ admin user access to site `status`.
 
 Backup: Litestream replicates the SQLite DB to Cloudflare R2 under prefix `status/`; a fresh build
 restores from R2 on first boot (`docker-entrypoint.sh`).
+
+**Feedback attachments (v3).** A second, private R2 bucket — `ws-tilcer-status-feedback` — holds the
+images and clips attached to user reports, under the `feedback/` prefix. Three things about it:
+
+- ⚠ **Its token is its own.** Scope the R2 API token to that bucket alone; it must not reach the
+  Litestream bucket, which holds the whole database backup.
+- ⚠ **The bucket needs its own CORS policy**, because the browser PUTs to R2 directly rather than
+  through this service: allow `PUT` from the origins in `STATUS_ALLOWED_ORIGINS` (**never `*`** on a
+  bucket that accepts writes) with `Content-Type` and `Content-Length` as allowed headers. Without it
+  the upload fails in the browser with no useful error and no server-side signal at all. The widget
+  documentation that ships with the embed (`docs/widget.md`, PR 3) records the exact policy.
+- **It is deliberately not backed up.** The durable record is the report text, which is in SQLite and
+  already replicated. Losing an attachment loses convenience, not the record — which is why the
+  nightly sweep is constrained as tightly as it is (it aborts and deletes nothing if its listing
+  fails, and never touches an object younger than `STATUS_FEEDBACK_UNCLAIMED_TTL`).
+
+`backend/spike-r2-presign.py` is the reproducer for what a presigned PUT actually enforces on R2
+(V3-D54); run it by hand against a scratch bucket if that ever needs re-checking.

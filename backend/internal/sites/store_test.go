@@ -93,8 +93,8 @@ func TestStoreCRUD(t *testing.T) {
 		t.Fatalf("ingest key hash mismatch after rotate")
 	}
 
-	// Delete.
-	deleted, err := s.Delete(ctx, "fin")
+	// Delete (no object collector registered — this deployment has no feedback).
+	_, deleted, err := s.Delete(ctx, "fin", nil)
 	if err != nil || !deleted {
 		t.Fatalf("delete: %v ok=%v", err, deleted)
 	}
@@ -328,7 +328,7 @@ func TestCascadeDelete(t *testing.T) {
 		t.Fatalf("insert event: %v", err)
 	}
 
-	if _, err := s.Delete(ctx, "jidlo"); err != nil {
+	if _, _, err := s.Delete(ctx, "jidlo", nil); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	for _, tbl := range []string{"crash_group", "crash_event"} {

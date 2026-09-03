@@ -17,7 +17,12 @@ type SiteSummary struct {
 	UptimePct        *float64 `json:"uptime_pct"`
 	OpenCrashGroups  int      `json:"open_crash_groups"`
 	RecentCrashCount int      `json:"recent_crash_count"`
-	CreatedAt        string   `json:"created_at"`
+	// OpenReports is the count of user reports in state `new` (v3). ⚠ Null, not
+	// zero, when no report counter is registered: the card then renders no badge
+	// at all (V3-D53). It is deliberately NOT part of color — a person saying
+	// "this is confusing" must not make a site look degraded beside a real outage.
+	OpenReports *int   `json:"open_reports"`
+	CreatedAt   string `json:"created_at"`
 }
 
 // SiteWithKey is the create/rotate response: a summary plus the plaintext ingest

@@ -18,6 +18,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/bootstrap"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/crash"
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/feedback"
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/feedback/blob/blobtest"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/monitoring"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/auth"
 	appdb "github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/db"
@@ -40,6 +42,12 @@ type api struct {
 	// rt is the composed router. Its mux is walked by the routing tests, which
 	// enumerate the real tree rather than a hand-written list of prefixes.
 	rt *httpx.Router
+	// blobs is the feedback module's fake bucket. ⚠ It truncates an oversized
+	// upload rather than refusing it, because that is what R2 does (V3-D54).
+	blobs *blobtest.Fake
+	// fb is the feedback module, kept so a test can Drain the object deletes a
+	// DELETE response deliberately does not wait for (FR-22).
+	fb *feedback.Module
 }
 
 func newAPI(t *testing.T, burst int, ratePerSec float64) *api {
@@ -69,20 +77,36 @@ func newAPI(t *testing.T, burst int, ratePerSec float64) *api {
 	})
 	monMod := monitoring.NewModule(db, monitoring.Config{
 		CheckTimeout: time.Second, PollConcurrency: 1, RedFailThreshold: 2, UptimeWindowDays: uptimeWindowDays,
+		FeedbackEnabled: true,
 	}, discardLogger())
-	modules := []registry.Module{sitesMod, crashMod, monMod}
+	blobs := blobtest.New()
+	fbMod := feedback.NewModule(db, sitesMod.Store(), blobs, feedback.Config{
+		Enabled: true, MaxFiles: 3, MaxImageBytes: 10 << 20, MaxVideoBytes: 50 << 20, MaxTextBytes: 8192,
+		RatePerSec: 100, Burst: 100, IPRatePerSec: 100, IPBurst: 100,
+		UploadTTL: 10 * time.Minute, ViewTTL: 5 * time.Minute, UnclaimedTTL: 24 * time.Hour,
+		MinDwell: 0, TicketSecret: "apitest-ticket-secret", IPHashSalt: "apitest-salt",
+		AllowedOrigins: testAllowedOrigins,
+	}, discardLogger())
+	// The board badge and the object half of the site cascade are injected here,
+	// exactly as cmd/status does it — `sites` never imports `feedback`.
+	sitesMod.SetReportCounter(fbMod)
+	sitesMod.SetObjectPurger(fbMod)
+	modules := []registry.Module{sitesMod, crashMod, monMod, fbMod}
 
 	handler := httpx.NewRouter(httpx.Deps{
 		Logger: discardLogger(), DB: db, Site: "status", InsecureAuth: true,
-		MountAuth:      func(a chi.Router) { authHandler.Mount(a, csrfMW) },
-		MountPublicAPI: func(a chi.Router) { crashMod.RegisterPublicRoutes(a) },
-		SessionMW:      sessionMW, CSRFMW: csrfMW,
+		MountAuth: func(a chi.Router) { authHandler.Mount(a, csrfMW) },
+		MountPublicAPI: func(a chi.Router) {
+			crashMod.RegisterPublicRoutes(a)
+			fbMod.RegisterPublicRoutes(a)
+		},
+		SessionMW: sessionMW, CSRFMW: csrfMW,
 		MountAPI:       func(a chi.Router) { registry.MountAll(a, modules) },
 		AllowedOrigins: testAllowedOrigins,
 	})
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	return &api{srv: srv, rt: handler}
+	return &api{srv: srv, rt: handler, blobs: blobs, fb: fbMod}
 }
 
 func (a *api) do(t *testing.T, method, path string, body any, headers map[string]string) (int, []byte) {
@@ -359,7 +383,8 @@ func TestUptimeBucketsAndMeta(t *testing.T) {
 	}
 
 	var m struct {
-		UptimeWindowDays int `json:"uptime_window_days"`
+		UptimeWindowDays int   `json:"uptime_window_days"`
+		FeedbackEnabled  *bool `json:"feedback_enabled"`
 	}
 	st, body := a.do(t, "GET", "/api/meta", nil, nil)
 	if st != 200 {
@@ -368,6 +393,13 @@ func TestUptimeBucketsAndMeta(t *testing.T) {
 	mustJSON(t, body, &m)
 	if m.UptimeWindowDays != uptimeWindowDays {
 		t.Fatalf("meta uptime_window_days = %d, want %d", m.UptimeWindowDays, uptimeWindowDays)
+	}
+	// openapi 0.3.0 documents feedback_enabled here. A dashboard that reads it as
+	// undefined hides the feature on a deployment that has it — the drift
+	// /api/meta exists to prevent, so the field must be present, not merely
+	// truthy-by-accident.
+	if m.FeedbackEnabled == nil || !*m.FeedbackEnabled {
+		t.Fatalf("meta must carry feedback_enabled=true for this deployment, got %s", body)
 	}
 
 	bucketsFor := func(query string) int {

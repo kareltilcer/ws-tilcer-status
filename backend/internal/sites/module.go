@@ -15,6 +15,10 @@ import (
 // Module implements registry.Module for the sites registry.
 type Module struct {
 	store *Store
+	// objects is the injected object-storage half of the site cascade. Nil until
+	// composition registers the feedback module, and nil in a deployment without
+	// it — the SQL cascade then has nothing to accompany.
+	objects ObjectPurger
 }
 
 // NewModule builds the sites module. redThreshold (FR-6) is used to compute color
