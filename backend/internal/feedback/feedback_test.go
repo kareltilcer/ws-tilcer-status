@@ -319,6 +319,37 @@ func TestGuardChainOrder(t *testing.T) {
 			}
 		})
 	}
+
+	// The 429 rung, which cannot share the table above: every other case needs the
+	// burst headroom the harness is built with, so this one gets its own module
+	// with a bucket of exactly one token. The refused request is BOTH oversized
+	// and invalid, so a limiter moved below the decode would answer 413 here —
+	// and would have read an untrusted body it was about to refuse anyway.
+	t.Run("over rate wins over body size and an invalid payload", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.RatePerSec, cfg.Burst = 0.001, 1
+		rh := newHarness(t, cfg)
+		if code, body := rh.do(http.MethodPost, "/api/ingest/"+testSite+"/feedback",
+			rh.submission(), widgetHeaders(rh.key)); code != http.StatusAccepted {
+			t.Fatalf("first submission spends the only token: %d %s", code, body)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/ingest/"+testSite+"/feedback", nil)
+		spy := newSpyBody(oversized)
+		req.Body = spy
+		req.ContentLength = int64(len(oversized))
+		req.Header.Set("Content-Type", "application/json")
+		for k, v := range widgetHeaders(rh.key) {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		rh.srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("status = %d, want 429 before the 413 (body %s)", rec.Code, rec.Body.String())
+		}
+		if spy.read.Load() {
+			t.Fatal("the request body was read before the 429 guard")
+		}
+	})
 }
 
 // TestGuardChainAcceptsValidSubmission is the 202 end of the chain.

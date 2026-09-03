@@ -28,10 +28,6 @@ import (
 // because the purge is a natural place for someone to add a fourth table by
 // symmetry.
 func (m *Module) Sweep(ctx context.Context, now time.Time) {
-	if !m.storageReady() {
-		return
-	}
-	cutoff := now.Add(-m.cfg.UnclaimedTTL)
 	var (
 		expiredTickets int64
 		markedMissing  int
@@ -39,12 +35,24 @@ func (m *Module) Sweep(ctx context.Context, now time.Time) {
 		failures       int
 	)
 
+	// ⚠ Expiring tickets is a pure database step and therefore runs OUTSIDE the
+	// storage gate below. A deployment whose object storage was removed after
+	// tickets had been issued has no other collector for those rows, and dropping
+	// them needs no bucket.
 	if n, err := m.store.PurgeExpiredTickets(ctx, now); err != nil {
 		m.logger.Error("feedback sweep: purge tickets", "err", err)
 		failures++
 	} else {
 		expiredTickets = n
 	}
+
+	// Everything below talks to the bucket. With none configured there is nothing
+	// to examine, and an empty world must not be mistaken for the truth.
+	if !m.storageReady() {
+		m.logSweep(expiredTickets, 0, 0, 0, failures)
+		return
+	}
+	cutoff := now.Add(-m.cfg.UnclaimedTTL)
 
 	// 1) Unclaimed attachments: the row is settled first, then the object is
 	// deleted. The rows are fully drained before the first delete — these are
@@ -92,6 +100,15 @@ func (m *Module) Sweep(ctx context.Context, now time.Time) {
 	for _, o := range objects {
 		examined++
 		if _, ok := live[o.Key]; ok {
+			continue
+		}
+		// ⚠ An object whose listing carries no last-modified time has an UNKNOWN
+		// age, and unknown is not old: the zero time is before every cutoff, so
+		// reading it literally would delete the object on the first sweep that saw
+		// it. Unverifiable listing data is left alone, for the same reason a failed
+		// listing deletes nothing (V3-D27).
+		if o.LastModified.IsZero() {
+			m.logger.Warn("feedback sweep: object has no last-modified time, leaving it", "key", o.Key)
 			continue
 		}
 		// Never younger than the TTL: an object whose upload is still in flight has

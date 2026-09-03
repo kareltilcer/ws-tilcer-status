@@ -50,6 +50,12 @@ type Fake struct {
 	headErr    error
 	deleteErr  error
 	presignErr error
+	// presignFailAt is which PresignPut call presignErr applies to: -1 for every
+	// one, otherwise the zero-based index of the single call that fails. See
+	// FailPresignOn for why failing exactly one in the middle is the case that
+	// matters. presigns counts the calls served.
+	presignFailAt int
+	presigns      int
 	// deleteGate, when non-nil, holds every Delete until it is closed. See
 	// BlockDeletes.
 	deleteGate chan struct{}
@@ -58,11 +64,12 @@ type Fake struct {
 	// and when. Read it with Calls().
 	calls []string
 
-	// TxProbe, when set, is queried on every call: if the service's single
+	// txProbe, when set, is queried on every call: if the service's single
 	// connection is held by an open transaction the probe blocks and times out,
 	// which records a violation. This is how "no R2 call inside a transaction"
-	// (V3-D05a) is asserted structurally rather than by review.
-	TxProbe *sql.DB
+	// (V3-D05a) is asserted structurally rather than by review. Set it with
+	// SetTxProbe — it is read from the goroutine a detached delete runs on.
+	txProbe *sql.DB
 	// violations names every call that ran while the connection was held. Read it
 	// with Violations().
 	violations []string
@@ -77,7 +84,7 @@ type signedPut struct {
 
 // New returns an empty fake store.
 func New() *Fake {
-	return &Fake{objects: map[string]*object{}, signed: map[string]signedPut{}}
+	return &Fake{objects: map[string]*object{}, signed: map[string]signedPut{}, presignFailAt: -1}
 }
 
 // SetListErr makes List fail with err (nil clears it).
@@ -89,11 +96,35 @@ func (f *Fake) SetHeadErr(err error) { f.mu.Lock(); f.headErr = err; f.mu.Unlock
 // SetDeleteErr makes Delete fail with err (nil clears it).
 func (f *Fake) SetDeleteErr(err error) { f.mu.Lock(); f.deleteErr = err; f.mu.Unlock() }
 
-// SetPresignErr makes PresignPut fail with err (nil clears it). It exists so the
-// submit handler's all-or-nothing slot path is reachable from a test: the
+// SetPresignErr makes every PresignPut fail with err (nil clears it). It exists
+// so the submit handler's all-or-nothing slot path is reachable from a test: the
 // contract promises "one slot per declared file, in the order declared", and the
 // widget pairs slots with its own File list by index.
-func (f *Fake) SetPresignErr(err error) { f.mu.Lock(); f.presignErr = err; f.mu.Unlock() }
+func (f *Fake) SetPresignErr(err error) {
+	f.mu.Lock()
+	f.presignErr, f.presignFailAt = err, -1
+	f.mu.Unlock()
+}
+
+// FailPresignOn makes only the nth PresignPut this fake serves fail with err
+// (zero-based, counted over the fake's whole life); every other call succeeds.
+//
+// ⚠ Failing exactly one call in the MIDDLE is the only way to tell the submit
+// handler's all-or-nothing withdrawal from simply dropping the failed slot. With
+// the failure on the last declared file both behaviours leave zero slots and an
+// assertion cannot separate them; with it on the second of three, dropping the
+// gap answers one slot for three files and shifts the widget's third File onto
+// the first slot.
+func (f *Fake) FailPresignOn(n int, err error) {
+	f.mu.Lock()
+	f.presignErr, f.presignFailAt = err, n
+	f.mu.Unlock()
+}
+
+// SetTxProbe makes every call probe db before it runs — see txProbe. It is a
+// setter rather than a field because a detached object delete (FR-22) reads it
+// from its own goroutine.
+func (f *Fake) SetTxProbe(db *sql.DB) { f.mu.Lock(); f.txProbe = db; f.mu.Unlock() }
 
 // BlockDeletes makes every Delete wait until the returned release is called. It
 // is how a test proves a delete response does not wait on the bucket (FR-22):
@@ -116,11 +147,14 @@ func (f *Fake) BlockDeletes() (release func()) {
 const txProbeTimeout = 500 * time.Millisecond
 
 func (f *Fake) enter(ctx context.Context, name string) {
-	// Probe BEFORE taking the fake's own lock: the point is to observe the
-	// database connection, not to serialize the store.
-	if f.TxProbe != nil {
+	f.mu.Lock()
+	probe := f.txProbe
+	f.mu.Unlock()
+	// Query the probe WITHOUT the fake's own lock held: the point is to observe
+	// the database connection, not to serialize the store.
+	if probe != nil {
 		pctx, cancel := context.WithTimeout(ctx, txProbeTimeout)
-		err := f.TxProbe.QueryRowContext(pctx, "SELECT 1").Scan(new(int))
+		err := probe.QueryRowContext(pctx, "SELECT 1").Scan(new(int))
 		cancel()
 		if err != nil {
 			f.mu.Lock()
@@ -159,7 +193,9 @@ func (f *Fake) PresignPut(ctx context.Context, key, contentType string, size int
 	f.enter(ctx, "PresignPut "+key)
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.presignErr != nil {
+	n := f.presigns
+	f.presigns++
+	if f.presignErr != nil && (f.presignFailAt < 0 || f.presignFailAt == n) {
 		return blob.Upload{}, f.presignErr
 	}
 	u := "https://fake.r2.invalid/" + url.PathEscape(key) +

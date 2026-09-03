@@ -29,21 +29,25 @@ type (
 // rollup → purge → feedback sweep.
 //
 // ⚠ Rollup before purge, or a raw check is deleted before it is aggregated. If
-// the rollup fails the purge is SKIPPED entirely, so the un-aggregated checks
-// survive to be retried on the next run rather than being deleted and leaving a
-// permanent uptime gap.
+// the rollup fails the purge is SKIPPED — and only the purge — so the
+// un-aggregated checks survive to be retried on the next run rather than being
+// deleted and leaving a permanent uptime gap.
 //
 // ⚠ The sweep runs LAST (V3-D25). It is the only step that talks to the network,
-// and it must not be able to delay the two that keep the database honest.
+// and it must not be able to delay the two that keep the database honest. It also
+// runs UNCONDITIONALLY: it depends on neither step above, and skipping it because
+// the rollup failed leaves unclaimed attachments unresolved and orphaned objects
+// in a bucket that is paid for and deliberately not backed up. That is the same
+// rule a failed purge already gets — an orphaned object is not made safer by
+// skipping the job that collects it — and a rollup that keeps failing would
+// otherwise silently switch the collector off for as long as it lasts.
 //
 // It lives here, named, rather than as a closure inside run() because the order
 // is a normative requirement (PRD §V3-11) and a closure cannot be tested.
 func runDailyJob(ctx context.Context, logger *slog.Logger, rollup dailyRollup, purge dailyPurge, sweep dailySweep, now time.Time) {
 	if err := rollup.RunDaily(ctx, now); err != nil {
 		logger.Error("daily rollup", "err", err)
-		return
-	}
-	if err := purge.Purge(ctx, now); err != nil {
+	} else if err := purge.Purge(ctx, now); err != nil {
 		logger.Error("retention purge", "err", err)
 	}
 	sweep.Sweep(ctx, now)

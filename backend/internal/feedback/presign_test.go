@@ -159,15 +159,23 @@ func TestRealBucketPresignAcceptsExactSize(t *testing.T) {
 // would shift every file after the gap onto the wrong slot, so a presign that
 // fails part-way issues no slots at all.
 //
+// ⚠ The failure is injected on the SECOND of THREE files on purpose. With it on
+// the last one, withdrawing the slots already issued and simply skipping the
+// failed one both leave zero slots, and the assertion cannot tell them apart —
+// which is exactly the hole this test had. In the middle, skipping would answer
+// one slot for three declared files and put the widget's third File on the first
+// file's URL.
+//
 // ⚠ The report itself survives regardless: the text is the thing worth keeping,
 // its attachment rows stay pending, and the nightly sweep resolves them.
 func TestUploadSlotsAreAllOrNothing(t *testing.T) {
 	h := newHarness(t, testConfig())
-	h.blobs.SetPresignErr(errFakeUnreachable)
+	h.blobs.FailPresignOn(1, errFakeUnreachable)
 
 	body := h.submission(
 		DeclaredFile{ContentType: "image/png", ByteSize: 1024},
 		DeclaredFile{ContentType: "image/png", ByteSize: 2048},
+		DeclaredFile{ContentType: "image/png", ByteSize: 4096},
 	)
 	code, raw := h.do(http.MethodPost, "/api/ingest/"+testSite+"/feedback", body, widgetHeaders(h.key))
 	if code != http.StatusAccepted {
@@ -176,7 +184,7 @@ func TestUploadSlotsAreAllOrNothing(t *testing.T) {
 	var out Accepted
 	mustJSON(t, raw, &out)
 	if len(out.Uploads) != 0 {
-		t.Fatalf("got %d upload slots for 2 declared files; a partial list shifts every later file onto the wrong slot", len(out.Uploads))
+		t.Fatalf("got %d upload slots for 3 declared files with the second presign failing; a partial list shifts every later file onto the wrong slot", len(out.Uploads))
 	}
 	if out.Ref == "" {
 		t.Fatal("the report must still be accepted and named")
@@ -189,8 +197,8 @@ func TestUploadSlotsAreAllOrNothing(t *testing.T) {
 	} else {
 		var rep Report
 		mustJSON(t, raw, &rep)
-		if len(rep.Attachments) != 2 {
-			t.Fatalf("want 2 pending attachment rows, got %d", len(rep.Attachments))
+		if len(rep.Attachments) != 3 {
+			t.Fatalf("want 3 pending attachment rows, got %d", len(rep.Attachments))
 		}
 		for _, a := range rep.Attachments {
 			if a.State != AttachPending {

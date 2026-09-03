@@ -123,6 +123,15 @@ func (m *Module) submit(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	report, files, err := m.validateSubmission(r, in, cfg, siteID, now)
 	if err != nil {
+		// ⚠ One of validateSubmission's failures is not the caller's: the database
+		// refusing to spend the ticket. Reporting that as a 422 tells a reporter
+		// holding a perfectly valid ticket that it is invalid, and leaves their
+		// dialog dead until a full reload mints another one.
+		if errors.Is(err, errSubmissionInternal) {
+			m.logger.Error("feedback submit", "site", siteID, "err", err)
+			httpx.WriteError(w, httpx.ErrInternal(""))
+			return
+		}
 		httpx.WriteError(w, httpx.ErrUnprocessable(err.Error()))
 		return
 	}
@@ -342,6 +351,13 @@ func writeRateLimited(w http.ResponseWriter, retry time.Duration) {
 
 // --- validation -------------------------------------------------------------
 
+// errSubmissionInternal marks the one validateSubmission failure that is NOT the
+// caller's fault — the database refusing to spend an otherwise valid ticket. It
+// is a 500, not a 422: every other failure here is something the reporter can
+// see and fix, and telling them a valid ticket is invalid costs them the only
+// one their page holds.
+var errSubmissionInternal = errors.New("feedback: could not spend the ticket")
+
 // validateSubmission turns a decoded body into a report ready to insert, or the
 // single 422 that covers every way a submission can be invalid.
 func (m *Module) validateSubmission(r *http.Request, in Submission, cfg *siteConfig, siteID string, now time.Time) (newReport, []resolvedFile, error) {
@@ -389,7 +405,7 @@ func (m *Module) validateSubmission(r *http.Request, in Submission, cfg *siteCon
 	// attempt finds nothing to delete.
 	spent, err := m.store.SpendTicket(r.Context(), t.ID, siteID)
 	if err != nil {
-		return newReport{}, nil, errors.New("invalid or expired ticket")
+		return newReport{}, nil, fmt.Errorf("%w: %v", errSubmissionInternal, err)
 	}
 	if !spent {
 		return newReport{}, nil, errors.New("invalid or expired ticket")

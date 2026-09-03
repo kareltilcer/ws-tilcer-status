@@ -106,6 +106,28 @@ func TestSweepPurgesExpiredTickets(t *testing.T) {
 	}
 }
 
+// TestSweepStillPurgesTicketsWithoutStorage: expiring a ticket is a pure database
+// step, so it runs outside the storage gate. A deployment whose object storage
+// was removed after tickets had been issued has no other collector for the rows
+// they left behind.
+func TestSweepStillPurgesTicketsWithoutStorage(t *testing.T) {
+	cfg := testConfig()
+	cfg.Enabled = false
+	h := newHarness(t, cfg)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	stale := newTicket(testSite, now.Add(-2*time.Hour))
+	if err := h.mod.store.InsertTicket(ctx, stale, now.Add(-90*time.Minute)); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	h.mod.Sweep(ctx, now)
+
+	if n := h.ticketCount(); n != 0 {
+		t.Fatalf("ticket rows = %d, want 0 — expiring a ticket needs no bucket", n)
+	}
+}
+
 // TestSweepDoesNothingWithoutStorage: a deployment with no bucket has nothing to
 // sweep, and must not act as though an empty world were the truth.
 func TestSweepDoesNothingWithoutStorage(t *testing.T) {
@@ -128,7 +150,7 @@ func TestSweepDoesNothingWithoutStorage(t *testing.T) {
 // other write for the length of someone else's TCP timeout.
 func TestNoObjectStorageCallInsideATransaction(t *testing.T) {
 	h := newHarness(t, testConfig())
-	h.blobs.TxProbe = h.db
+	h.blobs.SetTxProbe(h.db)
 
 	acc := h.submitWithFile(1024) // presign
 	h.upload(acc.Uploads[0], bytes.Repeat([]byte("c"), 1024))
@@ -156,7 +178,7 @@ func TestNoObjectStorageCallInsideATransaction(t *testing.T) {
 // makes the mistake the previous test forbids and checks that it is caught.
 func TestTxProbeDetectsACallInsideATransaction(t *testing.T) {
 	h := newHarness(t, testConfig())
-	h.blobs.TxProbe = h.db
+	h.blobs.SetTxProbe(h.db)
 
 	err := appdb.WithTx(context.Background(), h.db, func(tx *sql.Tx) error {
 		// Exactly what V3-D05a forbids: a network call while the transaction holds

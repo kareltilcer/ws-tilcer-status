@@ -57,13 +57,18 @@ func TestDailyJobOrder(t *testing.T) {
 	}
 }
 
-// TestDailyJobSkipsEverythingAfterAFailedRollup: a purge that runs on
+// TestDailyJobSkipsOnlyThePurgeAfterAFailedRollup: a purge that runs on
 // un-aggregated checks deletes them permanently, leaving an uptime gap nothing
-// can refill.
-func TestDailyJobSkipsEverythingAfterAFailedRollup(t *testing.T) {
+// can refill — so the purge, and only the purge, is skipped.
+//
+// ⚠ The sweep still runs. It depends on neither step above, and a rollup that
+// keeps failing must not quietly switch off the job that resolves unclaimed
+// attachments and collects orphaned objects from a bucket that is paid for and
+// deliberately not backed up.
+func TestDailyJobSkipsOnlyThePurgeAfterAFailedRollup(t *testing.T) {
 	got := runSteps(t, &recorder{rollupErr: errors.New("rollup exploded")})
-	if len(got) != 1 || got[0] != "rollup" {
-		t.Fatalf("daily job ran %v after a failed rollup, want the rollup alone", got)
+	if len(got) != 2 || got[0] != "rollup" || got[1] != "sweep" {
+		t.Fatalf("daily job ran %v after a failed rollup, want the rollup then the sweep", got)
 	}
 }
 
