@@ -146,6 +146,10 @@ export class FeedbackDialog {
   private discOpen = false
   private consoleOptOut = false
   private discardPrompt = false
+  /** dwelling is true while `retrySend` is waiting out the ticket's minimum age.
+   *  The phase reads `sending` then, but nothing is in flight and nothing is
+   *  stored — so closing has to ask, exactly as it does on the form. */
+  private dwelling = false
   private ref: string | null = null
   /**
    * generation counts openings. Every await in the submit chain resumes against
@@ -174,7 +178,6 @@ export class FeedbackDialog {
   private alertHost: HTMLElement | null = null
   private discBody: HTMLElement | null = null
   private discToggle: HTMLButtonElement | null = null
-  private sendBtn: HTMLButtonElement | null = null
   private honeypot: HTMLInputElement | null = null
 
   constructor(options: DialogOptions) {
@@ -208,8 +211,22 @@ export class FeedbackDialog {
     this.activeUpload?.abort()
     this.activeUpload = null
     this.wrap?.remove()
-    this.wrap = null
-    this.dialog = null
+    // ⚠ `reset()` here, not only at the next open. It is what drops
+    // `attachments` — and with them the reporter's Files, up to three 50 MB
+    // clips held for as long as the host page lives, on a widget most people
+    // close once and never reopen. The four structural nodes go with it, which
+    // is also what makes the stale-node guards (`if (!this.body || !this.foot)`)
+    // able to fire at all.
+    //
+    // ⚠ Knowingly not exhaustive: `msgInput` and the other live-node fields
+    // still point into the detached tree, and a detached node holds its parent,
+    // so one tree survives until `mount()` replaces every one of them on the
+    // next open. Nulling all twelve was measured at 48 gzipped bytes — over half
+    // of what this bundle has left under §V3-8's 15 kB — to release a few dozen
+    // detached nodes that cannot accumulate. Not a trade worth making blind.
+    this.wrap = this.dialog = this.body = this.foot = null
+    this.uploadRows = []
+    this.reset()
     this.o.onClosed()
   }
 
@@ -217,7 +234,12 @@ export class FeedbackDialog {
    *  before discarding text the reporter typed, because losing that is the real
    *  failure. */
   private requestClose(): void {
-    if (this.phase === 'form' && this.dirty() && !this.discardPrompt) {
+    // ⚠ `dwelling` is in here as well as `form`. During a real send the report is
+    // already on its way and closing loses nothing that matters; during the
+    // retry's dwell it is not — the POST has not happened — so an impatient ✕ on
+    // a phase that merely READS as sending would throw the typed report away
+    // without ever asking.
+    if ((this.phase === 'form' || this.dwelling) && this.dirty() && !this.discardPrompt) {
       this.discardPrompt = true
       this.renderFooter()
       return
@@ -330,7 +352,13 @@ export class FeedbackDialog {
     const first = focusable[0]
     const last = focusable[focusable.length - 1]
     const active = this.activeElementIn(this.dialog)
-    if (e.shiftKey && (active === first || active === null)) {
+    // ⚠ `this.dialog` counts as "before the first": holdFocus parks focus on the
+    // dialog itself after any re-render that removed the focused control, which
+    // is the ordinary case for pressing Send. Without it here, Shift+Tab from
+    // there is not intercepted at all — the browser walks backwards out of the
+    // dialog to the launcher and then into the host page, and since the keydown
+    // listener is bound to the dialog, Escape stops working too.
+    if (e.shiftKey && (active === first || active === this.dialog || active === null)) {
       e.preventDefault()
       last.focus()
     } else if (!e.shiftKey && active === last) {
@@ -533,6 +561,15 @@ export class FeedbackDialog {
     this.discBody.appendChild(list)
 
     if (!this.o.consoleCapture) return
+    // ⚠ These are the lines within the tail's OWN cap (3 kB). `fitConsoleTail`
+    // may drop more of the oldest at send time, because the budget it trims
+    // against is whatever the rest of the payload leaves — so on a long report
+    // this block can show a few lines more than actually travel. It is left that
+    // way deliberately: the budget is a function of a message the reporter goes
+    // on editing after opening this block, so any "exact" view is stale the
+    // moment they type another word, and the error is only ever in the safe
+    // direction (shown ⊇ sent — the disclosure never under-states what leaves
+    // the browser, which is what PRD §V3-8 is protecting).
     const lines = this.o.capture.lines()
     const linesEl = el('div', { cls: 'sfb-console-lines' })
     for (const line of lines) linesEl.appendChild(el('div', { text: line }))
@@ -695,6 +732,12 @@ export class FeedbackDialog {
     if (this.discardPrompt) {
       this.foot.appendChild(
         el('div', {
+          // ⚠ role="alert", like every other treatment in showAlert. Escape
+          // replaces the footer under a reporter whose focus is still in the
+          // textarea, so nothing moves and nothing is announced: a screen-reader
+          // user hears silence, reads it as "Escape did nothing", presses it
+          // again — and the second press is the one that discards.
+          attrs: { role: 'alert' },
           kids: [
             el('div', { attrs: { style: 'font-size:13px;font-weight:600;margin-bottom:10px' }, text: s.discardTitle }),
             el('div', {
@@ -725,13 +768,14 @@ export class FeedbackDialog {
       )
     } else if (this.phase === 'form' || this.phase === 'sending') {
       const sending = this.phase === 'sending'
-      this.sendBtn = el('button', {
-        cls: 'sfb-btn',
-        attrs: { type: 'button', ...(sending ? { disabled: 'disabled' } : {}) },
-        text: sending ? s.sending : s.send,
-        on: { click: () => this.submit() },
-      }) as HTMLButtonElement
-      this.foot.appendChild(this.sendBtn)
+      this.foot.appendChild(
+        el('button', {
+          cls: 'sfb-btn',
+          attrs: { type: 'button', ...(sending ? { disabled: 'disabled' } : {}) },
+          text: sending ? s.sending : s.send,
+          on: { click: () => this.submit() },
+        }),
+      )
     } else if (this.phase === 'done') {
       this.foot.appendChild(
         el('button', {
@@ -905,7 +949,11 @@ export class FeedbackDialog {
     this.syncFiles()
     await this.o.api.ticketSettled()
     const owed = MIN_TICKET_AGE_MS - this.o.api.ticketAgeMs()
-    if (owed > 0) await new Promise((resolve) => setTimeout(resolve, owed))
+    if (owed > 0) {
+      this.dwelling = true
+      await new Promise((resolve) => setTimeout(resolve, owed))
+      this.dwelling = false
+    }
     if (!this.live(gen)) return
     this.phase = 'form'
     await this.submit()

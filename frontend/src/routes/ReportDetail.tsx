@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -220,7 +220,7 @@ export function ReportDetail() {
             </p>
           </div>
 
-          <InternalNote report={report} disabled={!isAdmin} pending={saveNote.isPending} onSave={(n) => saveNote.mutate(n)} />
+          <InternalNote key={report.ref} report={report} disabled={!isAdmin} pending={saveNote.isPending} onSave={(n) => saveNote.mutate(n)} />
 
           <div style={{ ...cardStyle, padding: '16px 18px' }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>What the reporter sees</div>
@@ -284,6 +284,12 @@ function AttachmentCard({ reportRef, attachment }: { reportRef: string; attachme
     staleTime: 4 * 60_000,
     gcTime: 4 * 60_000,
     retry: false,
+    // ⚠ Off, against the app-wide default. Coming back to the tab after four
+    // minutes would otherwise re-mint every attachment's URL at once and swap
+    // every <img src> on the page — reloading images that were on screen and
+    // fine. It is the same churn keys.ts moved this key out of the report's
+    // prefix to avoid; the window-focus default is the other way in.
+    refetchOnWindowFocus: false,
   })
   const isVideo = attachment.content_type.startsWith('video/')
   const size = fileSize(attachment.byte_size)
@@ -453,10 +459,13 @@ function InternalNote({
   pending: boolean
   onSave: (note: string) => void
 }) {
+  // ⚠ Seeded once per report and never re-seeded from the server. The effect
+  // that did it fired on `report.internal_note`, which is exactly what changes
+  // when your own save comes back — so a word typed while the PATCH was in
+  // flight was overwritten by the value that had been sent a second earlier,
+  // silently. Switching reports resets it through the `key` at the call site,
+  // which is the one case that has to reset.
   const [note, setNote] = useState(report.internal_note ?? '')
-  useEffect(() => {
-    setNote(report.internal_note ?? '')
-  }, [report.ref, report.internal_note])
 
   return (
     <div style={cardStyle}>

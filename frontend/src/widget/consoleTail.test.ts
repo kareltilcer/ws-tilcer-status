@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { formatArg, trimToBudget, utf8Length } from './consoleTail'
 
 describe('utf8Length', () => {
@@ -44,14 +44,17 @@ describe('formatArg', () => {
 })
 
 describe('installConsoleCapture', () => {
-  beforeEach(() => {
-    vi.resetModules()
-  })
-
   // ⚠ installConsoleCapture patches five methods, so the teardown restores five.
   // Restoring only `log` leaves this file's later tests running through the
   // first module instance's buffer — a stale capture chain that a future
   // assertion on console.warn would read from.
+  //
+  // ⚠ And the module is deliberately NOT reset between these tests. Installing
+  // also adds a window `error` and an `unhandledrejection` listener, and neither
+  // is returned or removable — so `vi.resetModules()` cleared the `installed`
+  // guard and let the next test bind a second pair to the same jsdom window,
+  // leaving stale capture chains behind for anything that later asserts on an
+  // uncaught error. One module instance per file means one install.
   const PATCHED = ['log', 'info', 'warn', 'error', 'debug'] as const
 
   function snapshotConsole(): () => void {

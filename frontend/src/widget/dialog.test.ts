@@ -178,6 +178,37 @@ describe('opening and closing', () => {
     expect(document.activeElement).toBe(last)
   })
 
+  // ⚠ The dialog element itself is a focus position, not just a container:
+  // holdFocus parks focus there after any re-render that removed the focused
+  // control. Shift+Tab from there was not intercepted at all — the browser
+  // walked backwards out of the dialog, to the launcher and then into the host
+  // page, and since the keydown listener is bound to the dialog, Escape went
+  // with it.
+  it('traps Shift+Tab when focus is parked on the dialog itself', () => {
+    const h = harness({})
+    h.dialog.open()
+    const dialog = h.q<HTMLElement>('[role="dialog"]')!
+    const focusable = h.all<HTMLElement>(
+      '[role="dialog"] button:not([disabled]):not([tabindex="-1"]), [role="dialog"] textarea',
+    )
+    dialog.focus()
+    expect(document.activeElement).toBe(dialog)
+    press(h, 'Tab', { shiftKey: true })
+    expect(document.activeElement).toBe(focusable[focusable.length - 1])
+  })
+
+  // ⚠ Escape swaps the footer under a reporter whose focus is still in the
+  // textarea: nothing moves, so nothing is announced. A screen-reader user hears
+  // silence, reads it as "Escape did nothing", and presses it again — and the
+  // second press is the one that discards what they wrote.
+  it('announces the discard prompt rather than silently swapping the footer', () => {
+    const h = harness({})
+    h.dialog.open()
+    type(h, 'Něco se pokazilo')
+    press(h, 'Escape')
+    expect(h.byText('[role="alert"]', STRINGS.cs.discardTitle)).not.toBeNull()
+  })
+
   // ⚠ The backdrop and the centring wrapper are ONE element. Two full-viewport
   // fixed layers means the upper one takes every click meant for the lower, so a
   // handler on a separate scrim underneath can never fire. jsdom has no layout
@@ -393,6 +424,37 @@ describe('the submission', () => {
       await vi.advanceTimersByTimeAsync(4_000)
       await flush()
       expect(h.submitted).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // ⚠ The retry's dwell READS as "Odesílám…" but nothing is in flight and
+  // nothing is stored: the POST has not happened yet. Closing on the phase alone
+  // therefore threw away a report that only existed in the textarea, without the
+  // question every other route to losing it asks first.
+  it('asks before discarding while the retry is only waiting out the dwell', async () => {
+    vi.useFakeTimers()
+    try {
+      let issuedAt = Date.now()
+      const h = harness({
+        submit: async () => ({ ok: false, kind: 'network' }),
+        ticketAgeMs: () => Date.now() - issuedAt,
+        refreshTicket: async () => {
+          issuedAt = Date.now()
+        },
+      })
+      h.dialog.open()
+      type(h, 'Rozbité')
+      h.byText('button', STRINGS.cs.send)!.click()
+      await flush()
+      h.byText('button', STRINGS.cs.sendAgain)!.click()
+      await flush()
+      expect(h.submitted).toHaveLength(1) // still waiting; nothing has been sent
+
+      press(h, 'Escape')
+      expect(h.dialog.isOpen).toBe(true)
+      expect(h.root.textContent).toContain(STRINGS.cs.discardTitle)
     } finally {
       vi.useRealTimers()
     }

@@ -47,11 +47,17 @@ export function AppShell() {
   // outlives the Board: leave that route and the shared query stops polling, so
   // the badge sits on a number from whenever the user last looked. A nav badge
   // that silently goes stale is worse than no badge.
+  //
+  // ⚠ And only while the Board is NOT mounted. An interval is per observer, not
+  // per query, so two of them on the same key sit at different phases and poll
+  // /api/sites about twice per 30 s — double the rate the Board's own header
+  // promises, against a service whose single writer connection every request
+  // has to queue behind.
   const { data: sites } = useQuery({
     queryKey: qk.sites(),
     queryFn: () => api.listSites(),
     staleTime: 30_000,
-    refetchInterval: 30_000,
+    refetchInterval: onBoard ? false : 30_000,
   })
   const unread = (sites ?? []).reduce((n, s) => n + (s.open_reports ?? 0), 0)
 

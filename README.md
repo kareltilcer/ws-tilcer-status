@@ -216,8 +216,9 @@ images and clips attached to user reports, under the `feedback/` prefix. Three t
   Litestream bucket, which holds the whole database backup.
 - ⚠ **The bucket needs its own CORS policy**, because the browser PUTs to R2 directly rather than
   through this service: allow `PUT` from the origins in `STATUS_ALLOWED_ORIGINS` (**never `*`** on a
-  bucket that accepts writes) with `Content-Type` and `Content-Length` as allowed headers. Without it
-  the upload fails in the browser with no useful error and no server-side signal at all.
+  bucket that accepts writes) with `Content-Type` as the allowed header — and not `Content-Length`,
+  which a browser sets itself and never asks for in a preflight. Without it the upload fails in the
+  browser with no useful error and no server-side signal at all.
   [`docs/widget.md`](docs/widget.md) §8 records the exact policy.
 - **It is deliberately not backed up.** The durable record is the report text, which is in SQLite and
   already replicated. Losing an attachment loses convenience, not the record — which is why the

@@ -155,6 +155,15 @@ export function putObject(slot: UploadSlot, file: Blob, onProgress: (pct: number
         movedAt = Date.now()
         if (e.lengthComputable && e.total > 0) onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)))
       }
+      // ⚠ The last upload progress event fires when the body is flushed, not
+      // when R2 answers. Without restarting the clock here the watchdog spends
+      // the same 45 s bounding the SERVER's silence — so a 50 MB clip that
+      // arrived intact, on a bucket having a slow minute, is aborted and then
+      // re-sent from byte zero by the retry. Silence after the last byte gets
+      // its own full window.
+      xhr.upload.onload = () => {
+        movedAt = Date.now()
+      }
       xhr.onload = () => settle(xhr.status >= 200 && xhr.status < 300)
       xhr.onerror = () => settle(false)
       xhr.onabort = () => settle(false)
