@@ -30,6 +30,16 @@ export function relativeTime(iso: string | null): string {
   return `${days}d ago`
 }
 
+/** fileSize renders an attachment's size the way a phone would — "420 kB",
+ *  "18.4 MB". Base 1024, matching the caps the server derives from
+ *  STATUS_FEEDBACK_MAX_*_MB, so a file at the limit reads as the limit. */
+export function fileSize(bytes: number | null): string {
+  if (bytes === null || bytes <= 0) return 'size unknown'
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} kB`
+  const mb = bytes / (1024 * 1024)
+  return `${Number.isInteger(mb) ? mb : mb.toFixed(1)} MB`
+}
+
 /** uptimeText formats a rolling uptime percentage. */
 export function uptimeText(pct: number | null): string {
   if (pct === null || pct === undefined) return '—'

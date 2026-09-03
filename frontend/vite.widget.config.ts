@@ -1,8 +1,42 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
+
+/**
+ * asciiOnly rewrites every non-ASCII character in the bundle as a `\uXXXX`
+ * escape, and refuses to emit a file that still contains one.
+ *
+ * ⚠ This is not a style preference, it is a correctness fix, and it was found by
+ * opening the page. The bundle is a classic `<script>` loaded CROSS-ORIGIN by a
+ * host we do not control. When the response carries no `charset`, the browser
+ * does NOT inherit the host document's UTF-8 for a cross-origin classic script —
+ * it falls back to windows-1252, and every Czech string in the file becomes
+ * mojibake. "Odešle se také" renders as "OdeÅ¡le se takÃ©"; worse, the widget then
+ * SENDS the corrupted text, so the report that lands in Karel's inbox is corrupt
+ * too, with nothing anywhere to say why. Measured against a real cross-origin
+ * host page: a report filed from one arrived reading "KdyÅ¾ v
+ * NÃ¡kupech".
+ *
+ * `frontend/nginx.conf` now sends `charset=utf-8`, which fixes it at the server.
+ * This fixes it in the artifact — the half that survives a CDN, a proxy, or a
+ * host that copies the file somewhere else and serves it however it likes.
+ */
+function asciiOnly(): Plugin {
+  return {
+    name: 'sfb-ascii-only',
+    generateBundle(_options, bundle) {
+      for (const [name, file] of Object.entries(bundle)) {
+        if (file.type !== 'chunk') continue
+        file.code = file.code.replace(/[^\x00-\x7F]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
+        if (/[^\x00-\x7F]/.test(file.code)) {
+          throw new Error(`sfb-ascii-only: ${name} still contains non-ASCII output`)
+        }
+      }
+    },
+  }
+}
 
 // The widget is a SECOND build, not a second entry in the SPA build (FR-24).
 // The SPA emits hashed filenames so it can be cached for a year; the widget needs
@@ -10,6 +44,7 @@ const root = path.dirname(fileURLToPath(import.meta.url))
 // immutable for the life of the v1 contract. A breaking change becomes v2.js and
 // every existing embed keeps working.
 export default defineConfig({
+  plugins: [asciiOnly()],
   build: {
     outDir: 'dist/widget',
     // ⚠ The SPA build runs first and writes the same dist/. Emptying here would

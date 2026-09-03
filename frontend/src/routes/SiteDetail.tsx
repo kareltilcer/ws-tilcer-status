@@ -10,10 +10,12 @@ import { COLOR, StatusPill, cardStyle, inputStyle, fieldLabel, primaryButton, gh
 import { LevelBadge } from '@/components/ui'
 import { UptimeStrip } from '@/components/UptimeStrip'
 import { CodeSnippet } from '@/components/CodeSnippet'
+import { FeedbackPanel } from '@/components/FeedbackPanel'
 import { KeyModal } from '@/components/KeyModal'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { useMediaQuery } from '@/lib/useMediaQuery'
 import { relativeTime, uptimeWindow } from '@/lib/format'
+import { curlIngestSnippet } from '@/lib/snippets'
 import type { CrashGroup, GroupStatus, SiteSummary } from '@/api/types'
 
 const groupStatusColor: Record<GroupStatus, { fg: string; bg: string }> = {
@@ -147,6 +149,10 @@ export function SiteDetail() {
             <CodeSnippet siteId={site.id} />
           </div>
         </div>
+
+        {/* v3 — feedback. It sits after the integration card because a site is
+            monitored first and asked about second. */}
+        <FeedbackPanel siteId={site.id} openReports={site.open_reports} />
       </div>
 
       {confirm === 'delete' && (
@@ -172,8 +178,8 @@ export function SiteDetail() {
         <KeyModal
           title="New ingest key"
           subtitle={`Rotated key for ${site.name} (${site.id})`}
-          siteId={site.id}
-          ingestKey={rotateKeyValue}
+          keyValue={rotateKeyValue}
+          snippet={curlIngestSnippet(site.id, rotateKeyValue)}
           onClose={() => setRotateKeyValue(null)}
         />
       )}

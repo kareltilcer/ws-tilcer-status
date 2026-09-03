@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import * as api from '@/api/endpoints'
 import { qk } from '@/api/keys'
 import { paths } from '@/app/routes'
-import { COLOR, StatusPill, primaryButton } from '@/components/ui'
+import { COLOR, StatusPill, UnreadBadge, primaryButton } from '@/components/ui'
 import { relativeTime, uptimeText } from '@/lib/format'
 import type { Color, SiteSummary } from '@/api/types'
 
@@ -124,6 +124,16 @@ function SiteCard({ site, windowDays, onClick }: { site: SiteSummary; windowDays
       {degrading && (
         <div style={{ marginTop: 9, fontSize: 11.5, color: 'var(--warn-text)', fontWeight: 600 }}>
           {site.fail_streak} failed check{site.fail_streak === 1 ? '' : 's'} · re-checking
+        </div>
+      )}
+      {/* ⚠ The badge sits here, in the card's own body — never in the header row
+          beside the status pill. Colour is the machine's signal: a person saying
+          "this is confusing" must not make a site look degraded beside a real
+          outage, so the separation is spatial first and chromatic second. `null`
+          (no feedback module) and `0` both render nothing; there is no zero state. */}
+      {!!site.open_reports && (
+        <div style={{ marginTop: 11 }}>
+          <UnreadBadge count={site.open_reports} />
         </div>
       )}
       <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 14, fontSize: 12, color: 'var(--muted)' }}>

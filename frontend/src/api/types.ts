@@ -27,6 +27,10 @@ export interface SiteSummary {
   uptime_pct: number | null
   open_crash_groups: number
   recent_crash_count: number
+  /** Reports in state `new` (v3). ⚠ Null, not zero, when the feedback module is
+   *  not composed into this deployment — the card then renders no badge at all
+   *  rather than a confident "0" (V3-D53). It never affects `color`. */
+  open_reports: number | null
   created_at: string
 }
 
@@ -113,4 +117,82 @@ export interface Meta {
   // The configured rolling window (STATUS_UPTIME_WINDOW) that the cached
   // uptime_pct on each site summary is computed over.
   uptime_window_days: number
+  // Whether this deployment has object storage configured. False means the
+  // feedback switch on site detail is unavailable rather than merely off:
+  // PATCH .../feedback-config answers 503.
+  feedback_enabled: boolean
+}
+
+// --- feedback (v3) ---
+
+export type ReportState = 'new' | 'open' | 'resolved' | 'declined'
+export type ReportKind = 'bug' | 'idea' | 'other'
+export type AttachmentState = 'pending' | 'stored' | 'missing'
+
+export interface AttachmentSummary {
+  id: number
+  state: AttachmentState
+  content_type: string
+  /** What R2 reported at claim; null until then. The declared size is never
+   *  published as if it had been confirmed. */
+  byte_size: number | null
+  created_at: string
+}
+
+export interface ReportSummary {
+  ref: string
+  site_id: string
+  kind: ReportKind
+  state: ReportState
+  message: string
+  reporter_label: string | null
+  attachment_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface Report extends ReportSummary {
+  page_url: string | null
+  referrer: string | null
+  user_agent: string | null
+  viewport: string | null
+  locale: string | null
+  app_release: string | null
+  console_tail: string[] | null
+  last_error: string | null
+  internal_note: string | null
+  resolved_at: string | null
+  attachments: AttachmentSummary[]
+}
+
+export interface ReportPage {
+  items: ReportSummary[]
+  next_cursor: string | null
+}
+
+export interface ReportPatch {
+  state?: ReportState
+  kind?: ReportKind
+  /** null clears the note; absent leaves it alone. */
+  internal_note?: string | null
+}
+
+export interface FeedbackConfig {
+  site_id: string
+  enabled: boolean
+  console_capture: boolean
+  widget_key_set_at: string | null
+  updated_at: string | null
+}
+
+/** FeedbackConfigWithKey is the PATCH response: on the first enable it carries
+ *  the plaintext widget key, shown exactly once — the `ik_` precedent. */
+export interface FeedbackConfigWithKey extends FeedbackConfig {
+  widget_key?: string
+}
+
+export interface AttachmentURL {
+  url: string
+  expires_at: string
+  content_type: string
 }

@@ -1,31 +1,31 @@
 import { useState } from 'react'
 
-function curlSnippet(siteId: string, key: string): string {
-  return [
-    `curl -sS -X POST https://status.tilcer.cz/api/ingest/${siteId} \\`,
-    `  -H "X-Ingest-Key: ${key}" \\`,
-    `  -H "Content-Type: application/json" \\`,
-    `  -d '{"message":"hello from curl","level":"error"}'`,
-  ].join('\n')
-}
-
-/** KeyModal shows a freshly-created or rotated ingest key exactly once. */
+/**
+ * KeyModal shows a freshly-issued key exactly once.
+ *
+ * It is the same interaction for both of the service's keys — the `ik_` ingest
+ * key and v3's `wk_` widget key — because both are stored as a SHA-256 and
+ * neither can ever be shown again. Only the snippet under it differs, so the
+ * caller supplies that.
+ */
 export function KeyModal({
   title,
   subtitle,
-  siteId,
-  ingestKey,
+  keyValue,
+  snippet,
+  snippetLabel = 'Ready to paste',
   onClose,
 }: {
   title: string
   subtitle: string
-  siteId: string
-  ingestKey: string
+  keyValue: string
+  snippet: string
+  snippetLabel?: string
   onClose: () => void
 }) {
   const [copied, setCopied] = useState(false)
   const copy = () => {
-    void navigator.clipboard?.writeText(ingestKey).then(() => {
+    void navigator.clipboard?.writeText(keyValue).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })
@@ -51,11 +51,11 @@ export function KeyModal({
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-            <code style={{ flex: 1, minWidth: 0, fontFamily: 'var(--mono)', fontSize: 13, background: 'var(--s2)', border: '1px solid var(--border-strong)', borderRadius: 8, padding: '11px 13px', whiteSpace: 'nowrap', overflowX: 'auto', color: 'var(--text)' }}>{ingestKey}</code>
+            <code style={{ flex: 1, minWidth: 0, fontFamily: 'var(--mono)', fontSize: 13, background: 'var(--s2)', border: '1px solid var(--border-strong)', borderRadius: 8, padding: '11px 13px', whiteSpace: 'nowrap', overflowX: 'auto', color: 'var(--text)' }}>{keyValue}</code>
             <button onClick={copy} style={{ flex: 'none', display: 'inline-flex', alignItems: 'center', gap: 7, padding: '0 14px', border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--accent-fg)', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{copied ? 'Copied' : 'Copy'}</button>
           </div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--subtle)', marginBottom: 6 }}>Ready to paste</div>
-          <pre style={{ margin: '0 0 20px', fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.6, background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 8, padding: 13, overflow: 'auto', color: 'var(--text)', whiteSpace: 'pre' }}>{curlSnippet(siteId, ingestKey)}</pre>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--subtle)', marginBottom: 6 }}>{snippetLabel}</div>
+          <pre style={{ margin: '0 0 20px', fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.6, background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 8, padding: 13, overflow: 'auto', color: 'var(--text)', whiteSpace: 'pre' }}>{snippet}</pre>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button onClick={onClose} style={{ height: 38, padding: '0 18px', border: '1px solid var(--border)', background: 'var(--s2)', color: 'var(--text)', borderRadius: 8, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>I've stored it</button>
           </div>

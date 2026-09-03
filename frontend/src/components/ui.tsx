@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import type { Color, Level } from '@/api/types'
+import type { AttachmentState, Color, Level, ReportKind, ReportState } from '@/api/types'
 
 // The status color system (design comp). Each state carries a fill, an AA-tuned
 // text token, a soft background, and a non-color cue (glyph) + label — status is
@@ -82,6 +82,124 @@ export function LevelBadge({ level }: { level: Level }) {
       }}
     >
       {level}
+    </span>
+  )
+}
+
+// v3 — the report palette is deliberately NOT the status palette. A person
+// saying "this is confusing" must never make a site look degraded beside a real
+// outage, so `new` reads as "someone wrote to you" in the accent and the closed
+// states fade to neutral. Green/orange/red stay the machine's language.
+const REPORT_STATE: Record<ReportState, { cue: string; style: CSSProperties }> = {
+  new: { cue: '●', style: { background: 'var(--accent)', color: 'var(--accent-fg)', border: '1px solid var(--accent)' } },
+  open: {
+    cue: '○',
+    style: {
+      background: 'color-mix(in oklab, var(--accent) 14%, transparent)',
+      color: 'var(--accent)',
+      border: '1px solid color-mix(in oklab, var(--accent) 45%, transparent)',
+    },
+  },
+  resolved: { cue: '✓', style: { background: 'var(--s3)', color: 'var(--muted)', border: '1px solid var(--border-strong)' } },
+  declined: { cue: '✕', style: { background: 'transparent', color: 'var(--subtle)', border: '1px dashed var(--border-strong)' } },
+}
+
+export function StateChip({ state }: { state: ReportState }) {
+  const s = REPORT_STATE[state]
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        padding: '3px 9px 3px 7px',
+        borderRadius: 999,
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: '.02em',
+        textTransform: 'uppercase',
+        whiteSpace: 'nowrap',
+        ...s.style,
+      }}
+    >
+      <span aria-hidden style={{ fontSize: 9 }}>{s.cue}</span>
+      {state}
+    </span>
+  )
+}
+
+export function KindChip({ kind }: { kind: ReportKind }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '2px 8px',
+        borderRadius: 6,
+        fontFamily: 'var(--mono)',
+        fontSize: 10.5,
+        fontWeight: 600,
+        letterSpacing: '.04em',
+        textTransform: 'uppercase',
+        background: 'var(--s3)',
+        border: '1px solid var(--border)',
+        color: 'var(--muted)',
+      }}
+    >
+      {kind}
+    </span>
+  )
+}
+
+/** UnreadBadge is the board card's "someone wrote to you".
+ *
+ *  ⚠ It carries an envelope and the word "report" as well as the accent, so in
+ *  greyscale it still reads as a count of messages — and it lives in the card's
+ *  meta row rather than beside the status pill, because the separation from a
+ *  health signal has to be spatial before it is chromatic. */
+export function UnreadBadge({ count }: { count: number }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '3px 10px 3px 8px',
+        borderRadius: 7,
+        fontSize: 11.5,
+        fontWeight: 700,
+        whiteSpace: 'nowrap',
+        border: '1px solid color-mix(in oklab, var(--accent) 45%, transparent)',
+        background: 'color-mix(in oklab, var(--accent) 14%, transparent)',
+        color: 'var(--accent)',
+      }}
+    >
+      <span aria-hidden>✉</span>
+      {count} new report{count === 1 ? '' : 's'}
+    </span>
+  )
+}
+
+const ATTACHMENT_STATE: Record<AttachmentState, string> = {
+  stored: 'var(--muted)',
+  missing: 'var(--warn-text)',
+  pending: 'var(--subtle)',
+}
+
+export function AttachmentStateLabel({ state }: { state: AttachmentState }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        fontFamily: 'var(--mono)',
+        fontSize: 10.5,
+        fontWeight: 600,
+        color: ATTACHMENT_STATE[state],
+      }}
+    >
+      {state}
     </span>
   )
 }

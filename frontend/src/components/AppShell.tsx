@@ -1,5 +1,8 @@
 import { useState, type CSSProperties } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import * as api from '@/api/endpoints'
+import { qk } from '@/api/keys'
 import { useAuth } from '@/app/auth'
 import { useTheme } from '@/theme/theme'
 import { useMediaQuery } from '@/lib/useMediaQuery'
@@ -34,6 +37,13 @@ export function AppShell() {
   const [drawer, setDrawer] = useState(false)
   const themeGlyph = theme === 'dark' ? '☾' : '☀'
   const onBoard = loc.pathname === paths.board
+  const onReports = loc.pathname.startsWith(paths.reports)
+
+  // The nav's unread count. It shares the board's query — one request, two
+  // readers — and stays absent rather than showing a zero when the feedback
+  // module is not composed into this deployment (V3-D53).
+  const { data: sites } = useQuery({ queryKey: qk.sites(), queryFn: () => api.listSites(), staleTime: 30_000 })
+  const unread = (sites ?? []).reduce((n, s) => n + (s.open_reports ?? 0), 0)
 
   const logoMark = (size: number) => (
     <span style={{ display: 'grid', placeItems: 'center', height: size, width: size, borderRadius: size / 4, background: 'var(--accent)', color: 'var(--accent-fg)', fontWeight: 800, fontSize: size / 2 }}>s</span>
@@ -43,6 +53,14 @@ export function AppShell() {
     <>
       <nav style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 12px', flex: 1 }}>
         <button onClick={() => { nav(paths.board); setDrawer(false) }} style={navItemStyle(onBoard)}>Board</button>
+        <button onClick={() => { nav(paths.reports); setDrawer(false) }} style={navItemStyle(onReports)}>
+          <span style={{ flex: 1 }}>Inbox</span>
+          {unread > 0 && (
+            <span style={{ display: 'inline-grid', placeItems: 'center', minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, background: 'var(--accent)', color: 'var(--accent-fg)', fontSize: 11, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+              {unread}
+            </span>
+          )}
+        </button>
         <button onClick={() => { nav(paths.addSite); setDrawer(false) }} style={navItemStyle(loc.pathname === paths.addSite)}>Add site</button>
       </nav>
       <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>

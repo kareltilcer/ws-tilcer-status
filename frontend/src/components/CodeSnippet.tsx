@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { STATUS_ORIGIN } from '@/lib/snippets'
 
 type Tab = 'curl' | 'go' | 'js'
 
 function snippets(siteId: string): Record<Tab, string> {
-  const url = `https://status.tilcer.cz/api/ingest/${siteId}`
+  const url = `${STATUS_ORIGIN}/api/ingest/${siteId}`
   return {
     curl: [
       `curl -sS -X POST ${url} \\`,
