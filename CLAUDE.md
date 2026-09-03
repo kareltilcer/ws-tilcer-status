@@ -7,7 +7,8 @@ Conventions for working in this repo. It follows the `home`/`fin` fleet pattern;
 
 `status.tilcer.cz` — fleet monitoring + crash reporting. Two Coolify apps, one origin:
 - `backend/` — Go modular monolith, API-only, port **112**, served at `status.tilcer.cz/api`.
-- `frontend/` — React + Vite SPA, port **80**, served at `status.tilcer.cz` (catch-all).
+- `frontend/` — React + Vite SPA, port **80**, served at `status.tilcer.cz` (catch-all). It also
+  builds and serves the **feedback widget** (`/widget/v1.js`) from a second Vite config.
 
 ⚠ **Strip Prefix must be OFF** on the backend — routes are under `/api`. `httpx.StripAPIPrefix` is a
 defensive fallback for the toggle being flipped back, and its re-prefix set is **derived** from the
@@ -61,7 +62,8 @@ Compile-time modular monolith:
   `NewRouter`), because chi runs group middleware only on a matched route.
 - Color is **computed on read** in list/detail (orange ages out by time); `cached_color` is a
   write-through fallback updated after every check, ingest, and triage.
-- UI language is **English only** (unlike the Czech `home`/`fin` UIs).
+- The **dashboard** is English only (unlike the Czech `home`/`fin` UIs). The **widget** is the one
+  translated surface: Czech by default, English on `data-lang="en"`, both string sets in the bundle.
 
 ### Migrations
 Numeric filename prefix orders them globally: platform sessions `02xxx`, sites schema `10xxx`,
@@ -78,9 +80,29 @@ it commits. The presigned PUT signs `Content-Type` **and** `Content-Length`; dro
 the bucket into an open upload endpoint that reports no error, which is what
 `TestPresignPutSignsContentLength` exists to prevent.
 
+## Frontend (`frontend/`)
+
+Two artifacts from one build, sharing nothing but the repository:
+
+- **The dashboard** — React 19 + Vite + TanStack Query, inline styles over oklch custom properties in
+  `src/theme/globals.css`, dark by default via a single `.light` class. **No Tailwind, no shadcn/ui.**
+- **The widget** (`src/widget/*`, built by `vite.widget.config.ts` into `dist/widget/v1.js`) —
+  vanilla DOM in a **closed shadow root**, no framework, its own sRGB token set (V3-D55: deliberately
+  not derived from status's oklch tokens, and not host-themeable). It renders **nothing at all**
+  until `GET …/feedback/config` answers `enabled: true`, and it never throws into the host app.
+  ⚠ The build is **ASCII-only** (`asciiOnly` plugin): a cross-origin classic script does not inherit
+  the host document's UTF-8, so without that — and without `charset utf-8` in `nginx.conf` — every
+  Czech string in it becomes mojibake in what it shows *and* in what it sends.
+  ⚠ Uploads PUT straight to R2, so an oversized file must be refused **client-side**: the URL is
+  signed for the size the widget declared, and `Content-Length` is a header the browser will not let
+  script set.
+
 ## Testing
 `cd backend && go test ./...`. `internal/apitest` drives the real router over HTTP (dev-bypass auth,
-temp DB) and covers the PRD §11 acceptance criteria end to end.
+temp DB) and covers the PRD §11 acceptance criteria end to end. `cd frontend && npm test` runs the
+widget's vitest suite (jsdom) — the dashboard has none. ⚠ CORS, a host's CSP and the bundle's charset
+fail only cross-origin: verifying the widget means serving it to a page on another origin
+(`docs/widget.md` §11).
 
 ## Auth (Mode B)
 `status` hosts its own login and owns its session (random token, SHA-256-hashed in `sessions`); the
