@@ -47,7 +47,9 @@ export function ReportDetail() {
   })
 
   const saveNote = useMutation({
-    mutationFn: (note: string) => api.triageReport(ref!, { internal_note: note.trim() ? note : null }),
+    // Trimmed on the way out, so what comes back is what the dirty check below
+    // compares against — a note of nothing but spaces is null, once.
+    mutationFn: (note: string) => api.triageReport(ref!, { internal_note: note.trim() || null }),
     onSuccess: () => {
       invalidate()
       toast.success('Note saved')
@@ -58,7 +60,12 @@ export function ReportDetail() {
   const del = useMutation({
     mutationFn: () => api.deleteReport(ref!),
     onSuccess: () => {
-      invalidate()
+      // ⚠ Removed, not invalidated. Invalidating refetches the report this
+      // component is still mounted on, so the 404 that answers can paint the
+      // "no report with that reference" block on the way out.
+      qc.removeQueries({ queryKey: qk.report(ref!) })
+      void qc.invalidateQueries({ queryKey: ['reports'] })
+      void qc.invalidateQueries({ queryKey: qk.sites() })
       toast.success('Report deleted — stored files removed')
       nav(paths.reports)
     },
@@ -168,14 +175,19 @@ export function ReportDetail() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
           <div style={cardStyle}>
             <h2 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700 }}>Triage</h2>
-            <div role="radiogroup" aria-label="Report state" style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {/* ⚠ A group of buttons, not a radiogroup. Each one is a server
+                action rather than a form choice, and `role="radio"` would
+                promise a keyboard user arrow-key navigation and a single tab
+                stop that plain buttons neither have nor need. `aria-pressed`
+                is the same signal without the promise — the pattern the board's
+                filter chips already use. */}
+            <div role="group" aria-label="Report state" style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
               {TRIAGE.map((t) => {
                 const on = report.state === t.state
                 return (
                   <button
                     key={t.state}
-                    role="radio"
-                    aria-checked={on}
+                    aria-pressed={on}
                     disabled={!isAdmin || triage.isPending}
                     onClick={() => !on && triage.mutate(t.state)}
                     style={{
@@ -458,7 +470,10 @@ function InternalNote({
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
         <button
           onClick={() => onSave(note)}
-          disabled={disabled || pending || note === (report.internal_note ?? '')}
+          // ⚠ Compared trimmed, because the mutation SENDS trimmed. On the raw
+          // value, a note of nothing but spaces saves as null, comes back
+          // unchanged, and leaves the button enabled on a no-op forever.
+          disabled={disabled || pending || note.trim() === (report.internal_note ?? '')}
           style={{ ...primaryButton, height: 34 }}
         >
           Save note

@@ -10,26 +10,13 @@ import type { ConsoleCapture } from './consoleTail'
 import { trimToBudget, utf8Length } from './consoleTail'
 import { clear, el, icon } from './dom'
 import type { Limits } from './files'
-import { validateFile } from './files'
+import { isVideo, normalizeType, validateFile } from './files'
 import { formatBytes } from './format'
 import type { Strings } from './i18n'
 import type { SubmitResult, Upload } from './api'
 import type { Kind, Submission, UploadSlot } from './types'
 
 const MAX_MESSAGE_CHARS = 4000
-
-/**
- * MAX_BODY_BYTES mirrors the default of `STATUS_FEEDBACK_MAX_TEXT_BYTES`, the
- * server's cap on the WHOLE submission body.
- *
- * ⚠ It is smaller than the sum of the field limits the same contract allows: a
- * 4 000-character message is up to 8 000 bytes in Czech on its own, before a
- * page_url, a referrer and a console tail. The widget cannot ask what the
- * deployment set, so it trims the one part of the body it generates rather than
- * receives — the console tail — to whatever the rest of the payload leaves. A
- * report that is over the cap on its text alone still 413s, and now says so.
- */
-const MAX_BODY_BYTES = 8192
 
 /** BODY_SLACK covers the difference between our byte count of the payload and
  *  the bytes the runtime's own JSON.stringify puts on the wire (escapes it
@@ -80,10 +67,30 @@ export interface DialogApi {
   ticketSettled(): Promise<void>
 }
 
+/** ALL_KINDS is the order the strings are written in — `s.kinds[i]` is indexed
+ *  against it, so nothing else may reorder it. */
+const ALL_KINDS: Kind[] = ['bug', 'idea', 'other']
+
+/**
+ * resolveKinds picks the kinds to offer from the config the server published.
+ *
+ * ⚠ The server publishes `kinds` so that the widget FOLLOWS it. Offering a kind
+ * the submit endpoint no longer accepts turns a 422 into "sending did not work",
+ * which names neither the cause nor a way out. Anything the bundle has no label
+ * for is dropped rather than shown untranslated, and an answer with nothing left
+ * falls back to all three — an empty picker would be worse than a stale one.
+ */
+export function resolveKinds(kinds: readonly string[] | undefined): Kind[] {
+  const known = (kinds ?? []).filter((k): k is Kind => (ALL_KINDS as string[]).includes(k))
+  return known.length > 0 ? known : ALL_KINDS.slice()
+}
+
 export interface DialogOptions {
   root: ParentNode
   strings: Strings
   limits: Limits
+  /** kinds is what the config endpoint published, resolved by resolveKinds. */
+  kinds: Kind[]
   consoleCapture: boolean
   capture: ConsoleCapture
   context: () => ReportContext
@@ -97,8 +104,31 @@ type FileState = 'waiting' | 'uploading' | 'done' | 'failed'
 
 interface Attachment {
   file: File
+  /** type is the file's content type, normalized once at the picker — the value
+   *  validated, declared to the server, and used to choose the icon. */
+  type: string
   state: FileState
   pct: number
+}
+
+/** fileMark and fileText are the two halves the chip list and the upload list
+ *  draw identically. The mark is returned rather than inlined because the upload
+ *  rows recolour it as the state changes. */
+function fileMark(a: Attachment): HTMLElement {
+  return el('span', {
+    attrs: { style: 'flex:none;color:var(--sfb-muted)' },
+    kids: [icon(isVideo(a.type) ? 'video' : 'image', 17)],
+  })
+}
+
+function fileText(a: Attachment, s: Strings): HTMLElement {
+  return el('div', {
+    attrs: { style: 'flex:1;min-width:0' },
+    kids: [
+      el('div', { cls: 'sfb-chip-name', text: a.file.name }),
+      el('div', { cls: 'sfb-chip-size', text: formatBytes(a.file.size, s.lang) }),
+    ],
+  })
 }
 
 export class FeedbackDialog {
@@ -117,6 +147,17 @@ export class FeedbackDialog {
   private consoleOptOut = false
   private discardPrompt = false
   private ref: string | null = null
+  /**
+   * generation counts openings. Every await in the submit chain resumes against
+   * it, not against `isOpen`.
+   *
+   * ⚠ `isOpen` is true again after a close-and-reopen, so guarding on it lets a
+   * submission the reporter walked away from resume into the dialog they have
+   * since opened: `renderSuccess` would clear the body and throw away the report
+   * they were half-way through typing, under the PREVIOUS report's reference.
+   * A number that only ever goes up cannot be confused that way.
+   */
+  private generation = 0
   private activeUpload: Upload | null = null
   private disclosureHost: HTMLElement | null = null
   private uploadStatus: HTMLElement | null = null
@@ -138,6 +179,7 @@ export class FeedbackDialog {
 
   constructor(options: DialogOptions) {
     this.o = options
+    this.kind = options.kinds[0]
   }
 
   get isOpen(): boolean {
@@ -146,9 +188,16 @@ export class FeedbackDialog {
 
   open(): void {
     if (this.isOpen) return
+    this.generation++
     this.reset()
     this.mount()
     this.msgInput?.focus()
+  }
+
+  /** live answers whether the opening a continuation belongs to is still the one
+   *  on screen. Every resume point in the submit chain goes through it. */
+  private live(generation: number): boolean {
+    return this.isOpen && generation === this.generation
   }
 
   close(): void {
@@ -184,7 +233,9 @@ export class FeedbackDialog {
   private reset(): void {
     this.phase = 'form'
     this.message = ''
-    this.kind = 'bug'
+    // The first kind the server offers, not a hardcoded 'bug': a config that
+    // narrowed the list would otherwise pre-select a kind it will 422.
+    this.kind = this.o.kinds[0]
     this.attachments = []
     this.discOpen = false
     this.consoleOptOut = false
@@ -313,18 +364,23 @@ export class FeedbackDialog {
     // ⚠ The message comes before the kind (design §11 q5): the person is annoyed
     // and should be typing within a second of the dialog opening. Classification
     // is Karel's convenience and can wait for the sentence to be finished.
-    const kindsRow = el('div', { cls: 'sfb-kinds', attrs: { role: 'radiogroup', 'aria-label': s.kindLabel } })
-    const kindIds: Kind[] = ['bug', 'idea', 'other']
-    kindIds.forEach((k, i) => {
+    // ⚠ A group of buttons with aria-pressed, NOT role="radiogroup". That role
+    // promises a screen-reader user one tab stop and arrow-key navigation
+    // between the options; three separate tab stops that ignore ArrowRight are
+    // worse than plain buttons, because the role is what said otherwise. The
+    // pressed state carries the same "this one is chosen" without the promise,
+    // and it is the pattern the dashboard's own choice rows use.
+    const kindsRow = el('div', { cls: 'sfb-kinds', attrs: { role: 'group', 'aria-label': s.kindLabel } })
+    this.o.kinds.forEach((k) => {
       const btn = el('button', {
         cls: 'sfb-kind',
-        attrs: { type: 'button', role: 'radio', 'aria-checked': String(k === this.kind) },
-        kids: [icon('check', 14), el('span', { text: s.kinds[i] })],
+        attrs: { type: 'button', 'aria-pressed': String(k === this.kind) },
+        kids: [icon('check', 14), el('span', { text: s.kinds[ALL_KINDS.indexOf(k)] })],
         on: {
           click: () => {
             this.kind = k
             for (const node of Array.from(kindsRow.children)) {
-              node.setAttribute('aria-checked', String(node === btn))
+              node.setAttribute('aria-pressed', String(node === btn))
             }
           },
         },
@@ -500,7 +556,7 @@ export class FeedbackDialog {
     for (const file of picked) {
       const rejection = validateFile(file, this.o.limits, this.attachments.length)
       if (!rejection) {
-        this.attachments.push({ file, state: 'waiting', pct: 0 })
+        this.attachments.push({ file, type: normalizeType(file.type), state: 'waiting', pct: 0 })
         continue
       }
       // ⚠ One rejection ends the loop: three alerts stacked on top of each other
@@ -538,17 +594,8 @@ export class FeedbackDialog {
         el('div', {
           cls: 'sfb-chip',
           kids: [
-            el('span', {
-              attrs: { style: 'flex:none;color:var(--sfb-muted)' },
-              kids: [icon(a.file.type.startsWith('video/') ? 'video' : 'image', 17)],
-            }),
-            el('div', {
-              attrs: { style: 'flex:1;min-width:0' },
-              kids: [
-                el('div', { cls: 'sfb-chip-name', text: a.file.name }),
-                el('div', { cls: 'sfb-chip-size', text: formatBytes(a.file.size, s.lang) }),
-              ],
-            }),
+            fileMark(a),
+            fileText(a, s),
             el('button', {
               cls: 'sfb-iconbtn',
               attrs: {
@@ -686,6 +733,9 @@ export class FeedbackDialog {
   private async submit(): Promise<void> {
     const s = this.o.strings
     if (this.phase !== 'form') return
+    // Captured before the first await: everything below belongs to THIS opening
+    // and must not touch a later one.
+    const gen = this.generation
     const message = this.message.trim()
     if (!message) {
       this.showAlert('warn', s.msgLabel, s.msgRequired)
@@ -702,6 +752,7 @@ export class FeedbackDialog {
     this.syncFiles()
 
     await this.o.api.ticketSettled()
+    if (!this.live(gen)) return
     const ticket = this.o.api.ticket()
     if (!ticket) {
       this.backToForm()
@@ -724,19 +775,25 @@ export class FeedbackDialog {
       console_tail: null,
       last_error: sendConsole ? this.o.capture.lastError() : null,
       website: this.honeypot?.value ?? '',
-      files: this.attachments.map((a) => ({ content_type: a.file.type, byte_size: a.file.size })),
+      files: this.attachments.map((a) => ({ content_type: a.type, byte_size: a.file.size })),
     }
     if (sendConsole) payload.console_tail = this.fitConsoleTail(payload)
 
     const result = await this.o.api.submit(payload)
-    if (!this.isOpen) return
+    if (!this.live(gen)) return
     if (!result.ok) {
       this.backToForm()
       if (result.kind === 'rate') {
         const minutes = Math.max(1, Math.ceil(result.retryAfterSeconds / 60))
         // ⚠ No ticket refresh on this path: a 429 never reached validation, so
         // the one the dialog holds is unspent and already old enough to use.
-        this.showAlert('warn', s.rateTitle, s.rateBody, { label: s.retryIn(minutes), onClick: () => void this.submit() })
+        //
+        // ⚠ And no action button. The wait is the whole content of this alert:
+        // a button labelled "try again in 5 minutes" that submits the moment it
+        // is pressed answers with this same alert, forever. The footer's own
+        // Send is still there for when the wait is over, and the text the
+        // reporter typed is still in the field beside it.
+        this.showAlert('warn', s.rateTitle, `${s.rateBody} ${s.retryIn(minutes)}`)
         return
       }
       this.failSend(result.kind === 'tooLarge' ? 'tooLarge' : 'network')
@@ -761,7 +818,7 @@ export class FeedbackDialog {
       this.renderSuccess(this.attachments.map((a) => a.file.name))
       return
     }
-    await this.runUploads(slots)
+    await this.runUploads(slots, gen)
   }
 
   /** backToForm returns the dialog to an editable state after a failed send —
@@ -780,12 +837,17 @@ export class FeedbackDialog {
    * The tail is measured against the payload it will travel in rather than
    * against a fixed budget, because the field it competes with — the message —
    * is the one that must never be the thing dropped.
+   *
+   * ⚠ The cap is `max_text_bytes` from the config, not a constant mirroring the
+   * server's default. It is smaller than the sum of the field limits the same
+   * contract allows — a 4 000-character message is up to 8 000 bytes in Czech on
+   * its own — so a report over it on its text alone still 413s, and says so.
    */
   private fitConsoleTail(payload: Submission): string[] {
     const lines = this.o.capture.lines()
     if (lines.length === 0) return lines
     const rest = utf8Length(JSON.stringify({ ...payload, console_tail: [] }))
-    return trimToBudget(lines, Math.max(0, MAX_BODY_BYTES - rest - BODY_SLACK))
+    return trimToBudget(lines, Math.max(0, this.o.limits.maxTextBytes - rest - BODY_SLACK))
   }
 
   /**
@@ -815,6 +877,7 @@ export class FeedbackDialog {
    *  button that appears to do nothing. */
   private async retrySend(): Promise<void> {
     if (this.phase !== 'form') return
+    const gen = this.generation
     this.clearAlert()
     this.phase = 'sending'
     this.renderFooter()
@@ -822,12 +885,12 @@ export class FeedbackDialog {
     await this.o.api.ticketSettled()
     const owed = MIN_TICKET_AGE_MS - this.o.api.ticketAgeMs()
     if (owed > 0) await new Promise((resolve) => setTimeout(resolve, owed))
-    if (!this.isOpen) return
+    if (!this.live(gen)) return
     this.phase = 'form'
     await this.submit()
   }
 
-  private async runUploads(slots: UploadSlot[]): Promise<void> {
+  private async runUploads(slots: UploadSlot[], gen: number): Promise<void> {
     this.phase = 'uploading'
     this.renderUploading()
 
@@ -835,25 +898,25 @@ export class FeedbackDialog {
     // screenshots racing each other on household wifi is slower than the same
     // three in series, and gives the reporter no honest progress to look at.
     for (let i = 0; i < slots.length && i < this.attachments.length; i++) {
-      if (!this.isOpen) return
+      if (!this.live(gen)) return
       const attachment = this.attachments[i]
       attachment.state = 'uploading'
       attachment.pct = 0
       this.setUploadStatus(i)
       this.updateUploadRow(i)
       let ok = await this.putOnce(slots[i], attachment, i)
-      if (!ok && this.isOpen) ok = await this.putOnce(slots[i], attachment, i) // one retry, then abandoned
+      if (!ok && this.live(gen)) ok = await this.putOnce(slots[i], attachment, i) // one retry, then abandoned
       attachment.state = ok ? 'done' : 'failed'
       this.updateUploadRow(i)
     }
     this.activeUpload = null
-    if (!this.isOpen) return
+    if (!this.live(gen)) return
 
     // The claim runs whatever happened above: it is what turns an uploaded object
     // into a `stored` attachment, and skipping it after a partial failure would
     // leave the files that DID arrive pending until the sweep deleted them.
     if (this.ref) await this.o.api.claim(this.ref)
-    if (!this.isOpen) return
+    if (!this.live(gen)) return
     this.renderSuccess(this.attachments.filter((a) => a.state !== 'done').map((a) => a.file.name))
   }
 
@@ -901,10 +964,7 @@ export class FeedbackDialog {
       const fill = el('span', { attrs: { style: 'width:0%' } })
       const bar = el('div', { cls: 'sfb-bar', kids: [fill] })
       bar.style.display = 'none'
-      const mark = el('span', {
-        attrs: { style: 'flex:none;color:var(--sfb-muted)' },
-        kids: [icon(a.file.type.startsWith('video/') ? 'video' : 'image', 17)],
-      })
+      const mark = fileMark(a)
       list.appendChild(
         el('div', {
           attrs: { style: 'border:1px solid var(--sfb-hairline);border-radius:var(--sfb-radius-sm);padding:9px 11px' },
@@ -913,13 +973,7 @@ export class FeedbackDialog {
               attrs: { style: 'display:flex;align-items:center;gap:10px' },
               kids: [
                 mark,
-                el('div', {
-                  attrs: { style: 'flex:1;min-width:0' },
-                  kids: [
-                    el('div', { cls: 'sfb-chip-name', text: a.file.name }),
-                    el('div', { cls: 'sfb-chip-size', text: formatBytes(a.file.size, s.lang) }),
-                  ],
-                }),
+                fileText(a, s),
                 label,
               ],
             }),

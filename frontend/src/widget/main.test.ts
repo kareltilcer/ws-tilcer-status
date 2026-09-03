@@ -108,6 +108,10 @@ describe('boot', () => {
     expect(container()).toBeNull()
 
     vi.resetModules()
+    // ⚠ The first boot set the global, and boot() returns at its own re-entry
+    // guard while it is there — without this the second half never runs the
+    // widget at all and asserts nothing.
+    delete window.StatusFeedback
     document.head.innerHTML = ''
     embedScript({ 'data-site': 'home', 'data-key': 'wk_test' })
     vi.stubGlobal(

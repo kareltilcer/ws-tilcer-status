@@ -47,8 +47,9 @@ function asciiOnly(): Plugin {
 
 // The widget is a SECOND build, not a second entry in the SPA build (FR-24).
 // The SPA emits hashed filenames so it can be cached for a year; the widget needs
-// one fixed, guessable name that a host page can hardcode — `/widget/v1.js`,
-// immutable for the life of the v1 contract. A breaking change becomes v2.js and
+// one fixed, guessable name that a host page can hardcode — `/widget/v1.js`, whose
+// CONTRACT is frozen for the life of v1 and whose code is not, which is why nginx
+// serves it revalidated rather than immutable. A breaking change becomes v2.js and
 // every existing embed keeps working.
 export default defineConfig({
   plugins: [asciiOnly()],
@@ -57,6 +58,11 @@ export default defineConfig({
     // ⚠ The SPA build runs first and writes the same dist/. Emptying here would
     // delete it.
     emptyOutDir: false,
+    // ⚠ And public/ is the SPA's, not the widget's. Without this Vite copies all
+    // of it into dist/widget/ — today one stray favicon.svg published under a
+    // path docs/widget.md describes as holding exactly two files, and silently
+    // whatever is added to public/ next.
+    copyPublicDir: false,
     // Old enough for the phones this is actually used on, since the bundle ships
     // no polyfills and must not throw on parse in the host page.
     target: 'es2019',

@@ -1565,6 +1565,13 @@ components:
           type: integer
         max_video_bytes:
           type: integer
+        max_text_bytes:
+          type: integer
+          description: >-
+            The cap on the whole submission body, which the widget has to
+            enforce: it is smaller than the sum of the field limits this
+            contract allows, so a client trims what it generates (the console
+            tail) to what the rest of the payload leaves. Exceeding it is a 413.
         accept:
           type: array
           items:

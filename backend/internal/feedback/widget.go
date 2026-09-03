@@ -67,6 +67,7 @@ func (m *Module) widgetConfig(w http.ResponseWriter, r *http.Request) {
 		MaxFiles:       m.cfg.MaxFiles,
 		MaxImageBytes:  m.cfg.MaxImageBytes,
 		MaxVideoBytes:  m.cfg.MaxVideoBytes,
+		MaxTextBytes:   m.cfg.MaxTextBytes,
 		Accept:         acceptList(),
 		ConsoleCapture: cfg.ConsoleCapture,
 		StringsVersion: stringsVersion,

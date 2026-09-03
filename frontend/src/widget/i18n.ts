@@ -74,7 +74,6 @@ export interface Strings {
 
   tooLargeTitle: string
   tooLargeBody: (video: boolean, limit: string, actual: string) => string
-  cannotAttach: string
   wrongTypeTitle: string
   wrongTypeBody: string
   emptyFileTitle: string
@@ -84,6 +83,9 @@ export interface Strings {
 
   rateTitle: string
   rateBody: string
+  /** ⚠ A sentence in the alert's BODY, never a button label. A button reading
+   *  "try again in 5 minutes" that submits the instant it is pressed answers
+   *  with this same alert, forever; the footer's own Send is the retry. */
   retryIn: (minutes: number) => string
 
   sendFailTitle: string
@@ -161,7 +163,6 @@ const cs: Strings = {
   tooLargeTitle: 'Soubor je příliš velký',
   tooLargeBody: (video, limit, actual) =>
     `${video ? 'Video' : 'Obrázek'} může mít nejvýš ${limit}, tenhle má ${actual}. Zkuste menší soubor — hlášení jde odeslat i bez něj.`,
-  cannotAttach: 'nelze přiložit',
   wrongTypeTitle: 'Tenhle soubor přiložit neumíme',
   wrongTypeBody:
     'Přiložte obrázek (PNG, JPG, WebP, GIF) nebo video (MP4, WebM). Dokumenty a archivy neprojdou.',
@@ -173,8 +174,8 @@ const cs: Strings = {
 
   rateTitle: 'Příliš mnoho pokusů, zkuste to později',
   rateBody:
-    'Za pár minut to půjde znovu. Není to nic, co byste udělali špatně — jen jsme za chvíli dostali hodně hlášení.',
-  retryIn: (m) => `Zkusit znovu za ${m} ${czechPlural(m, 'minutu', 'minuty', 'minut')}`,
+    'Není to nic, co byste udělali špatně — jen jsme za chvíli dostali hodně hlášení.',
+  retryIn: (m) => `Zkuste to znovu za ${m} ${czechPlural(m, 'minutu', 'minuty', 'minut')}.`,
 
   sendFailTitle: 'Odeslání se nepovedlo',
   sendFailBody: 'Spojení se přerušilo. Text zůstal vyplněný, nic jste neztratili.',
@@ -251,7 +252,6 @@ const en: Strings = {
   tooLargeTitle: 'That file is too large',
   tooLargeBody: (video, limit, actual) =>
     `${video ? 'Video' : 'Images'} can be up to ${limit}; this one is ${actual}. Try a smaller file — you can send the report without it.`,
-  cannotAttach: 'cannot attach',
   wrongTypeTitle: 'We cannot attach that file',
   wrongTypeBody:
     'Attach an image (PNG, JPG, WebP, GIF) or a video (MP4, WebM). Documents and archives will not go through.',
@@ -261,9 +261,8 @@ const en: Strings = {
   tooManyBody: (n) => `You can attach at most ${n} file${n === 1 ? '' : 's'}. Remove one first.`,
 
   rateTitle: 'Too many attempts, try again later',
-  rateBody:
-    'It will work again in a few minutes. Nothing you did was wrong — we just took a lot of reports at once.',
-  retryIn: (m) => `Try again in ${m} minute${m === 1 ? '' : 's'}`,
+  rateBody: 'Nothing you did was wrong — we just took a lot of reports at once.',
+  retryIn: (m) => `Try again in ${m} minute${m === 1 ? '' : 's'}.`,
 
   sendFailTitle: 'Sending did not work',
   sendFailBody: 'The connection dropped. Your text is still here — nothing was lost.',

@@ -8,7 +8,7 @@
 
 import { claimUploads, fetchWidgetConfig, putObject, submitReport, type ApiTarget } from './api'
 import { emptyCapture, installConsoleCapture, type ConsoleCapture } from './consoleTail'
-import { FeedbackDialog, type ReportContext } from './dialog'
+import { FeedbackDialog, resolveKinds, type ReportContext } from './dialog'
 import { limitsFrom } from './files'
 import { browserLabel, viewportText } from './format'
 import { resolveLang, STRINGS } from './i18n'
@@ -121,6 +121,7 @@ function boot(): void {
         root: shadow,
         strings,
         limits,
+        kinds: resolveKinds(cfg.kinds),
         consoleCapture,
         capture,
         context: (): ReportContext => ({
@@ -146,10 +147,20 @@ function boot(): void {
         },
         onClosed: () => {
           setLauncherExpanded(launcher, false)
-          // Closing returns focus where it came from (WCAG 2.4.3): the launcher,
-          // or — when the host opened the dialog from its own menu item — whatever
-          // had focus at that moment.
-          const back = launcher ?? returnFocusTo
+          // Closing returns focus where it came from (WCAG 2.4.3): whatever the
+          // host had focused when open() was called, and the launcher otherwise.
+          //
+          // ⚠ `returnFocusTo` is read from the LIGHT DOM, so a click on our own
+          // launcher — which lives in a closed shadow root — records the
+          // container element, not the button. That container is
+          // `all:initial;width:0` with no tabindex, so focusing it would drop
+          // focus to <body>; it is exactly the case the launcher branch is for.
+          // Preferring the launcher outright, on the other hand, makes this
+          // whole variable dead whenever a launcher is rendered — which is the
+          // default — and strands the keyboard user who opened the dialog from
+          // the host's own menu item.
+          const fromHost = returnFocusTo && returnFocusTo !== container && returnFocusTo !== document.body
+          const back = fromHost ? returnFocusTo : launcher
           try {
             back?.focus()
           } catch {

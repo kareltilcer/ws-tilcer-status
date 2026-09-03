@@ -120,8 +120,8 @@ docker compose up --build   # → http://localhost:1155
 Run the tests:
 
 ```sh
-cd backend && go test ./...      # the Go suite
-cd frontend && npm test          # the widget's vitest suite
+(cd backend && go test ./...)    # the Go suite
+(cd frontend && npm test)        # the widget's vitest suite
 ```
 
 `npm run build` emits both artifacts: the hashed SPA into `frontend/dist/`, and the widget into

@@ -5,6 +5,11 @@ export interface Limits {
   maxFiles: number
   maxImageBytes: number
   maxVideoBytes: number
+  /** maxTextBytes is the server's cap on the whole submission body. ⚠ Read from
+   *  the config, not mirrored as a constant: a deployment that lowers
+   *  STATUS_FEEDBACK_MAX_TEXT_BYTES would otherwise 413 reports the widget
+   *  trimmed against the default and believed were within budget. */
+  maxTextBytes: number
   accept: string[]
 }
 
@@ -24,8 +29,23 @@ export function limitsFrom(cfg: WidgetConfig): Limits {
     maxFiles: cfg.max_files ?? 3,
     maxImageBytes: cfg.max_image_bytes ?? 10 * 1024 * 1024,
     maxVideoBytes: cfg.max_video_bytes ?? 50 * 1024 * 1024,
+    maxTextBytes: cfg.max_text_bytes ?? 8192,
     accept: cfg.accept ?? ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'],
   }
+}
+
+/**
+ * normalizeType is the one reading of a `File.type`.
+ *
+ * ⚠ A browser may report `image/PNG` or `image/png; charset=binary`. The server
+ * matches case-insensitively and strips parameters, so validating the normalized
+ * form and then DECLARING the raw one means the value checked here is not the
+ * value sent — and the cap, the icon and the allow-list would each have to
+ * repeat the rule to agree with it. Normalize once, at the picker, and carry the
+ * result.
+ */
+export function normalizeType(contentType: string): string {
+  return contentType.toLowerCase().split(';')[0].trim()
 }
 
 /** isVideo classifies by the declared content type, never by the filename — the
@@ -58,7 +78,7 @@ export function validateFile(
   alreadyAttached: number,
 ): Rejection | null {
   if (alreadyAttached >= limits.maxFiles) return { reason: 'count' }
-  const type = file.type.toLowerCase().split(';')[0].trim()
+  const type = normalizeType(file.type)
   if (!limits.accept.includes(type)) return { reason: 'type' }
   // Emptiness before the cap: a 0-byte file is neither too large nor the wrong
   // type, and it happens for real — a screenshot still being written, a file on a

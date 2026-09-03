@@ -128,10 +128,16 @@ spammed widget can be revoked without silencing that site's crash reporting.
 
 | Path | Cache | Meaning |
 |---|---|---|
-| `/widget/v1.js` | `public, max-age=31536000, immutable` | The v1 contract, frozen for its life. |
+| `/widget/v1.js` | `public, max-age=300` | The v1 **contract**, frozen for its life. The code is not. |
 | `/widget/latest.js` | 302 → `/widget/v1.js`, `max-age=300` | Follows the current major. |
 
 Pin `v1.js`. A breaking change becomes `/widget/v2.js` and every existing embed keeps working.
+
+⚠ **`v1.js` is deliberately not `immutable`.** The filename is fixed and the file is not: every
+non-breaking fix to the widget ships under this exact URL. A year-long `immutable` would leave a
+browser that had already loaded it serving the broken copy out of disk cache, without so much as a
+conditional request — inside your app, for a year, with nothing on our side able to reach it. Five
+minutes of freshness on a file this size is the cheaper mistake.
 
 ⚠ **Keep the `.js` extension.** Nginx serves `/widget/*.js` from the filesystem with no SPA
 fallback, so an unknown version 404s. An extensionless path would fall through to the SPA and hand

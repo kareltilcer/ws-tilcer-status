@@ -71,12 +71,14 @@ func NewCORS(allowedOrigins []string) func(http.Handler) http.Handler {
 
 			h.Set("Access-Control-Allow-Origin", origin)
 			// Expose-Headers belongs on the real response, not the preflight — a
-			// preflight carries no body headers to expose.
-			h.Set("Access-Control-Expose-Headers", corsExposeHeaders)
+			// preflight carries no body headers to expose — so it is set below the
+			// OPTIONS branch, on the responses that have some.
 			if r.Method == http.MethodOptions {
 				h.Set("Access-Control-Allow-Methods", corsAllowMethods)
 				h.Set("Access-Control-Allow-Headers", corsAllowHeaders)
 				h.Set("Access-Control-Max-Age", maxAge)
+			} else {
+				h.Set("Access-Control-Expose-Headers", corsExposeHeaders)
 			}
 			next.ServeHTTP(w, r)
 		})

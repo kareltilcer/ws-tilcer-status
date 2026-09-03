@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SubmitResult, Upload } from './api'
 import type { ConsoleCapture } from './consoleTail'
-import { FeedbackDialog, type DialogApi, type ReportContext } from './dialog'
+import { FeedbackDialog, resolveKinds, type DialogApi, type ReportContext } from './dialog'
 import { limitsFrom } from './files'
 import { STRINGS } from './i18n'
-import type { Submission, UploadSlot } from './types'
+import type { Kind, Submission, UploadSlot } from './types'
 
 const limits = limitsFrom({
   enabled: true,
@@ -42,6 +42,7 @@ interface Harness {
 }
 
 function harness(opts: {
+  kinds?: Kind[]
   consoleCapture?: boolean
   capture?: ConsoleCapture
   submit?: (body: Submission) => Promise<SubmitResult>
@@ -83,6 +84,7 @@ function harness(opts: {
     root,
     strings: STRINGS.cs,
     limits,
+    kinds: opts.kinds ?? ['bug', 'idea', 'other'],
     consoleCapture: opts.consoleCapture ?? false,
     capture: opts.capture ?? capture,
     context: () => context,
@@ -176,6 +178,36 @@ describe('opening and closing', () => {
   })
 })
 
+describe('the kind picker', () => {
+  // ⚠ Not role="radiogroup". That role promises one tab stop and arrow-key
+  // navigation; these are three buttons that say which one is chosen.
+  it('says which kind is chosen without claiming to be a radiogroup', () => {
+    const h = harness({})
+    h.dialog.open()
+    expect(h.q('[role="radiogroup"]')).toBeNull()
+    expect(h.q('[role="radio"]')).toBeNull()
+    const kinds = h.all<HTMLElement>('.sfb-kind')
+    expect(kinds.map((k) => k.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'false'])
+    kinds[1].click()
+    expect(kinds.map((k) => k.getAttribute('aria-pressed'))).toEqual(['false', 'true', 'false'])
+  })
+
+  // The server publishes `kinds` so the widget can follow it; offering one the
+  // submit endpoint would 422 shows the reporter a generic send failure.
+  it('offers what the config published, and falls back when it published nothing', async () => {
+    const h = harness({ kinds: resolveKinds(['idea', 'other']) })
+    h.dialog.open()
+    expect(h.all('.sfb-kind')).toHaveLength(2)
+    type(h, 'Nápad')
+    h.byText('button', STRINGS.cs.send)!.click()
+    await flush()
+    expect(h.submitted[0].kind).toBe('idea')
+
+    expect(resolveKinds(undefined)).toEqual(['bug', 'idea', 'other'])
+    expect(resolveKinds(['nonsense'])).toEqual(['bug', 'idea', 'other'])
+  })
+})
+
 describe('the submission', () => {
   it('refuses to send an empty message rather than posting a 422', async () => {
     const h = harness({})
@@ -241,6 +273,35 @@ describe('the submission', () => {
     expect(h.root.textContent).toContain(STRINGS.cs.rateTitle)
     expect(h.root.textContent).toContain(STRINGS.cs.retryIn(5))
     expect(h.q<HTMLTextAreaElement>('textarea')!.value).toBe('Rozbité')
+    // ⚠ No action button inside the alert. One labelled "try again in 5
+    // minutes" that submits the instant it is pressed answers with this same
+    // alert, forever; the footer's own Send is the retry, when the wait is over.
+    expect(h.all('.sfb-alert button')).toHaveLength(0)
+    expect(h.byText('button', STRINGS.cs.send)).not.toBeNull()
+  })
+
+  // ⚠ `isOpen` is true again after a close-and-reopen, so a submission the
+  // reporter walked away from used to resume into the dialog they had since
+  // opened — clearing the body and replacing what they were typing with the
+  // previous report's success screen.
+  it('never lets an abandoned submission reach into the next opening', async () => {
+    let release: (r: SubmitResult) => void = () => {}
+    const h = harness({ submit: () => new Promise<SubmitResult>((resolve) => { release = resolve }) })
+    h.dialog.open()
+    type(h, 'První hlášení')
+    h.byText('button', STRINGS.cs.send)!.click()
+    await flush()
+
+    // Impatient on a slow link: close, then come back and start again.
+    press(h, 'Escape')
+    expect(h.dialog.isOpen).toBe(false)
+    h.dialog.open()
+    type(h, 'Druhé hlášení')
+
+    release({ ok: true, accepted: { ref: 'R-7QK2', uploads: [] } })
+    await flush()
+    expect(h.q<HTMLTextAreaElement>('textarea')?.value).toBe('Druhé hlášení')
+    expect(h.root.textContent).not.toContain('R-7QK2')
   })
 
   it('offers a retry that keeps the text when the connection drops', async () => {

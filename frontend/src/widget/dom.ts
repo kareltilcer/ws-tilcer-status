@@ -53,7 +53,6 @@ const ICONS: Record<string, string> = {
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   chevD: '<polyline points="6 9 12 15 18 9"/>',
   chevU: '<polyline points="18 15 12 9 6 15"/>',
-  clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
 }
 
 export type IconName = keyof typeof ICONS

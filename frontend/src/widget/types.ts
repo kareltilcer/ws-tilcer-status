@@ -21,6 +21,10 @@ export interface WidgetConfig {
   max_files?: number
   max_image_bytes?: number
   max_video_bytes?: number
+  /** max_text_bytes is the server's cap on the WHOLE submission body — smaller
+   *  than the sum of the field limits, and the one limit the widget must enforce
+   *  itself. */
+  max_text_bytes?: number
   accept?: string[]
   console_capture?: boolean
   strings_version?: number

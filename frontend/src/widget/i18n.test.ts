@@ -29,8 +29,8 @@ describe('the two string sets', () => {
 
   it('inflects the attachment hint', () => {
     expect(STRINGS.cs.attachHint(3, '10 MB', '50 MB')).toBe('Až 3 soubory · obrázek do 10 MB, video do 50 MB')
-    expect(STRINGS.cs.retryIn(1)).toBe('Zkusit znovu za 1 minutu')
-    expect(STRINGS.cs.retryIn(5)).toBe('Zkusit znovu za 5 minut')
-    expect(STRINGS.en.retryIn(1)).toBe('Try again in 1 minute')
+    expect(STRINGS.cs.retryIn(1)).toBe('Zkuste to znovu za 1 minutu.')
+    expect(STRINGS.cs.retryIn(5)).toBe('Zkuste to znovu za 5 minut.')
+    expect(STRINGS.en.retryIn(1)).toBe('Try again in 1 minute.')
   })
 })
