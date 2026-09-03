@@ -32,7 +32,18 @@ export function relativeTime(iso: string | null): string {
 
 /** fileSize renders an attachment's size the way a phone would — "420 kB",
  *  "18.4 MB". Base 1024, matching the caps the server derives from
- *  STATUS_FEEDBACK_MAX_*_MB, so a file at the limit reads as the limit. */
+ *  STATUS_FEEDBACK_MAX_*_MB, so a file at the limit reads as the limit.
+ *
+ *  ⚠ The widget has its own `formatBytes` (src/widget/format.ts) and the two are
+ *  deliberately separate — the widget bundle imports nothing from src/api or
+ *  src/lib, because it is a distributable artifact built ASCII-only against a
+ *  15 kB budget. They MUST agree on the rounding rule, and do: base 1024, a
+ *  1 kB floor, whole megabytes without a decimal and one decimal otherwise. The
+ *  same attachment is shown by both — as a chip while it is being sent, as a card
+ *  afterwards — so a divergence would print two sizes for one file. The only
+ *  intended differences are this function's null/0 case (a `pending` attachment
+ *  has no size yet; a `File` always does) and the widget's Czech decimal comma.
+ *  Change one, change the other. */
 export function fileSize(bytes: number | null): string {
   if (bytes === null || bytes <= 0) return 'size unknown'
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} kB`

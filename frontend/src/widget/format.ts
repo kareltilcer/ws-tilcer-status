@@ -6,6 +6,12 @@ const MIB = 1024 * 1024
 /** formatBytes renders a file size the way the reporter's phone does: "420 kB",
  *  "18,4 MB". Czech uses a comma as the decimal separator.
  *
+ *  ⚠ Its rounding rule is shared with the dashboard's `fileSize`
+ *  (src/lib/format.ts), which shows the SAME attachment on the report card after
+ *  this widget has shown it as a chip. The two are separate functions because
+ *  this bundle imports nothing from the dashboard's tree, not because they are
+ *  allowed to differ — change one, change the other.
+ *
  *  ⚠ The base is 1024, matching how the server derives its caps
  *  (`STATUS_FEEDBACK_MAX_IMAGE_MB * 1024 * 1024`) — so a 10 MB cap prints as
  *  "10 MB" here rather than as "10.5 MB", and the number the reporter is told

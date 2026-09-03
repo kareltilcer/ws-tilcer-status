@@ -78,9 +78,16 @@ export function AppShell() {
             // become the image's content rather than a second reading of it.
             // The board's UnreadBadge spells this out in words; here there is
             // room for two glyphs, so the name carries what the pill cannot.
+            //
+            // ⚠ "new", not "open". `open_reports` counts reports in state `new`,
+            // and `open` is a DIFFERENT state in the same enum — the second chip
+            // in the inbox filter, and the one triage moves a report to in order
+            // to CLEAR this badge. A screen-reader user told "3 open reports"
+            // filtered by `open`, saw zero rows, and had nothing to reconcile the
+            // two with. UnreadBadge and ReportDetail both say "new"; so does this.
             <span
               role="img"
-              aria-label={`${unread} open ${unread === 1 ? 'report' : 'reports'}`}
+              aria-label={`${unread} new ${unread === 1 ? 'report' : 'reports'}`}
               style={{ display: 'inline-grid', placeItems: 'center', minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, background: 'var(--accent)', color: 'var(--accent-fg)', fontSize: 11, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}
             >
               {unread}

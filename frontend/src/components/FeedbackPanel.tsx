@@ -94,7 +94,7 @@ export function FeedbackPanel({ siteId, openReports }: { siteId: string; openRep
           <button
             onClick={() => nav(paths.reports)}
             style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer' }}
-            aria-label={`${openReports} new reports — open the inbox`}
+            aria-label={`${openReports} new report${openReports === 1 ? '' : 's'} — open the inbox`}
           >
             <UnreadBadge count={openReports} />
           </button>
@@ -158,11 +158,22 @@ export function FeedbackPanel({ siteId, openReports }: { siteId: string; openRep
                 <div style={{ fontSize: 11.5, color: 'var(--muted)', maxWidth: '44ch' }}>
                   Attaches the last 50 console lines and the last JS error. Off by default — a console line can carry
                   private content out of the host app. The reporter sees the lines before sending.
+                  {!cfg.enabled && ' Turn feedback on first — the widget key is issued with it.'}
                 </div>
               </div>
+              {/* ⚠ Locked until feedback is on, and not for tidiness. The widget
+                  key is minted by whichever patch CREATES this site's config row,
+                  and the plaintext is shown exactly once — only the SHA-256 is
+                  stored. Flipping this one first on a site that had no row minted
+                  that key and spent its one showing on a modal the admin never
+                  asked for, for a site whose feedback switch was still off; the
+                  row then existed, so turning feedback on afterwards showed
+                  nothing and the key could only be recovered by rotating it. The
+                  key row beside this one already promises "Not issued yet — turn
+                  feedback on", and now that is true. */}
               <Toggle
                 checked={cfg.console_capture}
-                disabled={!isAdmin || update.isPending}
+                disabled={!isAdmin || update.isPending || !cfg.enabled}
                 label="Send console output"
                 onChange={(v) => update.mutate({ console_capture: v })}
               />

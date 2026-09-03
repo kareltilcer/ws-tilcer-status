@@ -30,6 +30,14 @@ export function ReportDetail() {
   const q = useQuery({ queryKey: qk.report(ref!), queryFn: () => api.getReport(ref!), enabled: !!ref })
   const report = q.data
 
+  // ⚠ `stored` only. A `missing` row was swept and its object is already gone; a
+  // `pending` row never landed one. Counting every row made the delete
+  // confirmation — the one text in this app that has to be exact, because the
+  // action is irreversible — claim it was about to destroy files that were not
+  // there, and on a text-only report (the normal case, per the attachments card's
+  // own copy) it offered to remove "the 0 stored files".
+  const storedFiles = (report?.attachments ?? []).filter((a) => a.state === 'stored').length
+
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: qk.report(ref!) })
     // `new` is what drives the board badge, so any triage invalidates the board.
@@ -66,7 +74,7 @@ export function ReportDetail() {
       qc.removeQueries({ queryKey: qk.report(ref!) })
       void qc.invalidateQueries({ queryKey: ['reports'] })
       void qc.invalidateQueries({ queryKey: qk.sites() })
-      toast.success('Report deleted — stored files removed')
+      toast.success(storedFiles > 0 ? 'Report deleted — stored files removed' : 'Report deleted')
       nav(paths.reports)
     },
     onError: () => toast.error('Could not delete the report'),
@@ -241,7 +249,11 @@ export function ReportDetail() {
       {confirmDelete && (
         <ConfirmDialog
           title="Delete this report?"
-          body={`Deleting ${report.ref} removes the text, the context and the ${report.attachments.length} stored file${report.attachments.length === 1 ? '' : 's'}. This cannot be undone.`}
+          body={
+            storedFiles > 0
+              ? `Deleting ${report.ref} removes the text, the context and the ${storedFiles} stored file${storedFiles === 1 ? '' : 's'}. This cannot be undone.`
+              : `Deleting ${report.ref} removes the text and the context. This cannot be undone.`
+          }
           confirmLabel="Delete report"
           danger
           onCancel={() => setConfirmDelete(false)}

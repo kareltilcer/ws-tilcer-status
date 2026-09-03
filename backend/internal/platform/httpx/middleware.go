@@ -129,10 +129,15 @@ func Recover(l *slog.Logger) func(http.Handler) http.Handler {
 //
 // ⚠ Where the same origin also serves the SPA (StaticDir, the local harness
 // only), an SPA route that shares a first segment with an API route — /sites/:id,
-// /crashes/:groupId — is rewritten to the API path and answers JSON. Production
-// splits the two apps across Traefik, so this affects no deployment; it is the
-// price of the normalizer, and it is why the normalizer is a fallback for a
-// misconfigured proxy rather than a supported routing mode.
+// /crashes/:groupId, and (v3) /reports and /reports/:ref — is rewritten to the
+// API path and answers JSON. Production splits the two apps across Traefik, so
+// this affects no deployment; it is the price of the normalizer, and it is why
+// the normalizer is a fallback for a misconfigured proxy rather than a supported
+// routing mode.
+//
+// ⚠ That list grows every time the SPA gains a route whose first segment the API
+// already owns — the feedback inbox added two — and unlike the segment set above
+// it is prose, so it goes stale silently. Adding one costs a line here.
 func StripAPIPrefix(segments []string) func(http.Handler) http.Handler {
 	set := make(map[string]struct{}, len(segments))
 	for _, s := range segments {

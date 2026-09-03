@@ -1,9 +1,19 @@
 // The copy-pasteable snippets the dashboard hands out.
 //
-// One origin constant for all of them: the SPA itself talks to the API
-// host-relative, so nothing else in the frontend knows its own public URL, and a
-// snippet is the one place that has to name it out loud.
-export const STATUS_ORIGIN = 'https://status.tilcer.cz'
+// One origin for all of them: the SPA itself talks to the API host-relative, so
+// nothing else in the frontend knows its own public URL, and a snippet is the one
+// place that has to name it out loud.
+//
+// ⚠ It is READ from the page rather than written down. The SPA, the API and
+// `/widget/v1.js` share one origin by construction (CLAUDE.md: two Coolify apps,
+// one origin), and `widget/embed.ts` derives the widget's API base from the `src`
+// of the very tag `widgetEmbedSnippet` emits — "so a staging copy talks to
+// staging". A hard-coded production URL broke that promise from the other end: a
+// snippet copied from any non-production dashboard pointed the host app at
+// production and sent it a key production has never seen, which answers 401,
+// which `fetchWidgetConfig` collapses into rendering nothing at all (V3-D35) —
+// the silent failure docs/widget.md §10 says has no error message anywhere.
+export const STATUS_ORIGIN = window.location.origin
 
 /**
  * curlIngestSnippet is the crash-ingest one-liner.
