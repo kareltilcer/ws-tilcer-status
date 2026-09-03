@@ -4,6 +4,7 @@ import type { ConsoleCapture } from './consoleTail'
 import { FeedbackDialog, resolveKinds, type DialogApi, type ReportContext } from './dialog'
 import { limitsFrom } from './files'
 import { STRINGS } from './i18n'
+import { WIDGET_CSS } from './styles'
 import type { Kind, Submission, UploadSlot } from './types'
 
 const limits = limitsFrom({
@@ -176,9 +177,53 @@ describe('opening and closing', () => {
     press(h, 'Tab', { shiftKey: true })
     expect(document.activeElement).toBe(last)
   })
+
+  // ⚠ The backdrop and the centring wrapper are ONE element. Two full-viewport
+  // fixed layers means the upper one takes every click meant for the lower, so a
+  // handler on a separate scrim underneath can never fire. jsdom has no layout
+  // and cannot see the stacking, but it can see which element the handler is on,
+  // which is the half that was wrong.
+  it('closes on a click on the backdrop, and not on a click inside the dialog', () => {
+    const h = harness({})
+    h.dialog.open()
+    h.q<HTMLElement>('[role="dialog"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(h.dialog.isOpen).toBe(true)
+    h.q<HTMLElement>('.sfb-wrap')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(h.dialog.isOpen).toBe(false)
+  })
+
+  // ⚠ Pressing Send clears the footer the Send button is in. Focus would fall to
+  // <body> — outside the shadow root, outside the keydown listener — and Escape
+  // and the focus trap would both be dead for the rest of the opening.
+  it('keeps focus inside the dialog when a phase change removes the focused control', () => {
+    const h = harness({})
+    h.dialog.open()
+    type(h, 'Rozbilo se to')
+    const send = h.byText('button', STRINGS.cs.send)!
+    send.focus()
+    expect(document.activeElement).toBe(send)
+    send.click()
+    const dialog = h.q<HTMLElement>('[role="dialog"]')!
+    expect(document.activeElement).not.toBe(document.body)
+    expect(dialog.contains(document.activeElement)).toBe(true)
+  })
 })
 
 describe('the kind picker', () => {
+  // ⚠ The stylesheet is the only thing that makes the choice VISIBLE — the accent
+  // fill and the check glyph both hang off an attribute selector. Round 2 moved
+  // the DOM from `aria-checked` to `aria-pressed` and left the CSS behind, which
+  // left the picker with no selected state at all: not colour, not glyph. This
+  // ties the two together so they cannot drift apart again silently.
+  it('styles the selected kind on the attribute the dialog actually sets', () => {
+    const h = harness({})
+    h.dialog.open()
+    const selectors = Array.from(WIDGET_CSS.matchAll(/\.sfb-kind\[([a-z-]+)=/g)).map((m) => m[1])
+    expect(selectors.length).toBeGreaterThan(0)
+    const first = h.q<HTMLElement>('.sfb-kind')!
+    for (const attr of new Set(selectors)) expect(first.getAttribute(attr)).toBe('true')
+  })
+
   // ⚠ Not role="radiogroup". That role promises one tab stop and arrow-key
   // navigation; these are three buttons that say which one is chosen.
   it('says which kind is chosen without claiming to be a radiogroup', () => {

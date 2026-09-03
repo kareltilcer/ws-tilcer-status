@@ -7,6 +7,7 @@ import { ApiError } from '@/api/client'
 import { qk } from '@/api/keys'
 import { paths } from '@/app/routes'
 import { useAuth } from '@/app/auth'
+import { CopyableCode } from '@/components/CodeSnippet'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { KeyModal } from '@/components/KeyModal'
 import { UnreadBadge, cardStyle, ghostButton } from '@/components/ui'
@@ -175,7 +176,7 @@ export function FeedbackPanel({ siteId, openReports }: { siteId: string; openRep
 
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--subtle)', marginBottom: 5 }}>Embed snippet</div>
-            <Snippet code={widgetEmbedSnippet(siteId)} />
+            <CopyableCode code={widgetEmbedSnippet(siteId)} />
             <p style={{ margin: '10px 0 0', fontSize: 11.5, color: 'var(--subtle)' }}>
               The key is written into the host page, like an ingest key.{' '}
               <code style={{ fontFamily: 'var(--mono)' }}>data-launcher="none"</code> hides the floating button and
@@ -257,22 +258,5 @@ function Toggle({
         }}
       />
     </button>
-  )
-}
-
-function Snippet({ code }: { code: string }) {
-  return (
-    <div style={{ position: 'relative' }}>
-      <pre style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.65, background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 8, padding: 13, overflow: 'auto', color: 'var(--text)', whiteSpace: 'pre' }}>
-        {code}
-      </pre>
-      <button
-        onClick={() => void navigator.clipboard?.writeText(code).then(() => toast.success('Snippet copied'))}
-        title="Copy"
-        style={{ position: 'absolute', top: 8, right: 8, display: 'grid', placeItems: 'center', height: 30, padding: '0 10px', border: '1px solid var(--border)', background: 'var(--s3)', borderRadius: 7, color: 'var(--muted)', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}
-      >
-        Copy
-      </button>
-    </div>
   )
 }

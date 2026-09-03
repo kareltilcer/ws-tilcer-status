@@ -1,4 +1,5 @@
 import { defineConfig, type Plugin } from 'vite'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -19,26 +20,46 @@ const root = path.dirname(fileURLToPath(import.meta.url))
  * host page: a report filed from one arrived reading "KdyÅ¾ v
  * NÃ¡kupech".
  *
- * `frontend/nginx.conf` now sends `charset=utf-8`, which fixes it at the server.
- * This fixes it in the artifact — the half that survives a CDN, a proxy, or a
- * host that copies the file somewhere else and serves it however it likes.
+ * `frontend/nginx.widget.conf` now sends `charset=utf-8`, which fixes it at the
+ * server. This fixes it in the artifact — the half that survives a CDN, a proxy,
+ * or a host that copies the file somewhere else and serves it however it likes.
  *
  * Asking the code generator instead (`esbuild: { charset: 'ascii' }`) is not
  * available: Vite owns that option and omits it from its own `ESBuildOptions`.
  * Rewriting the emitted chunk is safe because `\uXXXX` means the same character
  * in every context a non-ASCII one can legally appear in — string, template,
  * regex, identifier — and a surrogate pair escapes to the two halves that
- * compose it. The throw below is the post-condition that proves the artifact.
+ * compose it.
+ *
+ * ⚠ The post-condition reads the file back OFF DISK, in `writeBundle`. Re-testing
+ * the same regex on the string the global replace above has just produced cannot
+ * fail — it is the replace's own output — and would have proved nothing about the
+ * artifact while reading as though it did. What can actually go wrong is a
+ * mutation of `file.code` that the writer ignores, or bytes that never passed
+ * through this hook at all: an asset rather than a chunk, a legacy or polyfill
+ * chunk, a plugin ordered after this one. The file on disk is the thing the host
+ * page downloads, so the file on disk is the thing that gets checked.
  */
 function asciiOnly(): Plugin {
   return {
     name: 'sfb-ascii-only',
     generateBundle(_options, bundle) {
-      for (const [name, file] of Object.entries(bundle)) {
+      for (const file of Object.values(bundle)) {
         if (file.type !== 'chunk') continue
         file.code = file.code.replace(/[^\x00-\x7F]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
-        if (/[^\x00-\x7F]/.test(file.code)) {
-          throw new Error(`sfb-ascii-only: ${name} still contains non-ASCII output`)
+      }
+    },
+    writeBundle(options, bundle) {
+      const dir = options.dir ?? path.dirname(options.file ?? '')
+      for (const name of Object.keys(bundle)) {
+        if (!name.endsWith('.js')) continue
+        const written = readFileSync(path.join(dir, name))
+        const offset = written.findIndex((b) => b > 0x7f)
+        if (offset >= 0) {
+          throw new Error(
+            `sfb-ascii-only: ${name} was written with a non-ASCII byte at offset ${offset} — a cross-origin ` +
+              'classic script served without a charset would decode it as windows-1252',
+          )
         }
       }
     },
@@ -53,7 +74,8 @@ function asciiOnly(): Plugin {
 //
 // ⚠ The filename is unhashed, so `immutable` also means a non-breaking fix cannot
 // reach a browser that already has this file: it ships as v2.js instead. That
-// trade is FR-24's and §V3-11 checks for it; frontend/nginx.conf carries the note.
+// trade is FR-24's and §V3-11 checks for it; frontend/nginx.widget.conf carries
+// the note.
 export default defineConfig({
   plugins: [asciiOnly()],
   build: {

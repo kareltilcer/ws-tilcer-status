@@ -1,10 +1,13 @@
 // The widget's entry point: read the embed's attributes, ask the server what it
 // may do, and only then put anything on the page.
 //
-// ⚠ Nothing here may throw into the host app (V3-D37). Every entry point — boot,
-// the click handlers, the fetch chain — is wrapped, and every failure is silent
-// except the dialog's own error states. A widget that crashed `home` while
-// somebody was reporting a bug in `home` would be a small masterpiece.
+// ⚠ Nothing here may throw into the host app (V3-D37). Every entry point is
+// wrapped, and every failure is silent except the dialog's own error states. A
+// widget that crashed `home` while somebody was reporting a bug in `home` would
+// be a small masterpiece. There are three such entry points and each is covered
+// once, not per call site: `boot()` and the module body below, the
+// `StatusFeedback.open()` wrapper, and — for the launcher's click and every
+// handler the dialog binds — the listener wrapper in `dom.ts`.
 
 import { claimUploads, fetchWidgetConfig, putObject, submitReport, type ApiTarget } from './api'
 import { emptyCapture, installConsoleCapture, type ConsoleCapture } from './consoleTail'
@@ -95,6 +98,12 @@ function boot(): void {
               ticket = next.ticket
               ticketAt = Date.now()
             }
+          } catch {
+            // ⚠ This promise must never reject. Two callers fire it and forget it
+            // (`void this.o.api.refreshTicket()`), and a third awaits it through
+            // `ticketSettled`; a rejection from any of them is an
+            // `unhandledrejection` in the host page. Keeping the held ticket is
+            // the same answer a non-`enabled` response gets, for the same reason.
           } finally {
             refreshing = null
           }

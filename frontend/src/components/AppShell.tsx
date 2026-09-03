@@ -42,7 +42,17 @@ export function AppShell() {
   // The nav's unread count. It shares the board's query — one request, two
   // readers — and stays absent rather than showing a zero when the feedback
   // module is not composed into this deployment (V3-D53).
-  const { data: sites } = useQuery({ queryKey: qk.sites(), queryFn: () => api.listSites(), staleTime: 30_000 })
+  //
+  // ⚠ It carries its own `refetchInterval`. The Board sets one, but the shell
+  // outlives the Board: leave that route and the shared query stops polling, so
+  // the badge sits on a number from whenever the user last looked. A nav badge
+  // that silently goes stale is worse than no badge.
+  const { data: sites } = useQuery({
+    queryKey: qk.sites(),
+    queryFn: () => api.listSites(),
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+  })
   const unread = (sites ?? []).reduce((n, s) => n + (s.open_reports ?? 0), 0)
 
   const logoMark = (size: number) => (
@@ -56,7 +66,17 @@ export function AppShell() {
         <button onClick={() => { nav(paths.reports); setDrawer(false) }} style={navItemStyle(onReports)}>
           <span style={{ flex: 1 }}>Inbox</span>
           {unread > 0 && (
-            <span style={{ display: 'inline-grid', placeItems: 'center', minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, background: 'var(--accent)', color: 'var(--accent-fg)', fontSize: 11, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+            // The number alone reads as "Inbox 3", which says nothing about what
+            // 3 counts. `role="img"` + a label names it — a bare aria-label on a
+            // generic span is not required to be exposed at all — and the digits
+            // become the image's content rather than a second reading of it.
+            // The board's UnreadBadge spells this out in words; here there is
+            // room for two glyphs, so the name carries what the pill cannot.
+            <span
+              role="img"
+              aria-label={`${unread} open ${unread === 1 ? 'report' : 'reports'}`}
+              style={{ display: 'inline-grid', placeItems: 'center', minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, background: 'var(--accent)', color: 'var(--accent-fg)', fontSize: 11, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}
+            >
               {unread}
             </span>
           )}

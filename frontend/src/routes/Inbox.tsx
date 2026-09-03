@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import * as api from '@/api/endpoints'
 import type { ReportFilters } from '@/api/endpoints'
@@ -29,6 +29,11 @@ export function Inbox() {
     queryFn: ({ pageParam }) => api.listReports({ ...filters, cursor: pageParam }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // ⚠ Changing a filter changes the query key, and without this the data for
+    // the new key is `undefined` until it arrives. The filter toolbar is gated on
+    // there being reports, so it would unmount under the pointer that had just
+    // clicked one of its chips — and a keyboard user's focus with it.
+    placeholderData: keepPreviousData,
   })
   // The site filter is a list of the sites that exist, not free text: a typo
   // returning an empty page reads as "this site has no reports".
@@ -36,6 +41,10 @@ export function Inbox() {
 
   const reports = q.data?.pages.flatMap((p) => p.items) ?? []
   const filtered = state !== null || site !== '' || kind !== ''
+  // `stale` is "these rows belong to the filter you just left". They stay on
+  // screen, dimmed, rather than being replaced by skeletons.
+  const stale = q.isPlaceholderData
+  const loading = q.isLoading || (stale && reports.length === 0)
 
   return (
     <div>
@@ -46,7 +55,7 @@ export function Inbox() {
         </p>
       </div>
 
-      {(reports.length > 0 || filtered) && (
+      {(reports.length > 0 || filtered || stale) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', margin: '18px 0' }}>
           <FilterChip label="All" active={state === null} onClick={() => setState(null)} />
           {STATES.map((s) => (
@@ -82,7 +91,7 @@ export function Inbox() {
         </div>
       )}
 
-      {q.isLoading && <Skeletons />}
+      {loading && <Skeletons />}
 
       {q.isError && (
         <StateBlock
@@ -97,7 +106,7 @@ export function Inbox() {
         </StateBlock>
       )}
 
-      {!q.isLoading && !q.isError && reports.length === 0 && !filtered && (
+      {!loading && !q.isError && reports.length === 0 && !filtered && (
         <StateBlock
           icon="✉"
           title="No reports yet"
@@ -109,7 +118,7 @@ export function Inbox() {
         </StateBlock>
       )}
 
-      {!q.isLoading && !q.isError && reports.length === 0 && filtered && (
+      {!loading && !q.isError && reports.length === 0 && filtered && (
         <StateBlock icon="✉" title="Nothing matches" body="No report has this state, site and kind together.">
           <button
             onClick={() => {
@@ -125,13 +134,13 @@ export function Inbox() {
       )}
 
       {reports.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9, opacity: stale ? 0.55 : 1, transition: 'opacity .12s ease' }}>
           {reports.map((r) => (
             <Row key={r.ref} report={r} onClick={() => nav(paths.report(r.ref))} />
           ))}
           {q.hasNextPage && (
             <div style={{ padding: '6px 0 0', textAlign: 'center' }}>
-              <button onClick={() => void q.fetchNextPage()} disabled={q.isFetchingNextPage} style={ghostButton}>
+              <button onClick={() => void q.fetchNextPage()} disabled={q.isFetchingNextPage || stale} style={ghostButton}>
                 {q.isFetchingNextPage ? 'Loading…' : 'Load older reports'}
               </button>
             </div>

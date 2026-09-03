@@ -23,8 +23,22 @@ export function el<K extends keyof HTMLElementTagNameMap>(
     if (v === null) node.removeAttribute(k)
     else node.setAttribute(k, v)
   }
+  // ⚠ Every listener is wrapped, and this is the ONLY place it happens (V3-D37).
+  // A handler that throws inside a host page's click reaches that page's
+  // `window.onerror`, and an async one that rejects reaches its
+  // `unhandledrejection` — where, on a console-capture site, this widget's own
+  // capture then files it as the host's error. Wrapping at each call site instead
+  // would mean the launcher, the most-clicked element v3 ships, being the one
+  // that got forgotten.
   for (const [event, handler] of Object.entries(opts.on ?? {})) {
-    node.addEventListener(event, handler as EventListener)
+    node.addEventListener(event, (e: Event) => {
+      try {
+        const r = (handler as (e: Event) => unknown)(e)
+        if (r instanceof Promise) r.catch(() => {})
+      } catch {
+        // never into the host
+      }
+    })
   }
   for (const kid of opts.kids ?? []) {
     if (kid) node.appendChild(kid)

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { el } from './dom'
 import type { WidgetConfig } from './types'
 
 // The widget mounts into a CLOSED shadow root, which is exactly what makes it
@@ -172,5 +173,46 @@ describe('StatusFeedback.open', () => {
     await booted
     for (let i = 0; i < 12; i++) await Promise.resolve()
     expect(shadow()?.querySelector('[role="dialog"]')).not.toBeNull()
+  })
+})
+
+// V3-D37, at the layer that actually enforces it. `StatusFeedback.open()` has
+// always been wrapped; the launcher's click and every handler the dialog binds go
+// through `el`, and until this test they went through it unwrapped — so the most
+// clicked element the widget ships was the one entry point that could put an
+// exception in someone else's `window.onerror`.
+describe('a handler never throws into the host page', () => {
+  it('swallows a synchronous throw', () => {
+    const seen: string[] = []
+    const onError = (e: ErrorEvent) => seen.push(e.message)
+    window.addEventListener('error', onError)
+    const button = el('button', {
+      on: {
+        click: () => {
+          throw new Error('sfb-boom')
+        },
+      },
+    })
+    button.dispatchEvent(new MouseEvent('click'))
+    window.removeEventListener('error', onError)
+    expect(seen.filter((m) => m.includes('sfb-boom'))).toEqual([])
+  })
+
+  // The async half: `submit()` and `retrySend()` are bound as click handlers and
+  // both return a promise. Node, not jsdom, is what reports an unhandled one
+  // here — reached through globalThis because the SPA's tsconfig carries DOM
+  // types only, and widening it for one test is the larger change.
+  it('swallows a rejected promise a handler returns', async () => {
+    type Hook = (reason: unknown) => void
+    const node = (globalThis as unknown as { process: { on(e: string, h: Hook): void; off(e: string, h: Hook): void } })
+      .process
+    const seen: unknown[] = []
+    const onRejection: Hook = (reason) => seen.push(reason)
+    node.on('unhandledRejection', onRejection)
+    const button = el('button', { on: { click: () => Promise.reject(new Error('sfb-boom')) } })
+    button.dispatchEvent(new MouseEvent('click'))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    node.off('unhandledRejection', onRejection)
+    expect(seen).toEqual([])
   })
 })

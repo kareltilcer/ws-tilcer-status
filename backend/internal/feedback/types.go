@@ -107,12 +107,12 @@ type FeedbackConfigWithKey struct {
 // WidgetConfig). Everything but `enabled` is omitted when feedback is off: a
 // disabled site's answer must not read like a configured one.
 type WidgetConfig struct {
-	Enabled        bool     `json:"enabled"`
-	Ticket         *string  `json:"ticket,omitempty"`
-	Kinds          []string `json:"kinds,omitempty"`
-	MaxFiles       int      `json:"max_files,omitempty"`
-	MaxImageBytes  int64    `json:"max_image_bytes,omitempty"`
-	MaxVideoBytes  int64    `json:"max_video_bytes,omitempty"`
+	Enabled       bool     `json:"enabled"`
+	Ticket        *string  `json:"ticket,omitempty"`
+	Kinds         []string `json:"kinds,omitempty"`
+	MaxFiles      int      `json:"max_files,omitempty"`
+	MaxImageBytes int64    `json:"max_image_bytes,omitempty"`
+	MaxVideoBytes int64    `json:"max_video_bytes,omitempty"`
 	// MaxTextBytes is the cap on the WHOLE submission body. ⚠ It is published
 	// because the widget has to enforce it: it is smaller than the sum of the
 	// field limits this same contract allows, so the widget trims the one part of

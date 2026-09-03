@@ -37,13 +37,26 @@ const tabs: { key: Tab; label: string }[] = [
   { key: 'js', label: 'JS' },
 ]
 
+/** CopyableCode is one block of code with a Copy button in its corner. It is the
+ *  single copy of that treatment: the crash-ingest tabs below and the feedback
+ *  panel's embed snippets both render it, and a change to the type or the button
+ *  should not have to be made twice to avoid drift. */
+export function CopyableCode({ code }: { code: string }) {
+  const copy = () => {
+    void navigator.clipboard?.writeText(code).then(() => toast.success('Snippet copied'))
+  }
+  return (
+    <div style={{ position: 'relative' }}>
+      <pre style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.65, background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 8, padding: 13, overflow: 'auto', color: 'var(--text)', whiteSpace: 'pre' }}>{code}</pre>
+      <button onClick={copy} title="Copy" style={{ position: 'absolute', top: 8, right: 8, display: 'grid', placeItems: 'center', height: 30, padding: '0 10px', border: '1px solid var(--border)', background: 'var(--s3)', borderRadius: 7, color: 'var(--muted)', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}>Copy</button>
+    </div>
+  )
+}
+
 /** CodeSnippet shows a tabbed, copyable ingest snippet prefilled with a site id. */
 export function CodeSnippet({ siteId }: { siteId: string }) {
   const [tab, setTab] = useState<Tab>('curl')
   const code = snippets(siteId)[tab]
-  const copy = () => {
-    void navigator.clipboard?.writeText(code).then(() => toast.success('Snippet copied'))
-  }
   return (
     <div>
       <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
@@ -70,10 +83,7 @@ export function CodeSnippet({ siteId }: { siteId: string }) {
           )
         })}
       </div>
-      <div style={{ position: 'relative' }}>
-        <pre style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.65, background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 8, padding: 13, overflow: 'auto', color: 'var(--text)', whiteSpace: 'pre' }}>{code}</pre>
-        <button onClick={copy} title="Copy" style={{ position: 'absolute', top: 8, right: 8, display: 'grid', placeItems: 'center', height: 30, padding: '0 10px', border: '1px solid var(--border)', background: 'var(--s3)', borderRadius: 7, color: 'var(--muted)', cursor: 'pointer', fontSize: 12 }}>Copy</button>
-      </div>
+      <CopyableCode code={code} />
     </div>
   )
 }

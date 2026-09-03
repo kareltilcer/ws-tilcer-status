@@ -93,11 +93,21 @@ Two artifacts from one build, sharing nothing but the repository:
   not derived from status's oklch tokens, and not host-themeable). It renders **nothing at all**
   until `GET …/feedback/config` answers `enabled: true`, and it never throws into the host app.
   ⚠ The build is **ASCII-only** (`asciiOnly` plugin): a cross-origin classic script does not inherit
-  the host document's UTF-8, so without that — and without `charset utf-8` in `nginx.conf` — every
-  Czech string in it becomes mojibake in what it shows *and* in what it sends.
+  the host document's UTF-8, so without that — and without `charset utf-8` in `nginx.widget.conf` —
+  every Czech string in it becomes mojibake in what it shows *and* in what it sends. The plugin's
+  post-condition reads the **written file** back off disk; re-testing the regex on the string the
+  replace just produced cannot fail and proves nothing.
   ⚠ Uploads PUT straight to R2, so an oversized file must be refused **client-side**: the URL is
   signed for the size the widget declared, and `Content-Length` is a header the browser will not let
   script set.
+  ⚠ "Never throws into the host" is enforced in **one place**, `dom.ts`'s `el()`, which wraps every
+  listener it binds and catches a promise a handler returns. Per-call-site `try` is how the
+  launcher — the most-clicked element v3 ships — ended up the one unguarded entry point.
+  ⚠ `frontend/nginx.widget.conf` holds the widget's charset and cache contract as **one** file,
+  `include`d at server level by both `nginx.conf` and `nginx.harness.conf` (baked to
+  `/etc/nginx/widget.conf`, **not** under `conf.d/`, which nginx auto-includes at http level where
+  `location` will not parse). FR-24 fixes those headers and §V3-11 checks for them; two copies means
+  a harness that proves a policy production does not serve.
 
 ## Testing
 `cd backend && go test ./...`. `internal/apitest` drives the real router over HTTP (dev-bypass auth,

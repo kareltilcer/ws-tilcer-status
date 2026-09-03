@@ -60,12 +60,20 @@ export function utf8Length(s: string): number {
 }
 
 /** trimToBudget drops the OLDEST lines until the tail fits the byte budget. The
- *  newest lines are the ones nearest the failure the reporter is describing. */
+ *  newest lines are the ones nearest the failure the reporter is describing.
+ *
+ *  ⚠ The cost is measured on the SERIALIZED line, not the raw one. `formatArg`
+ *  renders object arguments with `JSON.stringify`, so a typical captured line is
+ *  full of quotes — and every one of them costs a second byte once the tail is
+ *  itself serialized into the body. Charging the raw length plus two quotes
+ *  under-counts by however many characters need escaping, which on a tail of any
+ *  size runs past the fixed slack the caller leaves and 413s a report whose text
+ *  the reporter is then told, wrongly, to shorten. */
 export function trimToBudget(lines: string[], budget = MAX_TAIL_BYTES): string[] {
   let total = 0
   const kept: string[] = []
   for (let i = lines.length - 1; i >= 0; i--) {
-    const cost = utf8Length(lines[i]) + 3 // the JSON quotes and comma
+    const cost = utf8Length(JSON.stringify(lines[i])) + 1 // the escaped literal, plus its comma
     if (total + cost > budget) break
     total += cost
     kept.push(lines[i])

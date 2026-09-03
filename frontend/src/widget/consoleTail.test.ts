@@ -14,9 +14,21 @@ describe('trimToBudget', () => {
   it('drops the OLDEST lines, because the newest are nearest the failure', () => {
     const lines = ['one', 'two', 'three']
     expect(trimToBudget(lines, 1000)).toEqual(lines)
-    // 'three' costs 5+3, 'two' costs 3+3 => 14 bytes fits, 'one' does not.
+    // '"three"' costs 7+1, '"two"' costs 5+1 => 14 bytes fits, 'one' does not.
     expect(trimToBudget(lines, 14)).toEqual(['two', 'three'])
     expect(trimToBudget(lines, 1)).toEqual([])
+  })
+
+  // ⚠ formatArg renders objects with JSON.stringify, so a captured line is
+  // usually full of quotes — and each one costs a second byte when the tail is
+  // serialized into the body. Counting the raw length under-counts by exactly
+  // those escapes, and the report then 413s with copy blaming the reporter's
+  // text. One line of 10 quoted keys is enough to show it.
+  it('charges for the escaping the line will need on the wire', () => {
+    const line = '{"a":"1","b":"2","c":"3"}' // 25 chars, 12 of them quotes
+    // Serialized this is 25 + 12 escapes + 2 quotes = 39, plus the comma.
+    expect(trimToBudget([line], 39)).toEqual([])
+    expect(trimToBudget([line], 40)).toEqual([line])
   })
 })
 

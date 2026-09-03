@@ -425,9 +425,16 @@ function Context({ report }: { report: Report }) {
       ) : (
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'flex-start', gap: 11, padding: '12px 13px', border: '1px dashed var(--border)', borderRadius: 9, background: 'var(--s2)' }}>
           <span aria-hidden style={{ color: 'var(--subtle)', flex: 'none', marginTop: 1 }}>⏻</span>
+          {/* ⚠ This says what is true — the report carries no console lines — and
+              stops there. A report arrives empty for three different reasons and
+              nothing in it tells them apart: capture is off for the site (the
+              default), capture is on and the reporter unticked it before sending,
+              or capture is on and the app logged nothing. Naming the first would
+              send the reader to flip a switch that may already be on. */}
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-            No console output — <code style={{ fontFamily: 'var(--mono)' }}>console_capture</code> is off for this site,
-            which is the default. Turn it on in the site's feedback panel if this app needs it.
+            No console output with this report. Either{' '}
+            <code style={{ fontFamily: 'var(--mono)' }}>console_capture</code> is off for the site — it is off by
+            default, and the site's feedback panel turns it on — or the reporter chose not to send the capture.
           </div>
         </div>
       )}

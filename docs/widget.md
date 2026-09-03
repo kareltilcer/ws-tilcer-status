@@ -137,7 +137,8 @@ Pin `v1.js`. A breaking change becomes `/widget/v2.js` and every existing embed 
 unhashed, so a browser that has loaded the widget once will not issue even a conditional request for
 a year. A non-breaking fix to v1 therefore cannot reach it: the repair ships as `v2.js` and your
 embed has to be updated to see it. That is the trade PRD FR-24 chose, and it is one line of
-`frontend/nginx.conf` to revisit.
+`frontend/nginx.widget.conf` to revisit — one file, included by both the production and the
+harness server configs.
 
 ⚠ **Keep the `.js` extension.** Nginx serves `/widget/*.js` from the filesystem with no SPA
 fallback, so an unknown version 404s. An extensionless path would fall through to the SPA and hand
@@ -149,14 +150,24 @@ If the host app sends a CSP, it must allow **three** things, and the third is th
 
 ```
 script-src  https://status.tilcer.cz
-connect-src https://status.tilcer.cz
-connect-src https://<account>.r2.cloudflarestorage.com
+style-src   'unsafe-inline'
+connect-src https://status.tilcer.cz https://<account>.r2.cloudflarestorage.com
 ```
 
-The third one exists because **the file upload goes directly to R2, not through status**. A policy
+⚠ **Both origins on one `connect-src`, not one directive each.** A repeated directive name in a
+single policy is ignored by the browser — with nothing but a console warning — so two `connect-src`
+lines give you the first one and exactly the failure below.
+
+The R2 origin is there because **the file upload goes directly to R2, not through status**. A policy
 that allows only the status origin produces a widget that opens, accepts a file, and fails at upload
 with a console error the reporter never sees — and **no server-side signal at all**: no request
 reaches status, so nothing appears in its logs or its inbox.
+
+`style-src 'unsafe-inline'` is there because the widget's entire appearance is one `<style>` element
+injected into its shadow root, plus a `style` attribute on the container that keeps it out of your
+layout. Without it the widget renders, unstyled, as a column of bare controls — and the container
+loses `position:fixed;width:0`, so it can push your own page around. (Nothing here is `eval`: the
+widget needs no `script-src 'unsafe-eval'` and no `'unsafe-inline'` for script.)
 
 ✅ Measured 2026-09-02: no site in the fleet sends a document CSP, so this blocks nothing today. It
 is a **tripwire**, not a task — the day anyone adds one to `home`, `fin` or `karel`, this list is
@@ -193,7 +204,7 @@ which is also why the widget must reject an oversized file before asking for a s
 ## 9. ⚠ Serve the bundle with a charset
 
 `/widget/v1.js` must be served as `text/javascript; charset=utf-8`. The status origin already does
-(`charset utf-8` in `frontend/nginx.conf`), and the bundle is additionally built ASCII-only so that
+(`charset utf-8` in `frontend/nginx.widget.conf`), and the bundle is additionally built ASCII-only so that
 it survives a proxy or CDN that strips the parameter.
 
 This matters because a **cross-origin classic script does not inherit the host document's encoding**.

@@ -133,7 +133,7 @@ function fileText(a: Attachment, s: Strings): HTMLElement {
 
 export class FeedbackDialog {
   private o: DialogOptions
-  private scrim: HTMLElement | null = null
+  /** wrap is the backdrop and the centring wrapper at once — see styles.ts. */
   private wrap: HTMLElement | null = null
   private dialog: HTMLElement | null = null
   private body: HTMLElement | null = null
@@ -207,16 +207,15 @@ export class FeedbackDialog {
     // sweep, which is what it exists for.
     this.activeUpload?.abort()
     this.activeUpload = null
-    this.scrim?.remove()
     this.wrap?.remove()
-    this.scrim = null
     this.wrap = null
     this.dialog = null
     this.o.onClosed()
   }
 
-  /** requestClose is what Escape, the ✕ and the scrim go through: it asks before
-   *  discarding text the reporter typed, because losing that is the real failure. */
+  /** requestClose is what Escape, the ✕ and the backdrop go through: it asks
+   *  before discarding text the reporter typed, because losing that is the real
+   *  failure. */
   private requestClose(): void {
     if (this.phase === 'form' && this.dirty() && !this.discardPrompt) {
       this.discardPrompt = true
@@ -247,7 +246,6 @@ export class FeedbackDialog {
 
   private mount(): void {
     const s = this.o.strings
-    this.scrim = el('div', { cls: 'sfb-scrim', on: { click: () => this.requestClose() } })
     const titleId = 'sfb-title'
 
     const head = el('div', {
@@ -274,16 +272,40 @@ export class FeedbackDialog {
     this.foot = el('div', { cls: 'sfb-foot' })
     this.dialog = el('div', {
       cls: 'sfb-dialog',
-      attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId },
+      // ⚠ tabindex="-1" is not decoration. Every phase change clears the body or
+      // the footer, which can remove the element that had focus; without a
+      // programmatic home inside the dialog, focus falls to <body> — outside the
+      // shadow root and outside the keydown listener below — and Escape and the
+      // focus trap both stop working for the rest of the opening. See holdFocus.
+      attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId, tabindex: '-1' },
       kids: [head, this.body, this.foot],
       on: { keydown: (e) => this.onKeyDown(e as KeyboardEvent) },
     })
-    this.wrap = el('div', { cls: 'sfb-wrap', kids: [this.dialog] })
+    // The wrap is the backdrop too, so this handler IS click-outside-to-close: it
+    // fires only when the click landed on the backdrop and not on the dialog.
+    //
+    // ⚠ The other branch matters as much. A click on the dialog's own chrome —
+    // the title, a hint line, the padding — focuses nothing, so the browser
+    // clears focus to <body>; from there the keydown listener on the dialog never
+    // fires again and Escape stops closing. Every click inside puts focus back.
+    this.wrap = el('div', {
+      cls: 'sfb-wrap',
+      kids: [this.dialog],
+      on: { click: (e) => (e.target === this.wrap ? this.requestClose() : this.holdFocus()) },
+    })
 
-    this.o.root.appendChild(this.scrim)
     this.o.root.appendChild(this.wrap)
     this.renderForm()
     this.renderFooter()
+  }
+
+  /** holdFocus pulls focus back into the dialog after a re-render that removed
+   *  the control holding it. It is a no-op whenever focus is still inside. */
+  private holdFocus(): void {
+    const d = this.dialog
+    if (!d || !this.isOpen) return
+    const a = this.activeElementIn(d)
+    if (!a || !d.contains(a)) d.focus()
   }
 
   private onKeyDown(e: KeyboardEvent): void {
@@ -701,22 +723,16 @@ export class FeedbackDialog {
           ],
         }),
       )
-      return
-    }
-
-    if (this.phase === 'form' || this.phase === 'sending') {
+    } else if (this.phase === 'form' || this.phase === 'sending') {
       const sending = this.phase === 'sending'
       this.sendBtn = el('button', {
         cls: 'sfb-btn',
         attrs: { type: 'button', ...(sending ? { disabled: 'disabled' } : {}) },
         text: sending ? s.sending : s.send,
-        on: { click: () => void this.submit() },
+        on: { click: () => this.submit() },
       }) as HTMLButtonElement
       this.foot.appendChild(this.sendBtn)
-      return
-    }
-
-    if (this.phase === 'done') {
+    } else if (this.phase === 'done') {
       this.foot.appendChild(
         el('button', {
           cls: 'sfb-btn',
@@ -726,6 +742,10 @@ export class FeedbackDialog {
         }),
       )
     }
+    // ⚠ `clear` above can remove the control that had focus — pressing Send and
+    // watching it become a disabled "Sending…" is the ordinary case, not an edge
+    // one. Without this, focus lands on <body> for the rest of the opening.
+    this.holdFocus()
   }
 
   // --- submit ---------------------------------------------------------------
@@ -868,7 +888,8 @@ export class FeedbackDialog {
     void this.o.api.refreshTicket()
     this.showAlert('danger', large ? s.tooLongTitle : s.sendFailTitle, large ? s.tooLongBody : s.sendFailBody, {
       label: s.sendAgain,
-      onClick: () => void this.retrySend(),
+      // Returned, not `void`ed: `el` only catches a rejection it can see.
+      onClick: () => this.retrySend(),
     })
   }
 
@@ -985,6 +1006,7 @@ export class FeedbackDialog {
     })
     this.body.appendChild(list)
     this.body.appendChild(el('div', { cls: 'sfb-hint', text: s.uploadNote }))
+    this.holdFocus()
   }
 
   private setUploadStatus(index: number): void {

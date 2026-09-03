@@ -9,8 +9,14 @@
 // appearance, asserted on every host — a white surface, one deep-teal accent, one
 // radius pair, a system font stack.
 //
-// Four rules inside carry weight beyond their looks and have no comment of their
+// Five rules inside carry weight beyond their looks and have no comment of their
 // own, because everything in the template literal ships to every host page:
+//
+//   .sfb-wrap                is the backdrop AND the centring wrapper, one
+//                            element. Two full-viewport fixed layers would mean
+//                            the upper one swallowing every click meant for the
+//                            lower, so a separate `.sfb-scrim` beneath it could
+//                            never receive the click-outside-to-close it carried.
 //
 //   .sfb-launcher            icon-only at rest, expanding to a labelled pill on
 //                            hover and focus — it is seen ten thousand times more
@@ -18,9 +24,13 @@
 //   @media (max-width:479px) the dialog becomes a bottom sheet: it sits where the
 //                            thumb is and leaves room for the on-screen keyboard
 //                            the message field summons.
-//   .sfb-kind[aria-checked]  selection carries a check glyph as well as the accent
+//   .sfb-kind[aria-pressed]  selection carries a check glyph as well as the accent
 //                            fill, so it survives greyscale and a red-green
-//                            deficiency (WCAG 1.4.1).
+//                            deficiency (WCAG 1.4.1). ⚠ The attribute is
+//                            `aria-pressed` and must stay in step with dialog.ts:
+//                            these buttons are a group with pressed state, not a
+//                            radiogroup, and selecting on `aria-checked` here
+//                            leaves the choice with no visible signal at all.
 //   .sfb-honey               the honeypot: named plausibly, invisible to people,
 //                            reachable by a bot that fills every field it finds,
 //                            and hidden from assistive technology so nobody is
@@ -102,14 +112,14 @@ button, input, textarea { font: inherit; color: inherit; margin: 0; }
 .sfb-pos-top-left     { left: 16px;  top: calc(16px + env(safe-area-inset-top, 0px)); }
 
 /* ---- dialog ---- */
-.sfb-scrim { position: fixed; inset: 0; z-index: 2147483000; background: rgba(12,16,20,.44); }
 .sfb-wrap {
   position: fixed;
   inset: 0;
-  z-index: 2147483001;
+  z-index: 2147483000;
   display: grid;
   place-items: center;
   padding: 24px;
+  background: rgba(12,16,20,.44);
 }
 .sfb-dialog {
   width: 460px;
@@ -173,9 +183,9 @@ button, input, textarea { font: inherit; color: inherit; margin: 0; }
   border: 1px solid var(--sfb-hairline-strong); background: var(--sfb-surface); color: var(--sfb-ink);
   border-radius: var(--sfb-radius-sm); font-size: 14px; font-weight: 600; white-space: nowrap; cursor: pointer;
 }
-.sfb-kind[aria-checked="true"] { border-color: var(--sfb-accent); background: var(--sfb-accent-soft); color: var(--sfb-accent); }
+.sfb-kind[aria-pressed="true"] { border-color: var(--sfb-accent); background: var(--sfb-accent-soft); color: var(--sfb-accent); }
 .sfb-kind svg { display: none; }
-.sfb-kind[aria-checked="true"] svg { display: inline; }
+.sfb-kind[aria-pressed="true"] svg { display: inline; }
 
 .sfb-files { display: flex; flex-direction: column; gap: 8px; }
 .sfb-chip {

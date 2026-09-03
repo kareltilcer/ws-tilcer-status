@@ -21,4 +21,8 @@ FROM nginx:1.27-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 ARG NGINX_CONF=nginx.conf
 COPY ${NGINX_CONF} /etc/nginx/conf.d/default.conf
+# ⚠ The widget's charset and cache contract, `include`d by whichever of the two
+# server configs was baked. It must NOT land in conf.d/: nginx auto-includes
+# everything there at http level, where a `location` block fails to parse.
+COPY nginx.widget.conf /etc/nginx/widget.conf
 EXPOSE 80
