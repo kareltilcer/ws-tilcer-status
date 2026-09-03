@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -194,6 +195,32 @@ func TestAttachmentURLOnlyForStored(t *testing.T) {
 	}
 	if code, _ := h.do(http.MethodGet, path(acc.Ref, id+999), nil, nil); code != http.StatusNotFound {
 		t.Fatalf("view URL for an unknown attachment = %d, want 404", code)
+	}
+}
+
+// TestAttachmentURLIsNotCacheable — the body is a presigned URL, which is a
+// bearer token for its lifetime: exactly the property that put `no-store` on the
+// widget's ticket and its upload URLs.
+//
+// ⚠ It is the only response on the session-gated side that carries a credential,
+// and it went out with no cache directive at all — nothing forbidding a store,
+// and no validator either, leaving an intermediary between the admin and the
+// service to compute freshness heuristically and hand one admin's link to the
+// next request.
+func TestAttachmentURLIsNotCacheable(t *testing.T) {
+	h := newHarness(t, testConfig())
+	acc := h.submitWithFile(1024)
+	h.upload(acc.Uploads[0], bytes.Repeat([]byte("d"), 1024))
+	h.claim(acc.Ref)
+
+	path := "/api/reports/" + acc.Ref + "/attachments/" + strconv.FormatInt(acc.Uploads[0].AttachmentID, 10) + "/url"
+	rec := httptest.NewRecorder()
+	h.srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("view URL = %d (%s)", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store — the body is a bearer token", got)
 	}
 }
 

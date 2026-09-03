@@ -1,5 +1,8 @@
 import { useState, type CSSProperties } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import * as api from '@/api/endpoints'
+import { qk } from '@/api/keys'
 import { useAuth } from '@/app/auth'
 import { useTheme } from '@/theme/theme'
 import { useMediaQuery } from '@/lib/useMediaQuery'
@@ -34,6 +37,29 @@ export function AppShell() {
   const [drawer, setDrawer] = useState(false)
   const themeGlyph = theme === 'dark' ? '☾' : '☀'
   const onBoard = loc.pathname === paths.board
+  const onReports = loc.pathname.startsWith(paths.reports)
+
+  // The nav's unread count. It shares the board's query — one request, two
+  // readers — and stays absent rather than showing a zero when the feedback
+  // module is not composed into this deployment (V3-D53).
+  //
+  // ⚠ It carries its own `refetchInterval`. The Board sets one, but the shell
+  // outlives the Board: leave that route and the shared query stops polling, so
+  // the badge sits on a number from whenever the user last looked. A nav badge
+  // that silently goes stale is worse than no badge.
+  //
+  // ⚠ And only while the Board is NOT mounted. An interval is per observer, not
+  // per query, so two of them on the same key sit at different phases and poll
+  // /api/sites about twice per 30 s — double the rate the Board's own header
+  // promises, against a service whose single writer connection every request
+  // has to queue behind.
+  const { data: sites } = useQuery({
+    queryKey: qk.sites(),
+    queryFn: () => api.listSites(),
+    staleTime: 30_000,
+    refetchInterval: onBoard ? false : 30_000,
+  })
+  const unread = (sites ?? []).reduce((n, s) => n + (s.open_reports ?? 0), 0)
 
   const logoMark = (size: number) => (
     <span style={{ display: 'grid', placeItems: 'center', height: size, width: size, borderRadius: size / 4, background: 'var(--accent)', color: 'var(--accent-fg)', fontWeight: 800, fontSize: size / 2 }}>s</span>
@@ -43,6 +69,31 @@ export function AppShell() {
     <>
       <nav style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 12px', flex: 1 }}>
         <button onClick={() => { nav(paths.board); setDrawer(false) }} style={navItemStyle(onBoard)}>Board</button>
+        <button onClick={() => { nav(paths.reports); setDrawer(false) }} style={navItemStyle(onReports)}>
+          <span style={{ flex: 1 }}>Inbox</span>
+          {unread > 0 && (
+            // The number alone reads as "Inbox 3", which says nothing about what
+            // 3 counts. `role="img"` + a label names it — a bare aria-label on a
+            // generic span is not required to be exposed at all — and the digits
+            // become the image's content rather than a second reading of it.
+            // The board's UnreadBadge spells this out in words; here there is
+            // room for two glyphs, so the name carries what the pill cannot.
+            //
+            // ⚠ "new", not "open". `open_reports` counts reports in state `new`,
+            // and `open` is a DIFFERENT state in the same enum — the second chip
+            // in the inbox filter, and the one triage moves a report to in order
+            // to CLEAR this badge. A screen-reader user told "3 open reports"
+            // filtered by `open`, saw zero rows, and had nothing to reconcile the
+            // two with. UnreadBadge and ReportDetail both say "new"; so does this.
+            <span
+              role="img"
+              aria-label={`${unread} new ${unread === 1 ? 'report' : 'reports'}`}
+              style={{ display: 'inline-grid', placeItems: 'center', minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, background: 'var(--accent)', color: 'var(--accent-fg)', fontSize: 11, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}
+            >
+              {unread}
+            </span>
+          )}
+        </button>
         <button onClick={() => { nav(paths.addSite); setDrawer(false) }} style={navItemStyle(loc.pathname === paths.addSite)}>Add site</button>
       </nav>
       <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>

@@ -12,9 +12,23 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/httpx"
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/reqctx"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/timeutil"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/sites"
 )
+
+// fail answers the module's opaque 500 and records what actually went wrong.
+//
+// ⚠ The response body stays empty on purpose — a database error is not the
+// caller's business — but until this existed most of those 500s were written
+// with no log line at all, so an operator seeing one had nothing anywhere to
+// look at. `op` names the step, not the error: it is what turns "something in
+// feedback broke" into "the inbox query broke".
+func (m *Module) fail(w http.ResponseWriter, r *http.Request, op string, err error) {
+	info, _ := reqctx.RequestFrom(r.Context())
+	m.logger.Error("feedback "+op, "err", err, "request_id", info.RequestID, "path", r.URL.Path)
+	httpx.WriteError(w, httpx.ErrInternal(""))
+}
 
 // listReports handles GET /api/reports — the cross-site inbox.
 func (m *Module) listReports(w http.ResponseWriter, r *http.Request) {
@@ -43,17 +57,27 @@ func (m *Module) listReports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "list reports", err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, page)
 }
 
 // getReport handles GET /api/reports/{ref}.
+//
+// ⚠ The internal note is stripped for a caller without the admin role.
+// `openapi.yaml` calls that field "Admin-only" and FR-21 says the same, but the
+// route itself is only session-gated — so the field, not the route, is what the
+// gate has to be about. Gating the whole route would be the larger change and
+// the wrong one: a non-admin session can already list reports, and there is no
+// reason it should be unable to read one.
 func (m *Module) getReport(w http.ResponseWriter, r *http.Request) {
 	rep, ok := m.loadReport(w, r)
 	if !ok {
 		return
+	}
+	if !httpx.IsAdmin(r.Context()) {
+		rep.InternalNote = nil
 	}
 	httpx.JSON(w, http.StatusOK, rep)
 }
@@ -69,6 +93,12 @@ type reportPatchReq struct {
 
 // jsonNull is the literal an explicit null decodes to.
 var jsonNull = []byte("null")
+
+// errReportVanished names the read-back below finding nothing, so that the 500
+// it produces reaches the log as something rather than as `err=<nil>`. It is the
+// one way into `fail` that has no error of its own, and an ERROR line with no
+// error in it is the state `fail` was written to end.
+var errReportVanished = errors.New("feedback: the patched report could not be read back")
 
 // patchReport handles PATCH /api/reports/{ref} (admin): state, internal note,
 // kind.
@@ -114,7 +144,7 @@ func (m *Module) patchReport(w http.ResponseWriter, r *http.Request) {
 	}
 	found, err := m.store.Patch(r.Context(), ref, p, time.Now().UTC())
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "patch report", err)
 		return
 	}
 	if !found {
@@ -122,8 +152,14 @@ func (m *Module) patchReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rep, err := m.store.Get(r.Context(), ref)
-	if err != nil || rep == nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+	if err == nil && rep == nil {
+		err = errReportVanished
+	}
+	if err != nil {
+		// A report that patched a moment ago and cannot be read back now is a
+		// database problem, not a 404: reporting it as "unknown report" would
+		// send the reader looking for a row that is still there.
+		m.fail(w, r, "reload patched report", err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, rep)
@@ -143,7 +179,7 @@ func (m *Module) deleteReport(w http.ResponseWriter, r *http.Request) {
 	}
 	keys, found, err := m.store.Delete(r.Context(), ref)
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "delete report", err)
 		return
 	}
 	if !found {
@@ -175,7 +211,7 @@ func (m *Module) attachmentURL(w http.ResponseWriter, r *http.Request) {
 	// link to nothing is worse than a refusal.
 	key, contentType, ok, err := m.store.Attachment(r.Context(), ref, id)
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "load attachment", err)
 		return
 	}
 	if !ok {
@@ -184,8 +220,7 @@ func (m *Module) attachmentURL(w http.ResponseWriter, r *http.Request) {
 	}
 	url, expires, err := m.blobs.PresignGet(r.Context(), key, m.cfg.ViewTTL)
 	if err != nil {
-		m.logger.Error("feedback presign view", "ref", ref, "attachment", id, "err", err)
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "presign attachment view", err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, AttachmentURL{
@@ -202,7 +237,7 @@ func (m *Module) getSiteConfig(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	exists, err := m.sitesStore.Exists(r.Context(), id)
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "look up site", err)
 		return
 	}
 	if !exists {
@@ -211,7 +246,7 @@ func (m *Module) getSiteConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg, err := m.store.Config(r.Context(), id)
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "read feedback config", err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, wireConfig(id, cfg))
@@ -229,7 +264,7 @@ func (m *Module) patchSiteConfig(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	exists, err := m.sitesStore.Exists(r.Context(), id)
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "look up site", err)
 		return
 	}
 	if !exists {
@@ -257,25 +292,35 @@ func (m *Module) patchSiteConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A key is minted up front and handed to the store, which uses it only if the
-	// site has no configuration row yet — deciding here would mean reading the row
-	// outside the transaction that then writes it. An unused key is thrown away;
-	// an existing one is never replaced by this route (that is rotate's job).
-	plaintext, hash, err := GenerateWidgetKey()
-	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+	// ⚠ Only a request that turns feedback ON may create the configuration row,
+	// and `mintKey == nil` is how that is said. Creating it mints the widget key
+	// and returns the plaintext exactly once, so a `console_capture`-only PATCH
+	// against a site that has never been enabled would otherwise burn that single
+	// display on a setting the caller did not ask about — leaving a site whose
+	// key nobody knows, recoverable only by rotating it.
+	//
+	// ⚠ A minter rather than a key, so that the row's absence — which is only
+	// known inside the transaction that writes it — is also what decides whether
+	// a secret is generated at all. Handing in a pre-minted key made every enable
+	// of an already-configured site generate one and throw it away. An existing
+	// key is never replaced by this route either way; that is rotate's job.
+	var mintKey func() (string, string, error)
+	if in.Enabled != nil && *in.Enabled {
+		mintKey = GenerateWidgetKey
+	}
+	cfg, issuedKey, err := m.store.UpsertConfig(r.Context(), id, in.Enabled, in.ConsoleCapture, mintKey, time.Now().UTC())
+	if errors.Is(err, errConfigMissing) {
+		httpx.WriteError(w, httpx.ErrUnprocessable(
+			"feedback is not configured for this site — enable it first, which is what issues its widget key"))
 		return
 	}
-	cfg, minted, err := m.store.UpsertConfig(r.Context(), id, in.Enabled, in.ConsoleCapture, hash, time.Now().UTC())
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "upsert feedback config", err)
 		return
 	}
-	out := FeedbackConfigWithKey{FeedbackConfig: wireConfig(id, cfg)}
-	if minted {
-		// Shown once and never again: only the SHA-256 is stored.
-		out.WidgetKey = plaintext
-	}
+	// Shown once and never again: only the SHA-256 is stored. Non-empty on
+	// exactly the request that created the row.
+	out := FeedbackConfigWithKey{FeedbackConfig: wireConfig(id, cfg), WidgetKey: issuedKey}
 	httpx.JSON(w, http.StatusOK, out)
 }
 
@@ -288,7 +333,7 @@ func (m *Module) rotateWidgetKey(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	exists, err := m.sitesStore.Exists(r.Context(), id)
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "look up site", err)
 		return
 	}
 	if !exists {
@@ -297,11 +342,11 @@ func (m *Module) rotateWidgetKey(w http.ResponseWriter, r *http.Request) {
 	}
 	plaintext, hash, err := GenerateWidgetKey()
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "generate widget key", err)
 		return
 	}
 	if err := m.store.SetWidgetKeyHash(r.Context(), id, hash, time.Now().UTC()); err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "rotate widget key", err)
 		return
 	}
 	httpx.JSON(w, http.StatusOK, map[string]string{"widget_key": plaintext})
@@ -316,7 +361,7 @@ func (m *Module) loadReport(w http.ResponseWriter, r *http.Request) (*Report, bo
 	}
 	rep, err := m.store.Get(r.Context(), ref)
 	if err != nil {
-		httpx.WriteError(w, httpx.ErrInternal(""))
+		m.fail(w, r, "load report", err)
 		return nil, false
 	}
 	if rep == nil {

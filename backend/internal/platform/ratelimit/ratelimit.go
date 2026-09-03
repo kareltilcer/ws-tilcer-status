@@ -74,6 +74,36 @@ func (l *Limiter) Allow(key string) (ok bool, retryAfter time.Duration) {
 	return false, time.Duration(need * float64(time.Second))
 }
 
+// Refund returns one token to key's bucket, never taking it above burst.
+//
+// ⚠ It exists for the one situation a single bucket cannot express: a request
+// that must satisfy TWO limiters. `Allow` decides and charges in the same call,
+// so whichever bucket is consulted first has already paid when the second one
+// refuses — and if the first bucket is shared (a site's whole budget) and the
+// second is the caller's own (their IP), one refused caller spends everybody
+// else's allowance. The caller charges the narrowest bucket first and refunds it
+// when a later one says no.
+//
+// Refunding a bucket that has since refilled is a no-op rather than an
+// over-credit, and refunding a key that was swept is silently dropped: a fresh
+// bucket already starts full, so there is nothing to give back.
+func (l *Limiter) Refund(key string) {
+	now := l.now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	b := l.buckets[key]
+	if b == nil {
+		return
+	}
+	elapsed := now.Sub(b.last).Seconds()
+	if elapsed > 0 {
+		b.tokens = math.Min(l.burst, b.tokens+elapsed*l.rate)
+		b.last = now
+	}
+	b.tokens = math.Min(l.burst, b.tokens+1)
+}
+
 // sweep drops full/idle buckets to bound memory. Runs at most once per minute
 // unless the map is over the cap, where it wipes to keep memory bounded.
 func (l *Limiter) sweep(now time.Time) {

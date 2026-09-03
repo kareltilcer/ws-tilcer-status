@@ -6,4 +6,7 @@ export const paths = {
   sitePattern: '/sites/:id',
   group: (groupId: number) => `/crashes/${groupId}`,
   groupPattern: '/crashes/:groupId',
+  reports: '/reports',
+  report: (ref: string) => `/reports/${encodeURIComponent(ref)}`,
+  reportPattern: '/reports/:ref',
 }

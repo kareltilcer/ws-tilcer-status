@@ -9,6 +9,8 @@ import { Board } from '@/routes/Board'
 import { SiteDetail } from '@/routes/SiteDetail'
 import { AddSite } from '@/routes/AddSite'
 import { CrashGroup } from '@/routes/CrashGroup'
+import { Inbox } from '@/routes/Inbox'
+import { ReportDetail } from '@/routes/ReportDetail'
 import { paths } from '@/app/routes'
 
 function AppToaster() {
@@ -28,6 +30,8 @@ export default function App() {
                 <Route path={paths.addSite} element={<AddSite />} />
                 <Route path={paths.sitePattern} element={<SiteDetail />} />
                 <Route path={paths.groupPattern} element={<CrashGroup />} />
+                <Route path={paths.reports} element={<Inbox />} />
+                <Route path={paths.reportPattern} element={<ReportDetail />} />
                 <Route path="*" element={<Navigate to={paths.board} replace />} />
               </Route>
             </Routes>

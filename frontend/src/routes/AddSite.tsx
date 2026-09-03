@@ -7,6 +7,7 @@ import { paths } from '@/app/routes'
 import { ApiError } from '@/api/client'
 import { KeyModal } from '@/components/KeyModal'
 import { Spinner, cardStyle, inputStyle, fieldLabel, primaryButton, ghostButton } from '@/components/ui'
+import { curlIngestSnippet } from '@/lib/snippets'
 import type { SiteWithKey } from '@/api/types'
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/
@@ -101,8 +102,8 @@ export function AddSite() {
         <KeyModal
           title="Site created"
           subtitle={`Ingest key for ${created.name} (${created.id})`}
-          siteId={created.id}
-          ingestKey={created.ingest_key}
+          keyValue={created.ingest_key}
+          snippet={curlIngestSnippet(created.id, created.ingest_key)}
           onClose={() => nav(paths.site(created.id))}
         />
       )}

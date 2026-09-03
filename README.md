@@ -4,11 +4,13 @@
 the droplet is healthy (**🟢 green / 🟠 orange / 🔴 red / ⚪ unknown**), combining active uptime
 polling with crash reports the other services send in.
 
-- **Backend** — a Go modular monolith (`backend/`): two modules — `monitoring` (uptime poller +
-  rollups) and `crash` (public ingest + grouping) — over a shared `sites` registry. Embedded SQLite,
-  Litestream → R2 backup. Serves `status.tilcer.cz/api`.
-- **Frontend** — a React + Vite SPA (`frontend/`) behind Mode B auth. Serves `status.tilcer.cz`.
-- **Clients** — copy-in [`clients/go`](clients/go) and [`clients/js`](clients/js) crash reporters.
+- **Backend** — a Go modular monolith (`backend/`): `monitoring` (uptime poller + rollups), `crash`
+  (public ingest + grouping) and `feedback` (user reports + R2 attachments), over a shared `sites`
+  registry. Embedded SQLite, Litestream → R2 backup. Serves `status.tilcer.cz/api`.
+- **Frontend** — a React + Vite SPA (`frontend/`) behind Mode B auth, serving `status.tilcer.cz`,
+  plus the framework-free **feedback widget** at `/widget/v1.js` that the monitored apps embed.
+- **Clients** — copy-in [`clients/go`](clients/go) and [`clients/js`](clients/js) crash reporters,
+  and [`docs/widget.md`](docs/widget.md) for the feedback widget.
 
 The full API contract is [`backend/openapi.yaml`](backend/openapi.yaml); behaviour and the data
 model are in [`handoff/v2/PRD.md`](handoff/v2/PRD.md).
@@ -118,8 +120,14 @@ docker compose up --build   # → http://localhost:1155
 Run the tests:
 
 ```sh
-cd backend && go test ./...
+(cd backend && go test ./...)    # the Go suite
+(cd frontend && npm test)        # the widget's vitest suite
 ```
+
+`npm run build` emits both artifacts: the hashed SPA into `frontend/dist/`, and the widget into
+`frontend/dist/widget/v1.js`. ⚠ Testing the widget properly means serving it to a page on **another
+origin** — CORS, the host's CSP and the bundle's charset are all cross-origin-only failures, and a
+same-origin test proves none of them. See [`docs/widget.md`](docs/widget.md) §11.
 
 ---
 
@@ -187,7 +195,11 @@ Two separate Coolify apps, both on `status.tilcer.cz`; Traefik path-routes (long
   segments it accepts from the routes the router registers; it is a safety net for a misconfigured
   proxy, not a supported routing mode.
 - **`status-frontend`** — static Nginx SPA. Domain `status.tilcer.cz` (catch-all); Base Directory
-  `/frontend`, Dockerfile `/frontend/Dockerfile`.
+  `/frontend`, Dockerfile `/frontend/Dockerfile`. It also serves the feedback widget at
+  `/widget/v1.js` (one year, immutable) with `/widget/latest.js` 302-ing to it from an **exact**
+  location, so the regex block that caches every `.js` for a year cannot pin "latest". ⚠ That server
+  block sets `charset utf-8`: without it a cross-origin `<script>` is decoded as windows-1252 and
+  every Czech string in the widget becomes mojibake, in what it shows and in what it sends.
 
 **Prerequisite (auth provisioning).** In `auth.tilcer.cz`, a superuser must (1) create a **site**
 `status` and (2) create a **service client bound to it**, copying the one-time secret into
@@ -204,9 +216,10 @@ images and clips attached to user reports, under the `feedback/` prefix. Three t
   Litestream bucket, which holds the whole database backup.
 - ⚠ **The bucket needs its own CORS policy**, because the browser PUTs to R2 directly rather than
   through this service: allow `PUT` from the origins in `STATUS_ALLOWED_ORIGINS` (**never `*`** on a
-  bucket that accepts writes) with `Content-Type` and `Content-Length` as allowed headers. Without it
-  the upload fails in the browser with no useful error and no server-side signal at all. The widget
-  documentation that ships with the embed (`docs/widget.md`, PR 3) records the exact policy.
+  bucket that accepts writes) with `Content-Type` as the allowed header — and not `Content-Length`,
+  which a browser sets itself and never asks for in a preflight. Without it the upload fails in the
+  browser with no useful error and no server-side signal at all.
+  [`docs/widget.md`](docs/widget.md) §8 records the exact policy.
 - **It is deliberately not backed up.** The durable record is the report text, which is in SQLite and
   already replicated. Losing an attachment loses convenience, not the record — which is why the
   nightly sweep is constrained as tightly as it is (it aborts and deletes nothing if its listing

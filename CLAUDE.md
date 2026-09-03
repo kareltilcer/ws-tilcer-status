@@ -7,7 +7,8 @@ Conventions for working in this repo. It follows the `home`/`fin` fleet pattern;
 
 `status.tilcer.cz` — fleet monitoring + crash reporting. Two Coolify apps, one origin:
 - `backend/` — Go modular monolith, API-only, port **112**, served at `status.tilcer.cz/api`.
-- `frontend/` — React + Vite SPA, port **80**, served at `status.tilcer.cz` (catch-all).
+- `frontend/` — React + Vite SPA, port **80**, served at `status.tilcer.cz` (catch-all). It also
+  builds and serves the **feedback widget** (`/widget/v1.js`) from a second Vite config.
 
 ⚠ **Strip Prefix must be OFF** on the backend — routes are under `/api`. `httpx.StripAPIPrefix` is a
 defensive fallback for the toggle being flipped back, and its re-prefix set is **derived** from the
@@ -58,10 +59,13 @@ Compile-time modular monolith:
   `STATUS_ALLOWED_ORIGINS` — there is exactly one origin allow-list (V3-D50). The gated group stays
   same-origin. ⚠ `Access-Control-Allow-Credentials` is **never** sent: those endpoints authenticate by
   key, not by cookie. Every public path also gets an explicit `OPTIONS` handler (derived in
-  `NewRouter`), because chi runs group middleware only on a matched route.
+  `NewRouter`), because chi runs group middleware only on a matched route. `Retry-After` is
+  **exposed** (`Access-Control-Expose-Headers`): only seven response headers are CORS-safelisted and
+  that is not one of them, so without it the widget's 429 countdown silently becomes its fallback.
 - Color is **computed on read** in list/detail (orange ages out by time); `cached_color` is a
   write-through fallback updated after every check, ingest, and triage.
-- UI language is **English only** (unlike the Czech `home`/`fin` UIs).
+- The **dashboard** is English only (unlike the Czech `home`/`fin` UIs). The **widget** is the one
+  translated surface: Czech by default, English on `data-lang="en"`, both string sets in the bundle.
 
 ### Migrations
 Numeric filename prefix orders them globally: platform sessions `02xxx`, sites schema `10xxx`,
@@ -78,9 +82,39 @@ it commits. The presigned PUT signs `Content-Type` **and** `Content-Length`; dro
 the bucket into an open upload endpoint that reports no error, which is what
 `TestPresignPutSignsContentLength` exists to prevent.
 
+## Frontend (`frontend/`)
+
+Two artifacts from one build, sharing nothing but the repository:
+
+- **The dashboard** — React 19 + Vite + TanStack Query, inline styles over oklch custom properties in
+  `src/theme/globals.css`, dark by default via a single `.light` class. **No Tailwind, no shadcn/ui.**
+- **The widget** (`src/widget/*`, built by `vite.widget.config.ts` into `dist/widget/v1.js`) —
+  vanilla DOM in a **closed shadow root**, no framework, its own sRGB token set (V3-D55: deliberately
+  not derived from status's oklch tokens, and not host-themeable). It renders **nothing at all**
+  until `GET …/feedback/config` answers `enabled: true`, and it never throws into the host app.
+  ⚠ The build is **ASCII-only** (`asciiOnly` plugin): a cross-origin classic script does not inherit
+  the host document's UTF-8, so without that — and without `charset utf-8` in `nginx.widget.conf` —
+  every Czech string in it becomes mojibake in what it shows *and* in what it sends. The plugin's
+  post-condition reads the **written file** back off disk; re-testing the regex on the string the
+  replace just produced cannot fail and proves nothing.
+  ⚠ Uploads PUT straight to R2, so an oversized file must be refused **client-side**: the URL is
+  signed for the size the widget declared, and `Content-Length` is a header the browser will not let
+  script set.
+  ⚠ "Never throws into the host" is enforced in **one place**, `dom.ts`'s `el()`, which wraps every
+  listener it binds and catches a promise a handler returns. Per-call-site `try` is how the
+  launcher — the most-clicked element v3 ships — ended up the one unguarded entry point.
+  ⚠ `frontend/nginx.widget.conf` holds the widget's charset and cache contract as **one** file,
+  `include`d at server level by both `nginx.conf` and `nginx.harness.conf` (baked to
+  `/etc/nginx/widget.conf`, **not** under `conf.d/`, which nginx auto-includes at http level where
+  `location` will not parse). FR-24 fixes those headers and §V3-11 checks for them; two copies means
+  a harness that proves a policy production does not serve.
+
 ## Testing
 `cd backend && go test ./...`. `internal/apitest` drives the real router over HTTP (dev-bypass auth,
-temp DB) and covers the PRD §11 acceptance criteria end to end.
+temp DB) and covers the PRD §11 acceptance criteria end to end. `cd frontend && npm test` runs the
+widget's vitest suite (jsdom) — the dashboard has none. ⚠ CORS, a host's CSP and the bundle's charset
+fail only cross-origin: verifying the widget means serving it to a page on another origin
+(`docs/widget.md` §11).
 
 ## Auth (Mode B)
 `status` hosts its own login and owns its session (random token, SHA-256-hashed in `sessions`); the

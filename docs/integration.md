@@ -3,6 +3,9 @@
 The full contract is [`../backend/openapi.yaml`](../backend/openapi.yaml). This is the practical
 reference for wiring a service up to report crashes.
 
+> Looking for the **feedback widget** — the button that lets the people *using* an app write to
+> Karel? That is a different key and a different endpoint: [`widget.md`](widget.md).
+
 ## Endpoint
 
 ```

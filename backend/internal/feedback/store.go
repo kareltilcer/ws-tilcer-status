@@ -21,6 +21,13 @@ var errInvalidCursor = errors.New("feedback: invalid cursor")
 // wrong.
 var errRefExhausted = errors.New("feedback: could not allocate a unique ref")
 
+// errConfigMissing is UpsertConfig refusing to CREATE a configuration row for a
+// request that is not enabling feedback. The row cannot exist without a widget
+// key, and a key is shown exactly once — so a request that would create one as a
+// side effect of changing some other setting is refused rather than served with
+// a key nobody asked for and nobody will see again.
+var errConfigMissing = errors.New("feedback: site has no feedback configuration")
+
 // refAttempts is how many times a report insert retries on the unique(ref)
 // violation. Generating and retrying beats pre-checking, which is a race.
 const refAttempts = 5
@@ -67,15 +74,24 @@ func (s *Store) Config(ctx context.Context, siteID string) (*siteConfig, error) 
 	return &c, nil
 }
 
-// UpsertConfig applies a patch, creating the row (with keyHash, minted by the
-// caller) when it is absent. It returns the resulting configuration and whether
-// the key it was handed was actually used — the plaintext is shown once, and only
-// when it is the key the site now has.
+// UpsertConfig applies a patch, creating the row when it is absent. It returns
+// the resulting configuration and the plaintext of the widget key, which is
+// non-empty on exactly the request that created the row — the one request that
+// will ever be able to show it.
+//
+// ⚠ `mintKey` is a minter rather than a key, and nil means "this request may not
+// create the row" (the old `allowCreate`). Both halves matter. Creating the row
+// mints the widget key and a key is shown exactly once, in the response to the
+// request that minted it, so only a request that turns feedback ON may create it
+// (FR-14) — and a request that CAN create the row still only mints when it
+// actually does, which a pre-minted key handed in from outside could not express:
+// every enable of an already-configured site generated a secret and threw it
+// away, leaving "was a key issued here?" with one more thing to rule out.
 //
 // The read and the write share one transaction: BeginTx issues BEGIN IMMEDIATE
 // here (the DSN's _txlock), so two concurrent patches cannot both find the row
 // absent and both try to insert it.
-func (s *Store) UpsertConfig(ctx context.Context, siteID string, enabled, console *bool, keyHash string, now time.Time) (out *siteConfig, minted bool, err error) {
+func (s *Store) UpsertConfig(ctx context.Context, siteID string, enabled, console *bool, mintKey func() (plaintext, hash string, err error), now time.Time) (out *siteConfig, issued string, err error) {
 	ts := timeutil.Format(now)
 	err = appdb.WithTx(ctx, s.db, func(tx *sql.Tx) error {
 		var c siteConfig
@@ -85,6 +101,16 @@ func (s *Store) UpsertConfig(ctx context.Context, siteID string, enabled, consol
 			Scan(&c.SiteID, &c.Enabled, &c.WidgetKeyHash, &c.WidgetKeySetAt, &c.ConsoleCapture, &c.UpdatedAt)
 		switch {
 		case errors.Is(scanErr, sql.ErrNoRows):
+			// ⚠ The decision is made here, inside the transaction that would do
+			// the writing, rather than by reading the row first and deciding
+			// outside it — and so, now, is the minting.
+			if mintKey == nil {
+				return errConfigMissing
+			}
+			plaintext, keyHash, mintErr := mintKey()
+			if mintErr != nil {
+				return mintErr
+			}
 			c = siteConfig{SiteID: siteID, WidgetKeyHash: keyHash, WidgetKeySetAt: ts, UpdatedAt: ts}
 			if enabled != nil {
 				c.Enabled = *enabled
@@ -99,7 +125,7 @@ func (s *Store) UpsertConfig(ctx context.Context, siteID string, enabled, consol
 				c.SiteID, c.Enabled, c.WidgetKeyHash, c.WidgetKeySetAt, c.ConsoleCapture, ts, ts); err != nil {
 				return err
 			}
-			out, minted = &c, true
+			out, issued = &c, plaintext
 			return nil
 		case scanErr != nil:
 			return scanErr
@@ -120,9 +146,9 @@ func (s *Store) UpsertConfig(ctx context.Context, siteID string, enabled, consol
 		return nil
 	})
 	if err != nil {
-		return nil, false, err
+		return nil, "", err
 	}
-	return out, minted, nil
+	return out, issued, nil
 }
 
 // SetWidgetKeyHash rotates the key on an existing row, or creates the row
@@ -133,23 +159,31 @@ func (s *Store) UpsertConfig(ctx context.Context, siteID string, enabled, consol
 // separate.
 func (s *Store) SetWidgetKeyHash(ctx context.Context, siteID, hash string, now time.Time) error {
 	ts := timeutil.Format(now)
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE feedback_site_config SET widget_key_hash = ?, widget_key_set_at = ?, updated_at = ? WHERE site_id = ?`,
-		hash, ts, ts, siteID)
-	if err != nil {
+	// ⚠ UPDATE-then-INSERT is two statements deciding one outcome, so they run in
+	// one transaction — as UpsertConfig's does for the same shape. The single
+	// writer connection makes the interleaving unlikely rather than impossible,
+	// and the failure it prevents is the expensive kind: a rotate that updates
+	// nothing and then collides on the primary key would answer 500 having
+	// already thrown away the plaintext of the key it minted.
+	return appdb.WithTx(ctx, s.db, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE feedback_site_config SET widget_key_hash = ?, widget_key_set_at = ?, updated_at = ? WHERE site_id = ?`,
+			hash, ts, ts, siteID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			return nil
+		}
+		// No configuration yet: create it disabled, so rotating a key never turns
+		// feedback on as a side effect.
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO feedback_site_config
+			   (site_id, enabled, widget_key_hash, widget_key_set_at, console_capture, created_at, updated_at)
+			 VALUES (?,0,?,?,0,?,?)`,
+			siteID, hash, ts, ts, ts)
 		return err
-	}
-	if n, _ := res.RowsAffected(); n > 0 {
-		return nil
-	}
-	// No configuration yet: create it disabled, so rotating a key never turns
-	// feedback on as a side effect.
-	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO feedback_site_config
-		   (site_id, enabled, widget_key_hash, widget_key_set_at, console_capture, created_at, updated_at)
-		 VALUES (?,0,?,?,0,?,?)`,
-		siteID, hash, ts, ts, ts)
-	return err
+	})
 }
 
 // --- tickets ----------------------------------------------------------------

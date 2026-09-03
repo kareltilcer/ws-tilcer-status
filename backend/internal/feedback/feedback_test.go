@@ -93,8 +93,21 @@ func newHarness(t *testing.T, cfg Config) *harness {
 	// in the real service come from the session middleware and RequestID.
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := reqctx.WithActor(req.Context(), reqctx.Actor{UserID: "dev", Type: "user", Roles: []string{"admin"}})
-			ctx = reqctx.WithRequest(ctx, reqctx.RequestInfo{RequestID: "test", IP: testIP})
+			// Two test-only headers stand in for the two things the real middleware
+			// resolves per request: who is calling, and from where. A case that needs
+			// a second client or a lesser role sets one rather than building a second
+			// harness — and neither header means anything to the handlers, which read
+			// both values from the context.
+			roles := []string{"admin"}
+			if v := req.Header.Get("X-Test-Roles"); v != "" {
+				roles = strings.Split(v, ",")
+			}
+			ip := testIP
+			if v := req.Header.Get("X-Test-IP"); v != "" {
+				ip = v
+			}
+			ctx := reqctx.WithActor(req.Context(), reqctx.Actor{UserID: "dev", Type: "user", Roles: roles})
+			ctx = reqctx.WithRequest(ctx, reqctx.RequestInfo{RequestID: "test", IP: ip})
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})
 	})
@@ -131,12 +144,9 @@ func (h *harness) seedSite(id, name string) {
 // enable turns feedback on for a site and returns the plaintext widget key.
 func (h *harness) enable(siteID string) string {
 	h.t.Helper()
-	plaintext, hash, err := GenerateWidgetKey()
-	if err != nil {
-		h.t.Fatalf("widget key: %v", err)
-	}
 	on := true
-	if _, _, err := h.mod.store.UpsertConfig(context.Background(), siteID, &on, nil, hash, time.Now().UTC()); err != nil {
+	_, plaintext, err := h.mod.store.UpsertConfig(context.Background(), siteID, &on, nil, GenerateWidgetKey, time.Now().UTC())
+	if err != nil {
 		h.t.Fatalf("enable: %v", err)
 	}
 	return plaintext
@@ -168,6 +178,16 @@ func (h *harness) do(method, path string, body any, headers map[string]string) (
 // widgetHeaders is the header set a real widget sends.
 func widgetHeaders(key string) map[string]string {
 	return map[string]string{"X-Widget-Key": key, "Origin": testOrigin}
+}
+
+// with returns headers plus one more — for the test-only X-Test-IP and
+// X-Test-Roles the harness middleware reads.
+func with(headers map[string]string, name, value string) map[string]string {
+	out := map[string]string{name: value}
+	for k, v := range headers {
+		out[k] = v
+	}
+	return out
 }
 
 // ticket fetches a fresh submission ticket through the public config route.
@@ -228,9 +248,9 @@ func TestGuardChainOrder(t *testing.T) {
 	h := newHarness(t, testConfig())
 	h.seedSite("fin", "Fin") // exists, but feedback was never enabled
 	disabledKey := func() string {
-		plaintext, hash, _ := GenerateWidgetKey()
 		off := false
-		if _, _, err := h.mod.store.UpsertConfig(context.Background(), "fin", &off, nil, hash, time.Now().UTC()); err != nil {
+		_, plaintext, err := h.mod.store.UpsertConfig(context.Background(), "fin", &off, nil, GenerateWidgetKey, time.Now().UTC())
+		if err != nil {
 			t.Fatalf("disable fin: %v", err)
 		}
 		return plaintext
@@ -392,6 +412,83 @@ func TestSubmitRateLimited(t *testing.T) {
 	}
 }
 
+// TestOneIPCannotDrainTheSiteBudget is the fairness property the two buckets
+// exist to provide, and it fails against a limiter that charges them in the
+// wrong order.
+//
+// ⚠ The per-key bucket is the SITE's, shared by everyone reporting from it; the
+// per-IP bucket is one caller's own. `Allow` decides and charges in one call, so
+// consulting the key bucket first made every request an abusive IP was ALREADY
+// being refused for cost the site a token anyway — one bad client silently spent
+// the whole household's allowance, and the reporters who had done nothing got a
+// 429 with no explanation available to them.
+func TestOneIPCannotDrainTheSiteBudget(t *testing.T) {
+	cfg := testConfig()
+	// A site budget of three reports and an IP budget of one, refilling so slowly
+	// that nothing recovers during the test.
+	cfg.RatePerSec, cfg.Burst = 0.001, 3
+	cfg.IPRatePerSec, cfg.IPBurst = 0.001, 1
+	h := newHarness(t, cfg)
+	const path = "/api/ingest/" + testSite + "/feedback"
+
+	abusive := with(widgetHeaders(h.key), "X-Test-IP", "198.51.100.7")
+	if code, body := h.do(http.MethodPost, path, h.submission(), abusive); code != http.StatusAccepted {
+		t.Fatalf("first submission from the abusive client = %d, want 202: %s", code, body)
+	}
+	// Its own bucket is empty now. Every further attempt is refused — and must
+	// cost the site nothing, because the site never served them.
+	for i := 0; i < 3; i++ {
+		if code, _ := h.do(http.MethodPost, path, map[string]any{"message": "again"}, abusive); code != http.StatusTooManyRequests {
+			t.Fatalf("abusive attempt %d = %d, want 429", i+2, code)
+		}
+	}
+
+	other := with(widgetHeaders(h.key), "X-Test-IP", "192.0.2.55")
+	if code, body := h.do(http.MethodPost, path, h.submission(), other); code != http.StatusAccepted {
+		t.Fatalf("a different reporter = %d, want 202 — one client drained the site's budget: %s", code, body)
+	}
+}
+
+// TestASiteOverItsBudgetKeepsTheCallersToken is the other half of the ordering:
+// a reporter refused because the SITE is out of budget has not been served, so
+// the attempt must not cost them a token of their own either.
+func TestASiteOverItsBudgetKeepsTheCallersToken(t *testing.T) {
+	cfg := testConfig()
+	// The site's bucket holds one report and takes 200 ms to refill it; the
+	// reporter's own holds two and, for the length of this test, never refills.
+	//
+	// ⚠ The margins are wide on purpose. `Module`'s limiters are built on
+	// time.Now — only `ratelimit`'s own suite can inject a clock — so the two
+	// assertions below are wall-clock bets: that the second request lands within
+	// 200 ms of the first (with a submission's ticket spend, report insert and
+	// httptest round trip in between, over one SQLite writer), and that 300 ms of
+	// sleep is more than 200. At 1 000 tokens/sec, which is what this said first,
+	// the first bet was on a single millisecond and the test failed roughly once
+	// in a hundred runs on an unloaded machine.
+	cfg.RatePerSec, cfg.Burst = 5, 1
+	cfg.IPRatePerSec, cfg.IPBurst = 0.001, 2
+	h := newHarness(t, cfg)
+	const path = "/api/ingest/" + testSite + "/feedback"
+	me := with(widgetHeaders(h.key), "X-Test-IP", "192.0.2.11")
+
+	if code, body := h.do(http.MethodPost, path, h.submission(), me); code != http.StatusAccepted {
+		t.Fatalf("first submission = %d, want 202: %s", code, body)
+	}
+	// Immediately again: the site's single token has not refilled yet, so this is
+	// the site refusing — not me.
+	if code, _ := h.do(http.MethodPost, path, map[string]any{"message": "mine"}, me); code != http.StatusTooManyRequests {
+		t.Fatal("the site is out of budget: this must be a 429")
+	}
+
+	// Once the site's bucket has refilled, my second token must still be there.
+	// Without the refund it went to a request the site never served, and this is
+	// a 429 for a reporter who has filed exactly one report.
+	time.Sleep(300 * time.Millisecond)
+	if code, body := h.do(http.MethodPost, path, h.submission(), me); code != http.StatusAccepted {
+		t.Fatalf("second submission = %d, want 202 — a refusal by the site's bucket cost the caller a token: %s", code, body)
+	}
+}
+
 // TestSubmitRejectsInvalid covers everything FR-17 folds into one 422.
 func TestSubmitRejectsInvalid(t *testing.T) {
 	h := newHarness(t, testConfig())
@@ -494,7 +591,7 @@ func TestTicketRules(t *testing.T) {
 func TestDisabledSiteRendersNoLauncher(t *testing.T) {
 	h := newHarness(t, testConfig())
 	off := false
-	if _, _, err := h.mod.store.UpsertConfig(context.Background(), testSite, &off, nil, "", time.Now().UTC()); err != nil {
+	if _, _, err := h.mod.store.UpsertConfig(context.Background(), testSite, &off, nil, nil, time.Now().UTC()); err != nil {
 		t.Fatalf("disable: %v", err)
 	}
 	code, body := h.do(http.MethodGet, "/api/ingest/"+testSite+"/feedback/config", nil, widgetHeaders(h.key))
@@ -514,6 +611,83 @@ func TestDisabledSiteRendersNoLauncher(t *testing.T) {
 	if code, _ := h.do(http.MethodPost, "/api/ingest/"+testSite+"/feedback",
 		map[string]any{"message": "hi", "ticket": "x"}, widgetHeaders(h.key)); code != http.StatusForbidden {
 		t.Fatalf("submitting to a disabled site = %d, want 403", code)
+	}
+}
+
+// TestConfigPublishesTheMinimumDwell: the dial has to reach the client that has
+// to obey it.
+//
+// ⚠ The widget's "Send again" mints a replacement ticket and must wait out this
+// dwell before posting it, or `checkTiming` refuses the retry as a script —
+// every time, so the button can never work. The widget mirrored the 3 000 ms
+// default as a constant of its own, which is correct for exactly one value of a
+// setting configuration accepts anywhere under 30 s.
+func TestConfigPublishesTheMinimumDwell(t *testing.T) {
+	cfg := testConfig()
+	cfg.MinDwell = 9 * time.Second
+	h := newHarness(t, cfg)
+
+	code, body := h.do(http.MethodGet, "/api/ingest/"+testSite+"/feedback/config", nil, widgetHeaders(h.key))
+	if code != http.StatusOK {
+		t.Fatalf("config = %d, want 200 (%s)", code, body)
+	}
+	var out WidgetConfig
+	mustJSON(t, body, &out)
+	if out.MinDwellMs != 9000 {
+		t.Fatalf("min_dwell_ms = %d, want 9000 — a client that cannot read the dwell cannot wait it out", out.MinDwellMs)
+	}
+}
+
+// TestWidgetRoutesAreNotCacheable covers the three public responses, two of
+// which carry single-use credentials.
+//
+// ⚠ None of them sent any cache directive at all, which leaves an intermediary
+// free to compute freshness heuristically. A cache that served one reporter's
+// ticket to another dead-ends the second dialog with a 422 nobody can act on,
+// and a shared upload URL is a write into somebody else's report.
+func TestWidgetRoutesAreNotCacheable(t *testing.T) {
+	h := newHarness(t, testConfig())
+	base := "/api/ingest/" + testSite + "/feedback"
+
+	ref := ""
+	cases := []struct {
+		name   string
+		method string
+		path   func() string
+		body   func() any
+	}{
+		{"config", http.MethodGet, func() string { return base + "/config" }, func() any { return nil }},
+		{"submit", http.MethodPost, func() string { return base }, func() any { return h.submission() }},
+		{"claim", http.MethodPost, func() string { return base + "/" + ref + "/claim" }, func() any { return nil }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := httptest.NewRequest(c.method, c.path(), nil)
+			if b := c.body(); b != nil {
+				raw, err := json.Marshal(b)
+				if err != nil {
+					t.Fatalf("marshal: %v", err)
+				}
+				req = httptest.NewRequest(c.method, c.path(), strings.NewReader(string(raw)))
+				req.Header.Set("Content-Type", "application/json")
+			}
+			for k, v := range widgetHeaders(h.key) {
+				req.Header.Set(k, v)
+			}
+			rec := httptest.NewRecorder()
+			h.srv.ServeHTTP(rec, req)
+			if rec.Code >= 500 {
+				t.Fatalf("%s = %d: %s", c.name, rec.Code, rec.Body.String())
+			}
+			if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+				t.Fatalf("%s Cache-Control = %q, want no-store", c.name, got)
+			}
+			if c.name == "submit" {
+				var out Accepted
+				mustJSON(t, rec.Body.Bytes(), &out)
+				ref = out.Ref
+			}
+		})
 	}
 }
 

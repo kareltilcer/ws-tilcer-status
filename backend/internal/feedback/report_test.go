@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/sites"
 )
 
 // TestRefFormat: the reference is quoted back by the reporter, so it must survive
@@ -316,7 +318,7 @@ func TestConsoleTailIsOptIn(t *testing.T) {
 
 	// With the opt-in on, the lines are kept — and capped.
 	on := true
-	if _, _, err := h.mod.store.UpsertConfig(context.Background(), testSite, nil, &on, "", time.Now().UTC()); err != nil {
+	if _, _, err := h.mod.store.UpsertConfig(context.Background(), testSite, nil, &on, nil, time.Now().UTC()); err != nil {
 		t.Fatalf("opt in: %v", err)
 	}
 	body = h.submission()
@@ -392,6 +394,86 @@ func TestRotateWidgetKeyInvalidatesTheOldOne(t *testing.T) {
 	}
 }
 
+// TestInternalNoteIsAdminOnly holds the code to what the contract says about
+// that field.
+//
+// ⚠ `openapi.yaml` calls internal_note "Admin-only" and FR-21 says the same, but
+// GET /api/reports/{ref} is only session-gated — PATCH and DELETE beside it carry
+// RequireAdmin and it does not. The gate is therefore on the field: any session
+// may read a report, only an admin sees the note Karel wrote about it.
+func TestInternalNoteIsAdminOnly(t *testing.T) {
+	h := newHarness(t, testConfig())
+	ref := h.submitWithFile(64).Ref
+
+	if code, _ := h.do(http.MethodPatch, "/api/reports/"+ref,
+		map[string]any{"internal_note": "same root cause as fin R-9XB3"}, nil); code != http.StatusOK {
+		t.Fatalf("set the note: %d", code)
+	}
+
+	var asAdmin Report
+	code, body := h.do(http.MethodGet, "/api/reports/"+ref, nil, nil)
+	mustJSON(t, body, &asAdmin)
+	if code != http.StatusOK || asAdmin.InternalNote == nil {
+		t.Fatalf("an admin must see the note: %d %s", code, body)
+	}
+
+	var asEditor Report
+	code, body = h.do(http.MethodGet, "/api/reports/"+ref, nil, map[string]string{"X-Test-Roles": "editor"})
+	if code != http.StatusOK {
+		t.Fatalf("a non-admin session may still read the report: %d %s", code, body)
+	}
+	mustJSON(t, body, &asEditor)
+	if asEditor.InternalNote != nil {
+		t.Fatalf("internal_note reached a non-admin session: %q", *asEditor.InternalNote)
+	}
+	// The rest of the report is not a secret — only the note is.
+	if asEditor.Ref != ref || asEditor.Message == "" {
+		t.Fatalf("the report itself must survive the redaction: %+v", asEditor)
+	}
+}
+
+// TestConsoleCaptureAloneCannotMintAKey pins the invariant that keeps a widget
+// key from being spent on a request that did not ask for one.
+//
+// ⚠ The configuration row cannot exist without a widget key, and a key is shown
+// exactly once — in the response to the request that minted it. So a
+// console_capture-only PATCH against a site that has never had feedback enabled
+// used to create the row, mint the key and return it in a modal nobody asked
+// for: a site whose key was displayed once, unnoticed, and recoverable only by
+// rotating it.
+func TestConsoleCaptureAloneCannotMintAKey(t *testing.T) {
+	h := newHarness(t, testConfig())
+	h.seedSite("fin", "Fin") // a site that has never had feedback enabled
+
+	code, body := h.do(http.MethodPatch, "/api/sites/fin/feedback-config",
+		map[string]any{"console_capture": true}, nil)
+	if code != http.StatusUnprocessableEntity {
+		t.Fatalf("console_capture on an unconfigured site = %d, want 422: %s", code, body)
+	}
+
+	// Nothing was created, so nothing was minted: the site still reads as
+	// disabled and its next enable is still the one and only key display.
+	var cfg FeedbackConfig
+	code, body = h.do(http.MethodGet, "/api/sites/fin/feedback-config", nil, nil)
+	mustJSON(t, body, &cfg)
+	if code != http.StatusOK || cfg.Enabled || cfg.WidgetKeySetAt != nil {
+		t.Fatalf("a refused PATCH must leave no configuration behind: %d %s", code, body)
+	}
+
+	// Enabling still works, and is what issues the key.
+	var withKey FeedbackConfigWithKey
+	code, body = h.do(http.MethodPatch, "/api/sites/fin/feedback-config", map[string]any{"enabled": true}, nil)
+	mustJSON(t, body, &withKey)
+	if code != http.StatusOK || withKey.WidgetKey == "" {
+		t.Fatalf("enabling must mint and return the key exactly once: %d %s", code, body)
+	}
+	// And with the row in place, the setting it refused a moment ago applies.
+	if code, body := h.do(http.MethodPatch, "/api/sites/fin/feedback-config",
+		map[string]any{"console_capture": true}, nil); code != http.StatusOK {
+		t.Fatalf("console_capture on a configured site = %d, want 200: %s", code, body)
+	}
+}
+
 // TestSiteConfigRoutes covers FR-14: absence means off, the plaintext is shown
 // exactly once, and an unknown site is a 404.
 func TestSiteConfigRoutes(t *testing.T) {
@@ -444,6 +526,13 @@ func TestSiteConfigRoutes(t *testing.T) {
 	if stored == first.WidgetKey {
 		t.Fatal("the plaintext key was stored — only its SHA-256 may be")
 	}
+	// ⚠ And it is still the FIRST key's hash. This route mints one for the create
+	// path only; a later patch must neither replace the site's key nor mint a
+	// second one it then throws away, because a key nobody was shown is a key
+	// only a rotate can recover from.
+	if !sites.ConstantTimeMatch(first.WidgetKey, stored) {
+		t.Fatal("a later patch replaced the widget key — only rotate may do that")
+	}
 
 	if code, _ := h.do(http.MethodGet, "/api/sites/nope/feedback-config", nil, nil); code != http.StatusNotFound {
 		t.Fatalf("unknown site = %d, want 404", code)
@@ -453,6 +542,47 @@ func TestSiteConfigRoutes(t *testing.T) {
 	}
 	if code, _ := h.do(http.MethodPatch, "/api/sites/karel/feedback-config", map[string]any{}, nil); code != http.StatusUnprocessableEntity {
 		t.Fatalf("empty patch = %d, want 422", code)
+	}
+}
+
+// TestReEnablingMintsNothing — a key is minted by whichever request CREATES the
+// configuration row, and by no other.
+//
+// ⚠ The route decides whether a request MAY create the row (only one that turns
+// feedback on), but whether it DOES is known only inside the transaction that
+// looks. Handing the store a pre-minted key collapsed the two: every "turn
+// feedback back on" — the most ordinary patch the panel sends — generated a
+// secret, found the row already there and threw it away. Nothing leaked, but a
+// system where the question "was a key issued here?" has to have an answer should
+// not be manufacturing keys that were issued nowhere. The minter is called from
+// inside the ErrNoRows branch, so this counts the answer directly rather than
+// inferring it from a response that looks the same either way.
+func TestReEnablingMintsNothing(t *testing.T) {
+	h := newHarness(t, testConfig())
+	h.seedSite("karel", "Karel")
+	mints := 0
+	minter := func() (string, string, error) {
+		mints++
+		return GenerateWidgetKey()
+	}
+	on, off := true, false
+
+	if _, issued, err := h.mod.store.UpsertConfig(context.Background(), "karel", &on, nil, minter, time.Now().UTC()); err != nil {
+		t.Fatalf("first enable: %v", err)
+	} else if mints != 1 || issued == "" {
+		t.Fatalf("the create must mint exactly one key and return it: mints=%d issued=%q", mints, issued)
+	}
+
+	// Off and on again, which is the patch pair the panel's switch sends.
+	for _, v := range []*bool{&off, &on} {
+		if _, issued, err := h.mod.store.UpsertConfig(context.Background(), "karel", v, nil, minter, time.Now().UTC()); err != nil {
+			t.Fatalf("toggle: %v", err)
+		} else if issued != "" {
+			t.Fatalf("a patch that did not create the row returned a key: %q", issued)
+		}
+	}
+	if mints != 1 {
+		t.Fatalf("minted %d keys, want 1 — only the request that created the row may mint", mints)
 	}
 }
 

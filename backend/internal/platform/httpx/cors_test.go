@@ -116,6 +116,21 @@ func TestCORSAlwaysVariesOnOrigin(t *testing.T) {
 	}
 }
 
+// ⚠ Retry-After is not one of the seven CORS-safelisted response headers, so a
+// cross-origin caller cannot read it unless it is exposed. The feedback widget
+// only ever runs cross-origin: without this the 429 treatment always shows its
+// hard-coded fallback wait instead of the one writeRateLimited computed, and
+// docs/widget.md §10 ("Retry-After drives the wait shown") would be untrue.
+func TestCORSExposesRetryAfter(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/ingest/home/feedback", nil)
+	req.Header.Set("Origin", testOrigin)
+	w := httptest.NewRecorder()
+	corsHandler().ServeHTTP(w, req)
+	if got := w.Header().Get("Access-Control-Expose-Headers"); !strings.Contains(got, "Retry-After") {
+		t.Fatalf("Expose-Headers = %q, want it to include Retry-After", got)
+	}
+}
+
 // An empty allow-list disables cross-origin access rather than opening it.
 func TestCORSEmptyAllowListMatchesNothing(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/ingest/home", nil)

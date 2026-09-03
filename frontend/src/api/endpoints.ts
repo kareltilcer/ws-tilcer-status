@@ -1,12 +1,20 @@
 import { apiFetch } from './client'
 import type {
+  AttachmentURL,
   Color,
   CrashGroup,
   GroupDetail,
   GroupPage,
   GroupStatus,
   Level,
+  FeedbackConfig,
+  FeedbackConfigWithKey,
   Meta,
+  Report,
+  ReportKind,
+  ReportPage,
+  ReportPatch,
+  ReportState,
   SiteCreate,
   SiteSummary,
   SiteUpdate,
@@ -84,4 +92,52 @@ export function getCrashGroup(groupId: number, cursor?: string) {
 }
 export function triageGroup(groupId: number, status: GroupStatus) {
   return apiFetch<CrashGroup>(`/api/crashes/${groupId}`, { method: 'PATCH', body: { status } })
+}
+
+// --- feedback (v3) ---
+export interface ReportFilters {
+  state?: ReportState
+  site?: string
+  kind?: ReportKind
+  cursor?: string
+}
+export function listReports(filters: ReportFilters = {}) {
+  const q = new URLSearchParams()
+  if (filters.state) q.set('state', filters.state)
+  if (filters.site) q.set('site', filters.site)
+  if (filters.kind) q.set('kind', filters.kind)
+  if (filters.cursor) q.set('cursor', filters.cursor)
+  const qs = q.toString()
+  return apiFetch<ReportPage>(`/api/reports${qs ? `?${qs}` : ''}`)
+}
+export function getReport(ref: string) {
+  return apiFetch<Report>(`/api/reports/${encodeURIComponent(ref)}`)
+}
+export function triageReport(ref: string, body: ReportPatch) {
+  return apiFetch<Report>(`/api/reports/${encodeURIComponent(ref)}`, { method: 'PATCH', body })
+}
+export function deleteReport(ref: string) {
+  return apiFetch<void>(`/api/reports/${encodeURIComponent(ref)}`, { method: 'DELETE' })
+}
+/** attachmentUrl mints a presigned GET. ⚠ It is a bearer token for its lifetime
+ *  (5 minutes by default), so it is fetched when an attachment is about to be
+ *  shown and never put anywhere shareable. */
+export function attachmentUrl(ref: string, attachmentId: number) {
+  return apiFetch<AttachmentURL>(
+    `/api/reports/${encodeURIComponent(ref)}/attachments/${attachmentId}/url`,
+  )
+}
+export function getFeedbackConfig(siteId: string) {
+  return apiFetch<FeedbackConfig>(`/api/sites/${encodeURIComponent(siteId)}/feedback-config`)
+}
+export function updateFeedbackConfig(siteId: string, body: { enabled?: boolean; console_capture?: boolean }) {
+  return apiFetch<FeedbackConfigWithKey>(`/api/sites/${encodeURIComponent(siteId)}/feedback-config`, {
+    method: 'PATCH',
+    body,
+  })
+}
+export function rotateWidgetKey(siteId: string) {
+  return apiFetch<{ widget_key: string }>(`/api/sites/${encodeURIComponent(siteId)}/rotate-widget-key`, {
+    method: 'POST',
+  })
 }
