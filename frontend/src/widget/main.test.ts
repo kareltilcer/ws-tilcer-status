@@ -86,6 +86,22 @@ describe('boot', () => {
     expect(launcher?.tagName).toBe('BUTTON')
   })
 
+  it('takes a stacking order of its own, which is the only one the host page can read', async () => {
+    embedScript({ 'data-site': 'home', 'data-key': 'wk_test' })
+    respondWith(enabled)
+    await boot()
+
+    // ⚠ `position: fixed` ALWAYS creates a stacking context, so .sfb-wrap’s
+    // 2147483000 only orders the widget's own layers against each other — the
+    // widget enters the host page at whatever level THIS element has, and
+    // `all:initial` had left that at `auto`. Measured on `home`, whose mobile tab
+    // bar is `fixed bottom-0 z-10`: elementFromPoint at the centre of the sheet’s
+    // Send button returned the tab bar, not the widget.
+    const style = container()!.getAttribute('style') ?? ''
+    expect(style).toContain('position:fixed')
+    expect(style).toContain('z-index:2147483000')
+  })
+
   it('follows data-lang for the accessible name', async () => {
     embedScript({ 'data-site': 'home', 'data-key': 'wk_test', 'data-lang': 'en' })
     respondWith(enabled)

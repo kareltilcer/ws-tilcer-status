@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SubmitResult, Upload } from './api'
 import type { ConsoleCapture } from './consoleTail'
 import { FeedbackDialog, resolveKinds, type DialogApi, type ReportContext } from './dialog'
@@ -131,6 +131,37 @@ beforeEach(() => {
   document.body.innerHTML = ''
 })
 
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+/** stubViewport installs a fake `window.visualViewport` — jsdom has none — and
+ *  hands back the two things a test needs that the real one does not expose: a
+ *  way to move it, and a count of what is still listening to it. */
+function stubViewport(initial: { height: number; offsetTop?: number }) {
+  const handlers = new Map<string, Set<EventListener>>()
+  const vv = {
+    height: initial.height,
+    offsetTop: initial.offsetTop ?? 0,
+    addEventListener(type: string, fn: EventListener) {
+      if (!handlers.has(type)) handlers.set(type, new Set())
+      handlers.get(type)!.add(fn)
+    },
+    removeEventListener(type: string, fn: EventListener) {
+      handlers.get(type)?.delete(fn)
+    },
+  }
+  vi.stubGlobal('visualViewport', vv)
+  return {
+    listening: () => [...handlers.values()].reduce((n, set) => n + set.size, 0),
+    move(type: string, to: { height?: number; offsetTop?: number }) {
+      if (to.height !== undefined) vv.height = to.height
+      if (to.offsetTop !== undefined) vv.offsetTop = to.offsetTop
+      for (const fn of handlers.get(type) ?? []) fn(new Event(type))
+    },
+  }
+}
+
 describe('opening and closing', () => {
   it('puts focus in the message field and marks itself a modal dialog', () => {
     const h = harness({})
@@ -238,6 +269,51 @@ describe('opening and closing', () => {
     const dialog = h.q<HTMLElement>('[role="dialog"]')!
     expect(document.activeElement).not.toBe(document.body)
     expect(dialog.contains(document.activeElement)).toBe(true)
+  })
+})
+
+describe('the visual viewport', () => {
+  it('pins the wrapper to the box that is actually on screen, and keeps following it', () => {
+    const vv = stubViewport({ height: 812 })
+    const h = harness({})
+    h.dialog.open()
+    const wrap = h.q<HTMLElement>('.sfb-wrap')!
+    expect(wrap.style.height).toBe('812px')
+    expect(wrap.style.top).toBe('0px')
+
+    // ⚠ THE KEYBOARD IS THE CASE THIS EXISTS FOR. Chrome defaults to
+    // `interactive-widget=resizes-visual`, which shrinks the visual viewport and
+    // leaves the layout viewport — and therefore the fixed wrapper, and every CSS
+    // unit including `dvh` — exactly where it was. Without this the footer, and
+    // the Send button in it, is simply under the keyboard.
+    vv.move('resize', { height: 320 })
+    expect(wrap.style.height).toBe('320px')
+
+    // And a browser that scrolls the visual viewport to reveal the field being
+    // typed into moves the box as well as resizing it.
+    vv.move('scroll', { offsetTop: 96 })
+    expect(wrap.style.top).toBe('96px')
+  })
+
+  it('stops listening when the dialog closes, since the widget outlives every opening', () => {
+    const vv = stubViewport({ height: 812 })
+    const h = harness({})
+    h.dialog.open()
+    expect(vv.listening()).toBe(2)
+
+    // The handlers hold a wrapper that is about to be detached, on a host page
+    // an installed PWA may not reload for days.
+    h.dialog.close()
+    expect(vv.listening()).toBe(0)
+  })
+
+  it('opens without a visualViewport at all, which is jsdom and any browser old enough', () => {
+    const h = harness({})
+    h.dialog.open()
+    expect(h.q('[role="dialog"]')).not.toBeNull()
+    // Nothing inline, so `inset: 0` and `100dvh` in styles.ts are what position
+    // the wrapper — the behaviour that shipped before this.
+    expect(h.q<HTMLElement>('.sfb-wrap')!.style.height).toBe('')
   })
 })
 

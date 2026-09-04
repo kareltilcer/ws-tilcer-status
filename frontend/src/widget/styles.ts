@@ -9,8 +9,9 @@
 // appearance, asserted on every host — a white surface, one deep-teal accent, one
 // radius pair, a system font stack.
 //
-// Six rules inside carry weight beyond their looks and have no comment of their
-// own, because everything in the template literal ships to every host page:
+// Eight rules inside carry weight beyond their looks and have no comment of
+// their own, because everything in the template literal ships to every host
+// page:
 //
 //   :host > *                carries the font stack and the line height, and
 //                            ⚠ `:host` must not. The host element also has an
@@ -31,6 +32,26 @@
 //                            the upper one swallowing every click meant for the
 //                            lower, so a separate `.sfb-scrim` beneath it could
 //                            never receive the click-outside-to-close it carried.
+//                            ⚠ Its `height: 100dvh` is not a longer spelling of
+//                            the `inset: 0` above it. On a phone those are two
+//                            different boxes: `inset` resolves against the LAYOUT
+//                            viewport, which does not shrink for the chrome a
+//                            phone browser draws over it — so the bottom of this
+//                            wrapper, and with it the bottom-aligned sheet, and
+//                            with THAT the footer Send lives in, sat below the
+//                            visible screen. A browser too old for `dvh` drops the
+//                            declaration whole and keeps the old behaviour, which
+//                            is why it is a second declaration and not a
+//                            replacement.
+//                            ⚠ AND `dvh` DOES NOT COVER THE ON-SCREEN KEYBOARD.
+//                            Chrome defaults to
+//                            `interactive-widget=resizes-visual`, which shrinks the
+//                            VISUAL viewport only, and no CSS unit tracks that one
+//                            — so a reporter who has just typed a sentence, which
+//                            is every reporter who gets that far, still cannot see
+//                            the button that sends it. dialog.ts drives this height
+//                            from `window.visualViewport` while the dialog is open;
+//                            these two rules are the floor under it.
 //
 //   .sfb-launcher            icon-only at rest, expanding to a labelled pill on
 //                            hover and focus — it is seen ten thousand times more
@@ -38,6 +59,20 @@
 //   @media (max-width:479px) the dialog becomes a bottom sheet: it sits where the
 //                            thumb is and leaves room for the on-screen keyboard
 //                            the message field summons.
+//   max-height: …%           on the sheet, and `min(84vh, 100%)` on the centred
+//                            dialog, so the panel is bounded by THE WRAPPER rather
+//                            than by the viewport unit the wrapper has stopped
+//                            agreeing with. `92%` also keeps the strip of backdrop
+//                            that click-outside-to-close is reached through: a
+//                            full-height sheet has no outside left to click.
+//   .sfb-head/.sfb-foot      `flex: none`, because flex shrinkage is proportional
+//                            and would take its cut from all three children. On a
+//                            viewport a keyboard has cut to ~300 px that is not a
+//                            rounding difference: measured, the head loses about a
+//                            third of its height and the foot goes with it, so the
+//                            padding collapses and the controls overlap the rules
+//                            above and below them. The body is the only part that
+//                            may lose height, and it is the only part that scrolls.
 //   .sfb-kind[aria-pressed]  selection carries a check glyph as well as the accent
 //                            fill, so it survives greyscale and a red-green
 //                            deficiency (WCAG 1.4.1). ⚠ The attribute is
@@ -128,6 +163,7 @@ button, input, textarea { font: inherit; color: inherit; margin: 0; }
 .sfb-wrap {
   position: fixed;
   inset: 0;
+  height: 100dvh;
   z-index: 2147483000;
   display: grid;
   place-items: center;
@@ -137,7 +173,7 @@ button, input, textarea { font: inherit; color: inherit; margin: 0; }
 .sfb-dialog {
   width: 460px;
   max-width: 100%;
-  max-height: 84vh;
+  max-height: min(84vh, 100%);
   display: flex;
   flex-direction: column;
   background: var(--sfb-surface);
@@ -152,7 +188,7 @@ button, input, textarea { font: inherit; color: inherit; margin: 0; }
   .sfb-wrap { place-items: end center; padding: 0; }
   .sfb-dialog {
     width: 100%;
-    max-height: 92vh;
+    max-height: 92%;
     border: none;
     border-radius: var(--sfb-radius) var(--sfb-radius) 0 0;
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -166,7 +202,7 @@ button, input, textarea { font: inherit; color: inherit; margin: 0; }
   .sfb-dialog, .sfb-launcher { animation: none; transition: none; }
 }
 
-.sfb-head { display: flex; align-items: center; gap: 12px; padding: 16px 16px 14px; border-bottom: 1px solid var(--sfb-hairline); }
+.sfb-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 16px 16px 14px; border-bottom: 1px solid var(--sfb-hairline); }
 .sfb-head-mark { display: grid; place-items: center; height: 32px; width: 32px; flex: none; border-radius: var(--sfb-radius-sm); background: var(--sfb-accent-soft); color: var(--sfb-accent); }
 .sfb-title { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
 .sfb-sub { font-size: 12.5px; color: var(--sfb-muted); }
@@ -176,8 +212,8 @@ button, input, textarea { font: inherit; color: inherit; margin: 0; }
   border-radius: var(--sfb-radius-sm); color: var(--sfb-muted); cursor: pointer;
 }
 .sfb-iconbtn:hover { background: var(--sfb-surface-2); }
-.sfb-body { padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
-.sfb-foot { padding: 14px 16px; border-top: 1px solid var(--sfb-hairline); background: var(--sfb-surface); }
+.sfb-body { flex: 1 1 auto; min-height: 0; padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
+.sfb-foot { flex: none; padding: 14px 16px; border-top: 1px solid var(--sfb-hairline); background: var(--sfb-surface); }
 
 .sfb-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
 .sfb-textarea {

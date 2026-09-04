@@ -49,6 +49,12 @@ launcher (`data-position="top-right"`) or suppress it and use your own trigger:
 <button onclick="window.StatusFeedback && window.StatusFeedback.open()">Nahlásit problém</button>
 ```
 
+The **dialog** is a different matter from the launcher: it paints above your own fixed chrome,
+whatever your z-index is, and it sizes itself to the box that is actually on screen — so it
+clears a bottom navigation bar and it clears the on-screen keyboard. You do not have to make room
+for it, and you should not try: a host rule that reaches inside the widget cannot, because it is a
+closed shadow root.
+
 ## 2. `StatusFeedback.open()`
 
 The one public API. It is defined from the moment the script executes — before the configuration
