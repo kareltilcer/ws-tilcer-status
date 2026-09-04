@@ -49,11 +49,28 @@ launcher (`data-position="top-right"`) or suppress it and use your own trigger:
 <button onclick="window.StatusFeedback && window.StatusFeedback.open()">Nahlásit problém</button>
 ```
 
-The **dialog** is a different matter from the launcher: it paints above your own fixed chrome,
-whatever your z-index is, and it sizes itself to the box that is actually on screen — so it
-clears a bottom navigation bar and it clears the on-screen keyboard. You do not have to make room
-for it, and you should not try: a host rule that reaches inside the widget cannot, because it is a
-closed shadow root.
+⚠ **The launcher and the dialog share one stacking order, and it is above yours.** The widget's
+container carries `z-index: 2147483000`, so *everything* it renders — the launcher included — paints
+above any host layer below that number. A launcher you have not moved or suppressed therefore sits
+**on top of** your bottom bar, your cookie banner and your own modals rather than behind them, which
+is why the choice above is yours to make rather than something your own z-index can settle.
+
+The **dialog** is a different matter from the launcher, and two separate mechanisms are at work:
+
+- **It paints over your fixed chrome** — that same `z-index: 2147483000`. It is one thousand short
+  of the maximum, so a host layer at a higher number still covers it; nothing else realistically
+  does. This is the only reason the dialog clears a bottom navigation bar: it is painted over the
+  bar, not sized around it. The widget cannot see your bar at all.
+- **It sizes itself to the box that is actually on screen** — `window.visualViewport`, with
+  `height: 100dvh` under it as the floor. That is what clears the **on-screen keyboard** and the
+  browser's own chrome, neither of which shrinks the layout viewport that `position: fixed` and
+  every CSS length resolve against.
+
+You do not have to make room for the dialog, and you cannot restyle it: CSS never crosses a shadow
+boundary in either direction (open or closed — closed only hides the root from *script*), so no rule
+of yours selects anything inside it. **Inherited** properties are the exception and they do reach
+in, which is why the widget re-asserts its font stack and line height on the elements inside instead
+of trusting its own host element.
 
 ## 2. `StatusFeedback.open()`
 
@@ -172,7 +189,8 @@ reaches status, so nothing appears in its logs or its inbox.
 `style-src 'unsafe-inline'` is there because the widget's entire appearance is one `<style>` element
 injected into its shadow root, plus a `style` attribute on the container that keeps it out of your
 layout. Without it the widget renders, unstyled, as a column of bare controls — and the container
-loses `position:fixed;width:0`, so it can push your own page around. (Nothing here is `eval`: the
+loses `position:fixed;width:0`, so it can push your own page around, **and its `z-index`**, so the
+dialog drops back underneath your bottom bar (§1). (Nothing here is `eval`: the
 widget needs no `script-src 'unsafe-eval'` and no `'unsafe-inline'` for script.)
 
 ⚠ **`require-trusted-types-for 'script'` is not supported.** It is not on the list above because

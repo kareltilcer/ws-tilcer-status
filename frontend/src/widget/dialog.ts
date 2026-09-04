@@ -355,8 +355,26 @@ export class FeedbackDialog {
    * Absent in jsdom and in a browser older than the CSS this backs up, and the
    * guard is why: the `inset: 0` + `100dvh` rules in styles.ts are what runs
    * then, which is the behaviour that shipped before this.
+   *
+   * ⚠ These two are the one pair of listeners in the widget that `el()` does not
+   * wrap, so V3-D37 ("every listener is wrapped, and dom.ts is the ONLY place it
+   * happens") is not what keeps them off the host page's `window.onerror`.
+   * `el()` structurally cannot cover them — it binds listeners on elements it
+   * creates, and `window.visualViewport` is neither — so what keeps the promise
+   * here is that `sync` CANNOT throw: two writes to a `CSSStyleDeclaration` on a
+   * node this method was handed, no host value read, no lookup that can be null,
+   * nothing async. Anything added to it that does not hold that line needs a
+   * `try` around the body, or the wrapper factored out of `el()`.
    */
   private trackViewport(wrap: HTMLElement): void {
+    // ⚠ Self-contained, rather than trusting `open()`'s `if (this.isOpen) return`
+    // to have made a second mount impossible. That guard lives in a different
+    // method and is one refactor from moving; the moment it does, overwriting the
+    // field below strands the PREVIOUS opening's two listeners on
+    // `visualViewport` for the life of the host page, holding the detached
+    // wrapper they close over — the exact leak the block above says it prevents.
+    this.releaseViewport?.()
+    this.releaseViewport = null
     const vv = window.visualViewport
     if (!vv) return
     const sync = (): void => {

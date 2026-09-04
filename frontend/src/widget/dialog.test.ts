@@ -305,6 +305,15 @@ describe('the visual viewport', () => {
     // an installed PWA may not reload for days.
     h.dialog.close()
     expect(vv.listening()).toBe(0)
+
+    // ⚠ And the count does not climb across openings. `trackViewport` releases
+    // whatever the field is holding before it installs, so the answer stays 2
+    // whether the release came from close() or from the mount itself — the
+    // property that keeps the leak out even if `open()`'s `isOpen` guard moves.
+    h.dialog.open()
+    expect(vv.listening()).toBe(2)
+    h.dialog.close()
+    expect(vv.listening()).toBe(0)
   })
 
   it('opens without a visualViewport at all, which is jsdom and any browser old enough', () => {

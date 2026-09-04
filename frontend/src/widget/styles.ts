@@ -56,15 +56,44 @@
 //   .sfb-launcher            icon-only at rest, expanding to a labelled pill on
 //                            hover and focus — it is seen ten thousand times more
 //                            often than it is clicked, so it earns no colour.
-//   @media (max-width:479px) the dialog becomes a bottom sheet: it sits where the
-//                            thumb is and leaves room for the on-screen keyboard
+//   @media (max-width:479px), the dialog becomes a bottom sheet: it sits where the
+//         (max-height:479px) thumb is and leaves room for the on-screen keyboard
 //                            the message field summons.
+//                            ⚠ THE HEIGHT CLAUSE IS THE LANDSCAPE PHONE, and it is
+//                            load-bearing rather than tidy. A phone on its side is
+//                            844×390: too WIDE for the width clause, so it used to
+//                            take the centred desktop dialog — which spends 48 px of
+//                            `.sfb-wrap`'s padding on a box the keyboard has already
+//                            cut to ~200. Measured in Chrome at 844×390 with the
+//                            wrapper pinned to a 200 px visual viewport: the panel
+//                            bottoms out at 176 while `.sfb-foot` runs to 205, so
+//                            `.sfb-dialog`'s `overflow: hidden` cut the Send button
+//                            in half; at 160 the button fell outside the panel
+//                            entirely and `elementFromPoint` over it returned the
+//                            host page. With this clause the same viewports give a
+//                            full-width sheet with no wrapper padding, and Send is
+//                            whole at 200 and still half-reachable at 160.
+//                            ⚠ There is a floor under this and the clause does not
+//                            remove it. `.sfb-body` cannot shrink past its own 32 px
+//                            of padding, so the panel has a minimum of ~181 px; a
+//                            visual viewport under ~196 px still clips the foot. Two
+//                            fixed-height children and a scrolling one cannot do
+//                            better without a scroller around the whole panel, which
+//                            `place-items: end center` would then cut the top off.
 //   max-height: …%           on the sheet, and `min(84vh, 100%)` on the centred
 //                            dialog, so the panel is bounded by THE WRAPPER rather
 //                            than by the viewport unit the wrapper has stopped
 //                            agreeing with. `92%` also keeps the strip of backdrop
 //                            that click-outside-to-close is reached through: a
 //                            full-height sheet has no outside left to click.
+//                            ⚠ `84vh` is declared first and then overwritten by the
+//                            `min()`, for the same reason `inset: 0` is left under
+//                            `100dvh`: a browser that cannot parse `min()` drops that
+//                            declaration whole, and a dropped `max-height` is not the
+//                            old behaviour but NO bound at all — the panel grows past
+//                            the viewport and Send goes off the bottom, which is the
+//                            bug this file is fixing. vite.widget.config.ts puts the
+//                            floor at Firefox 72 (es2020); CSS `min()` is Firefox 75.
 //   .sfb-head/.sfb-foot      `flex: none`, because flex shrinkage is proportional
 //                            and would take its cut from all three children. On a
 //                            viewport a keyboard has cut to ~300 px that is not a
@@ -73,6 +102,18 @@
 //                            padding collapses and the controls overlap the rules
 //                            above and below them. The body is the only part that
 //                            may lose height, and it is the only part that scrolls.
+//                            ⚠ `.sfb-body` carries `min-height: 0` and NOT a `flex`
+//                            of its own. The grow half of `flex: 1 1 auto` cannot
+//                            ever fire here: `.sfb-dialog` is a grid item under
+//                            `place-items: center` / `end center`, so it is never
+//                            stretched, its height is always its content clamped by
+//                            `max-height`, and a flex container sized to its content
+//                            has no free space to distribute. Shrink is the only
+//                            direction that happens, and `flex-shrink: 1` is already
+//                            the initial value — `min-height: 0` is the whole of what
+//                            this line has to say. Measured both ways at 375×812 and
+//                            at a 470 px and a 380 px visual viewport: every box
+//                            identical to the tenth of a pixel.
 //   .sfb-kind[aria-pressed]  selection carries a check glyph as well as the accent
 //                            fill, so it survives greyscale and a red-green
 //                            deficiency (WCAG 1.4.1). ⚠ The attribute is
@@ -173,6 +214,7 @@ button, input, textarea { font: inherit; color: inherit; margin: 0; }
 .sfb-dialog {
   width: 460px;
   max-width: 100%;
+  max-height: 84vh;
   max-height: min(84vh, 100%);
   display: flex;
   flex-direction: column;
@@ -184,7 +226,7 @@ button, input, textarea { font: inherit; color: inherit; margin: 0; }
   overflow: hidden;
   animation: sfb-fade .18s ease;
 }
-@media (max-width: 479px) {
+@media (max-width: 479px), (max-height: 479px) {
   .sfb-wrap { place-items: end center; padding: 0; }
   .sfb-dialog {
     width: 100%;
@@ -212,7 +254,7 @@ button, input, textarea { font: inherit; color: inherit; margin: 0; }
   border-radius: var(--sfb-radius-sm); color: var(--sfb-muted); cursor: pointer;
 }
 .sfb-iconbtn:hover { background: var(--sfb-surface-2); }
-.sfb-body { flex: 1 1 auto; min-height: 0; padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
+.sfb-body { min-height: 0; padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
 .sfb-foot { flex: none; padding: 14px 16px; border-top: 1px solid var(--sfb-hairline); background: var(--sfb-surface); }
 
 .sfb-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
