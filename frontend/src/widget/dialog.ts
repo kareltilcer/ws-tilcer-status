@@ -166,6 +166,9 @@ export class FeedbackDialog {
    */
   private generation = 0
   private activeUpload: Upload | null = null
+  /** Undoes the visualViewport wiring the current opening installed, or null
+   *  when there is no opening (or no visualViewport to wire to). */
+  private releaseViewport: (() => void) | null = null
   private disclosureHost: HTMLElement | null = null
   private uploadStatus: HTMLElement | null = null
   private uploadRows: { label: HTMLElement; bar: HTMLElement; fill: HTMLElement; mark: HTMLElement }[] = []
@@ -213,6 +216,8 @@ export class FeedbackDialog {
     // sweep, which is what it exists for.
     this.activeUpload?.abort()
     this.activeUpload = null
+    this.releaseViewport?.()
+    this.releaseViewport = null
     this.wrap?.remove()
     // ⚠ `reset()` here, not only at the next open. It is what drops
     // `attachments` — and with them the reporter's Files, up to three 50 MB
@@ -320,8 +325,69 @@ export class FeedbackDialog {
     })
 
     this.o.root.appendChild(this.wrap)
+    this.trackViewport(this.wrap)
     this.renderForm()
     this.renderFooter()
+  }
+
+  /**
+   * trackViewport pins the wrapper to the VISUAL viewport for as long as this
+   * opening lasts.
+   *
+   * ⚠ WITHOUT IT THE SEND BUTTON IS UNREACHABLE THE MOMENT ANYONE TYPES, which
+   * on a form whose whole purpose is a typed message is everyone. The wrapper is
+   * `position: fixed`, so it is laid out against the LAYOUT viewport — and
+   * Chrome's default `interactive-widget=resizes-visual` does not shrink that
+   * one for the on-screen keyboard. The sheet therefore stays exactly where it
+   * was, its bottom-aligned footer now several hundred pixels under the keyboard,
+   * and no CSS unit can see it: `dvh` follows the browser chrome, not the
+   * keyboard. `visualViewport` is the only thing in the platform that reports the
+   * box actually on screen, so the wrapper is driven from it directly.
+   *
+   * `offsetTop` as well as `height`, because the visual viewport SCROLLS within
+   * the layout viewport — a phone browser revealing a focused field does exactly
+   * that — and a wrapper pinned only by height would then be off by the scroll.
+   *
+   * ⚠ Both listeners must come off again in close(). They hold `wrap`, which by
+   * then is detached, and the widget is loaded once for the life of a host page
+   * that may never be reloaded.
+   *
+   * Absent in jsdom and in a browser older than the CSS this backs up, and the
+   * guard is why: the `inset: 0` + `100dvh` rules in styles.ts are what runs
+   * then, which is the behaviour that shipped before this.
+   *
+   * ⚠ These two are the one pair of listeners in the widget that `el()` does not
+   * wrap, so V3-D37 ("every listener is wrapped, and dom.ts is the ONLY place it
+   * happens") is not what keeps them off the host page's `window.onerror`.
+   * `el()` structurally cannot cover them — it binds listeners on elements it
+   * creates, and `window.visualViewport` is neither — so what keeps the promise
+   * here is that `sync` CANNOT throw: two writes to a `CSSStyleDeclaration` on a
+   * node this method was handed, no host value read, no lookup that can be null,
+   * nothing async. Anything added to it that does not hold that line needs a
+   * `try` around the body, or the wrapper factored out of `el()`.
+   */
+  private trackViewport(wrap: HTMLElement): void {
+    // ⚠ Self-contained, rather than trusting `open()`'s `if (this.isOpen) return`
+    // to have made a second mount impossible. That guard lives in a different
+    // method and is one refactor from moving; the moment it does, overwriting the
+    // field below strands the PREVIOUS opening's two listeners on
+    // `visualViewport` for the life of the host page, holding the detached
+    // wrapper they close over — the exact leak the block above says it prevents.
+    this.releaseViewport?.()
+    this.releaseViewport = null
+    const vv = window.visualViewport
+    if (!vv) return
+    const sync = (): void => {
+      wrap.style.top = `${vv.offsetTop}px`
+      wrap.style.height = `${vv.height}px`
+    }
+    sync()
+    vv.addEventListener('resize', sync)
+    vv.addEventListener('scroll', sync)
+    this.releaseViewport = () => {
+      vv.removeEventListener('resize', sync)
+      vv.removeEventListener('scroll', sync)
+    }
   }
 
   /** holdFocus pulls focus back into the dialog after a re-render that removed

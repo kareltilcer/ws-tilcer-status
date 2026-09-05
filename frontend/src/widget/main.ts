@@ -121,7 +121,20 @@ function boot(): void {
       // stack and the line height live on `:host > *` in styles.ts. `all:initial`
       // here means `font-family: initial` on the host, and an element-attached
       // declaration in the outer context outranks a rule from the inner one.
-      container.setAttribute('style', 'all:initial;position:fixed;top:0;left:0;width:0;height:0')
+      //
+      // ⚠ AND THE Z-INDEX IS HERE, not only on .sfb-wrap inside the shadow root,
+      // because `position:fixed` ALWAYS creates a stacking context. That makes
+      // every z-index in styles.ts — 2147483000 included — a private ordering among
+      // the widget's OWN layers, and the whole widget enters the host's page at
+      // whatever level THIS element sits at, which `all:initial` had left at
+      // `auto`. Any positioned host element with a positive z-index then paints
+      // straight over the sheet: measured on `home`, whose mobile tab bar is
+      // `fixed bottom-0 z-10`, `elementFromPoint` at the centre of the Send
+      // button returned the tab bar — the reporter could see the button and could
+      // not press it. The launcher has always had the same bug and it never
+      // showed, because a corner nothing else happens to occupy is not the same
+      // thing as being on top.
+      container.setAttribute('style', 'all:initial;position:fixed;top:0;left:0;width:0;height:0;z-index:2147483000')
       const shadow = container.attachShadow({ mode: 'closed' })
       const style = document.createElement('style')
       style.textContent = WIDGET_CSS
