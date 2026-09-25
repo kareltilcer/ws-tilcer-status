@@ -236,8 +236,9 @@ images and clips attached to user reports, under the `feedback/` prefix. Three t
 **Email notifications.** Set `STATUS_RESEND_API_KEY`, then turn them on — and choose the recipients,
 the kinds and the muted sites — under **Notifications** in the dashboard; the settings live in SQLite,
 not in env. They cover a crash group's first error-or-worse event **in production** (`environment`
-`prod`, `production` or unset — see [`docs/integration.md`](docs/integration.md)), a resolved group
-reopened by a new event, a new feedback report, a site turning red, and its next passing check.
+`prod`, `production` or unset — see [`docs/integration.md`](docs/integration.md)) while the group is
+open, a resolved group reopened by a new event, a new feedback report, a site turning red, and its
+next passing check.
 
 - ⚠ **Verify the sender's domain in Resend first** (`tilcer.cz`, for the default
   `status@tilcer.cz`). An unverified domain is a 403 on every send; the dashboard's **Send test
@@ -245,9 +246,13 @@ reopened by a new event, a new feedback report, a site turning red, and its next
   so fixing the domain delivers it. Fixing it the other way — pointing `STATUS_MAIL_FROM` at a
   verified domain, or changing the recipients — retires that digest and sends what it carried again
   as a new email.
-- **Nothing is lost to a restart or an outage.** Notifications are queued in SQLite inside the
-  transaction that caused them and sent afterwards by a worker, retried with the same idempotency
-  key until Resend accepts them.
+- **A restart loses nothing, and neither does an outage shorter than 23 hours.** Notifications are
+  queued in SQLite inside the transaction that caused them and sent afterwards by a worker, retried
+  with the same idempotency key until Resend accepts them — for up to 23 hours, inside Resend's
+  24-hour idempotency window. ⚠ A digest still undelivered then is given up (`expired` on the
+  dashboard) and what it carried is **not** sent: past that window a retry could duplicate an
+  attempt that timed out but did arrive. A digest Resend refuses outright (a 4xx no retry can fix)
+  ends the same way.
 - **What leaves for Resend** is an excerpt: a crash's title and the first 300 characters of its
   message (never a stack), a report's first 300 characters and its ref (never the reporter's name,
   page, browser, console or IP). Resend keeps what it sends.
@@ -257,5 +262,7 @@ reopened by a new event, a new feedback report, a site turning red, and its next
   cap is the only daily bound — 24 × `STATUS_NOTIFY_MAX_PER_HOUR`, which is **144** at the default
   6 and therefore above the free plan: a day of flapping could use it up. Set it to 3 (72 a day) if
   the quota matters more than timeliness.
-- An outage that began while notifications were off (or its site muted) stays silent at both ends —
-  there is no "back up" for a "down" nobody was told about.
+- An outage that began while notifications were off (or its site muted) stays silent at both ends:
+  "back up" follows only a "down" that was **queued**. A "down" queued and then dropped before it
+  went out — the site muted, or downtime switched off, inside the digest window — still gets its
+  "back up" at the next passing check.

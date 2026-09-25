@@ -205,11 +205,11 @@ func run(logger *slog.Logger) error {
 
 	// 6. Background scheduler: the poller every CHECK_INTERVAL, the notification
 	// worker when there is a provider, and a daily closure that rolls up
-	// yesterday, refreshes cached uptime, then purges (retention appended in M4).
-	// The rollup-before-purge order is enforced inside the daily closure. On boot
-	// the same RunDaily backfills any missed rollup days and refreshes the uptime
-	// cache, so a restart after an outage never leaves a stale uptime figure or
-	// lets the purge delete un-aggregated checks.
+	// yesterday and refreshes cached uptime, then purges, prunes the notification
+	// history and sweeps the feedback bucket — the order runDailyJob enforces. On
+	// boot the same RunDaily backfills any missed rollup days and refreshes the
+	// uptime cache, so a restart after an outage never leaves a stale uptime figure
+	// or lets the purge delete un-aggregated checks.
 	jobsCtx, cancelJobs := context.WithCancel(context.Background())
 	var jobsWG sync.WaitGroup
 	// ⚠ Wait is deferred BEFORE cancel, so on every return path the jobs are

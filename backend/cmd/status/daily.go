@@ -17,8 +17,9 @@ type (
 	dailyPurge interface {
 		Purge(ctx context.Context, now time.Time) error
 	}
-	// dailyPrune applies the same window to the notification history: settled
-	// digests and their events. Database-only.
+	// dailyPrune applies the same window to the notification history — every
+	// digest older than it, whatever its state, with its events — and clears the
+	// downtime memory of sites no longer monitored. Database-only.
 	dailyPrune interface {
 		Prune(ctx context.Context, now time.Time) error
 	}

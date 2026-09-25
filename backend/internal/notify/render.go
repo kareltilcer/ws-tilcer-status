@@ -75,10 +75,7 @@ func render(events []event, publicURL string, now time.Time) rendered {
 		more = fmt.Sprintf("…and %d more (%s)", len(rest), summarizeItems(rest))
 	}
 
-	host := publicURL
-	if u, err := url.Parse(publicURL); err == nil && u.Host != "" {
-		host = u.Host
-	}
+	host := hostOf(publicURL)
 	intro := "1 update"
 	if len(events) != 1 {
 		intro = fmt.Sprintf("%d updates", len(events))
@@ -93,6 +90,16 @@ func render(events []event, publicURL string, now time.Time) rendered {
 		WrittenAt:   formatTime(now),
 	}
 	return rendered{Subject: subject, Text: renderText(view), HTML: renderHTML(view)}
+}
+
+// hostOf is how an email names the dashboard — its host, "status.tilcer.cz" —
+// in the digests and the test email alike; a URL it cannot read is shown as
+// configured.
+func hostOf(publicURL string) string {
+	if u, err := url.Parse(publicURL); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return publicURL
 }
 
 // buildItems maps events to entries, folding a site_down and the site_recovered

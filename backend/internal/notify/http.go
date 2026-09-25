@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -202,10 +201,7 @@ func (m *Module) sendTest(w http.ResponseWriter, r *http.Request) {
 }
 
 func testMessage(cfg Config, st settings, now time.Time) mail.Message {
-	host := cfg.PublicURL
-	if u, err := url.Parse(cfg.PublicURL); err == nil && u.Host != "" {
-		host = u.Host
-	}
+	host := hostOf(cfg.PublicURL)
 	var kinds []string
 	if st.OnCrash {
 		kinds = append(kinds, "new crashes and crashes that come back")

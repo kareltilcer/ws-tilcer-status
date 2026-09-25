@@ -128,6 +128,8 @@ func TestPermanence(t *testing.T) {
 		{409, "concurrent_idempotent_requests", false},
 		{413, "", true},
 		{422, "", true},
+		{422, "validation_error", true},
+		{422, "invalid_from_address", false}, // STATUS_MAIL_FROM: fixed in the environment too
 		{429, "", false},
 		{500, "", false},
 		{503, "", false},

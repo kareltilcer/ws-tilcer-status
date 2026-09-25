@@ -52,12 +52,9 @@ const giveUpAfter = 23 * time.Hour
 // sendTimeout bounds one send, whether from the worker or the test button.
 const sendTimeout = 15 * time.Second
 
-// sendGap is the pause between two sends in one worker pass, which keeps a
-// backlog under the provider's per-second limit.
-const sendGap = 600 * time.Millisecond
-
 // maxEventsPerDigest bounds one digest's assembly; anything beyond it waits for
-// the next digest. maxDueDigests bounds one delivery pass.
+// the next digest. maxDueDigests bounds one delivery pass — a safety bound only,
+// since no digest is assembled while another is pending.
 const (
 	maxEventsPerDigest = 1000
 	maxDueDigests      = 10

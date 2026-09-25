@@ -6,8 +6,12 @@
 // call its Notifier as the last statement of their own transaction, and it
 // decides and queues there, with no network. A Worker, driven by the scheduler,
 // folds what is queued into one digest per window and sends it after the commit,
-// retrying with the same idempotency key until the provider accepts it. A
-// restart, or a provider outage, loses nothing.
+// retrying with the same idempotency key until the provider accepts it — for up
+// to giveUpAfter (23 h). A restart loses nothing, and neither does a provider
+// outage shorter than that. ⚠ A longer one does: the digest it caught is given up
+// as expired and what it carried is not sent, because past the provider's
+// idempotency window a retry could duplicate an attempt that did arrive. A
+// refusal no retry can fix ends a digest the same way.
 //
 // The producers never import this package: each declares the small interface it
 // calls (crash.Notifier, feedback.Notifier, monitoring.Notifier) and cmd/status
@@ -74,7 +78,7 @@ func NewModule(db *sql.DB, sitesStore *sites.Store, mailer mail.Mailer, cfg Conf
 		cfg:         cfg,
 		logger:      logger,
 		notifier:    &Notifier{available: mailer != nil, logger: logger},
-		worker:      &Worker{db: db, mailer: mailer, cfg: cfg, logger: logger, gap: sendGap},
+		worker:      &Worker{db: db, mailer: mailer, cfg: cfg, logger: logger},
 		testLimiter: ratelimit.New(0.1, 3, nil), // one per 10 s, three in a burst
 	}
 }

@@ -164,6 +164,36 @@ func TestIgnoredAndManuallyReopenedGroupsStaySilent(t *testing.T) {
 	}
 }
 
+// TestATriagedGroupsFirstProdErrorIsConsumed: a group that is not open when its
+// first production error arrives — ignored, or resolved while regressions do not
+// reopen it — is one Karel has already triaged. That error consumes the
+// announcement, as the upgrade seed does for every group that has had one, so
+// setting the group back to open by hand does not make its next error a "new
+// crash".
+func TestATriagedGroupsFirstProdErrorIsConsumed(t *testing.T) {
+	for _, status := range []string{crash.StatusIgnored, crash.StatusResolved} {
+		t.Run(status, func(t *testing.T) {
+			h := newHarness(t)
+			h.enable("karel@example.test")
+			g := h.seedGroup("home", status)
+
+			s := repeat(g, "prod", t0)
+			s.GroupStatus = status
+			h.crash(s)
+			if armed, announced, err := loadCrashState(context.Background(), h.db, g); err != nil || armed || !announced {
+				t.Fatalf("after a prod error while %s: armed %t announced %t (%v), want disarmed and announced",
+					status, armed, announced, err)
+			}
+
+			// Triage sets it back to open — no hook runs — and it recurs.
+			h.crash(repeat(g, "prod", t0.Add(time.Hour)))
+			if got := h.queued(); len(got) != 0 {
+				t.Fatalf("queued %v for a group Karel had %s", got, status)
+			}
+		})
+	}
+}
+
 // TestEventsWhileOffAreNeverSentLater: "off" consumes the news. Switching on
 // must not deliver the backlog as if it had just happened.
 func TestEventsWhileOffAreNeverSentLater(t *testing.T) {

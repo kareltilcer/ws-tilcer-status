@@ -105,7 +105,6 @@ func newHarnessWith(t *testing.T, cfg Config, available bool) *harness {
 		mailer = fake
 	}
 	mod := NewModule(db, sites.NewStore(db, 2), mailer, cfg, discardLogger())
-	mod.worker.gap = 0
 
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {

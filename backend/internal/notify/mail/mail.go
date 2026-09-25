@@ -72,13 +72,18 @@ func (e *SendError) Error() string {
 // sender's domain is not verified — both fixed in the environment, neither by
 // changing the stored message — so a digest that keeps its place in the queue is
 // delivered once the operator fixes the deployment, instead of being thrown away
-// for a configuration mistake. A 409 is permanent only when the key was reused
-// with a DIFFERENT body; "the first request with this key is still in flight" is
-// exactly the case a later retry resolves.
+// for a configuration mistake. A 422 invalid_from_address is the same kind of
+// mistake — STATUS_MAIL_FROM in a form net/mail accepts and Resend does not, say
+// "status@tilcer.cz (status)" — and fixing it supersedes the held digest, which a
+// permanent failure would already have thrown away. A 409 is permanent only when
+// the key was reused with a DIFFERENT body; "the first request with this key is
+// still in flight" is exactly the case a later retry resolves.
 func (e *SendError) Permanent() bool {
 	switch e.Status {
-	case 400, 404, 405, 413, 422:
+	case 400, 404, 405, 413:
 		return true
+	case 422:
+		return e.Code != "invalid_from_address"
 	case 409:
 		return e.Code == "invalid_idempotent_request"
 	}

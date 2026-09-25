@@ -98,7 +98,7 @@ const EVENT_ROWS: { key: keyof NotificationEvents; title: string; hint: string }
   {
     key: 'crash',
     title: 'New crashes, and crashes that come back',
-    hint: 'A crash group’s first error or fatal event from production (environment prod, production or unset), and a resolved group reopened by a new event. Warnings and dev builds never email.',
+    hint: 'A crash group’s first error or fatal event from production (environment prod, production or unset), and a resolved group reopened by a new event. Warnings, dev builds and ignored groups never email.',
   },
   { key: 'feedback', title: 'Feedback reports', hint: 'Every report sent from the widget.' },
   { key: 'downtime', title: 'Sites going down and back up', hint: 'When a site turns red, and again at its next passing check.' },

@@ -23,8 +23,6 @@ type Worker struct {
 	mailer mail.Mailer
 	cfg    Config
 	logger *slog.Logger
-	// gap is the pause between two sends in one pass (sendGap; tests zero it).
-	gap time.Duration
 
 	mu         sync.Mutex
 	lastCapLog time.Time
@@ -200,7 +198,9 @@ func (w *Worker) logCapped(now time.Time, n int) {
 		"digests_last_hour", n, "max_per_hour", w.cfg.MaxPerHour)
 }
 
-// deliver sends the digests that are due.
+// deliver sends the digests that are due. Because assemble holds every new digest
+// behind a pending one, that is normally at most one: there is no backlog to pace
+// against the provider's per-second limit, and so no pause between sends.
 //
 // ⚠ Every send runs with NO transaction open and NO cursor open: the due rows are
 // read into a slice first, and each outcome is written by its own single
@@ -233,10 +233,7 @@ func (w *Worker) deliver(ctx context.Context, now time.Time) {
 		}
 		return
 	}
-	for i, d := range due {
-		if i > 0 && !sleep(ctx, w.gap) {
-			return
-		}
+	for _, d := range due {
 		if !w.deliverOne(ctx, d, now) {
 			return
 		}
@@ -293,20 +290,5 @@ func (w *Worker) deliverOne(ctx context.Context, d digest, now time.Time) bool {
 func (w *Worker) settle(ctx context.Context, d digest, outcome string, err error) {
 	if err != nil && ctx.Err() == nil {
 		w.logger.Error("notify: record digest outcome", "digest", d.ID, "outcome", outcome, "err", err)
-	}
-}
-
-// sleep waits d or until ctx ends, reporting whether it waited the full time.
-func sleep(ctx context.Context, d time.Duration) bool {
-	if d <= 0 {
-		return ctx.Err() == nil
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-t.C:
-		return true
 	}
 }

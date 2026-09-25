@@ -111,6 +111,8 @@ func (n *Notifier) deliverable(ctx context.Context, q querier, kind, siteID stri
 // one "crash came back". So a group first seen in a developer's browser is still
 // news the first time it hits production, the 500th repeat is not, and a manual
 // reopen through triage — which never comes through here — is Karel's own doing.
+// Only an OPEN group's announcement is mailed: one Karel has ignored (or
+// resolved, with regressions not reopening it) consumes it silently.
 //
 // The state machine runs whether or not anything is mailed: an event that
 // happens while notifications are off consumes the announcement, so switching
@@ -131,7 +133,7 @@ func (n *Notifier) CrashRecorded(ctx context.Context, tx *sql.Tx, s crash.Signal
 		if s.Reopened {
 			armed = true
 		}
-		if !q || s.GroupStatus != crash.StatusOpen || !armed {
+		if !q || !armed {
 			if rearmed {
 				return saveCrashState(ctx, tx, s.GroupID, true, announced)
 			}
@@ -143,6 +145,14 @@ func (n *Notifier) CrashRecorded(ctx context.Context, tx *sql.Tx, s crash.Signal
 		}
 		if err := saveCrashState(ctx, tx, s.GroupID, false, true); err != nil {
 			return err
+		}
+		// ⚠ A group that is not open — ignored, or resolved while regressions do
+		// not reopen it — is one Karel has already triaged. Its first qualifying
+		// event consumes the announcement all the same, exactly as the upgrade seed
+		// does for every group that has had one; left armed, setting it back to
+		// open would mail its next error as a "new crash".
+		if s.GroupStatus != crash.StatusOpen {
+			return nil
 		}
 		ok, err := n.deliverable(ctx, tx, kind, s.SiteID)
 		if err != nil || !ok {

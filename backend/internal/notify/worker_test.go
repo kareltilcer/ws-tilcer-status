@@ -258,21 +258,29 @@ func TestAPermanentRefusalGivesUp(t *testing.T) {
 	}
 }
 
-// TestAConfigurationRefusalKeepsRetrying: 401/403 are fixed in the environment,
-// not by changing the email — the digest keeps its place.
+// TestAConfigurationRefusalKeepsRetrying: 401/403 — and a sender Resend cannot
+// parse — are fixed in the environment, not by changing the email: the digest
+// keeps its place.
 func TestAConfigurationRefusalKeepsRetrying(t *testing.T) {
-	h := newHarness(t)
-	h.enable("karel@example.test")
-	h.queueCrash(t0)
-	h.mail.Fail(&mail.SendError{Status: 403, Code: "validation_error", Detail: "domain not verified"})
-	h.run(t0.Add(2 * time.Minute))
-	ds := h.allDigests()
-	if ds[0].State != DigestPending || ds[0].Attempts != 1 {
-		t.Fatalf("digest = %+v, want pending after a 403", ds[0])
-	}
-	h.run(t0.Add(4 * time.Minute))
-	if ds := h.allDigests(); ds[0].State != DigestSent {
-		t.Fatalf("digest = %+v, want sent once the environment is fixed", ds[0])
+	for _, refusal := range []*mail.SendError{
+		{Status: 403, Code: "validation_error", Detail: "domain not verified"},
+		{Status: 422, Code: "invalid_from_address", Detail: "Invalid `from` field."},
+	} {
+		t.Run(fmt.Sprintf("%d-%s", refusal.Status, refusal.Code), func(t *testing.T) {
+			h := newHarness(t)
+			h.enable("karel@example.test")
+			h.queueCrash(t0)
+			h.mail.Fail(refusal)
+			h.run(t0.Add(2 * time.Minute))
+			ds := h.allDigests()
+			if ds[0].State != DigestPending || ds[0].Attempts != 1 {
+				t.Fatalf("digest = %+v, want pending after %v", ds[0], refusal)
+			}
+			h.run(t0.Add(4 * time.Minute))
+			if ds := h.allDigests(); ds[0].State != DigestSent {
+				t.Fatalf("digest = %+v, want sent once the environment is fixed", ds[0])
+			}
+		})
 	}
 }
 
