@@ -238,7 +238,9 @@ the kinds and the muted sites — under **Notifications** in the dashboard; the 
 not in env. They cover a crash group's first error-or-worse event **in production** (`environment`
 `prod`, `production` or unset — see [`docs/integration.md`](docs/integration.md)) while the group is
 open, a resolved group reopened by a new event, a new feedback report, a site turning red, and its
-next passing check.
+next passing check. What is still waiting when its email is written is checked again, against the
+settings and against what it announces: a group ignored or resolved, or a report deleted, in the
+meantime is dropped.
 
 - ⚠ **Verify the sender's domain in Resend first** (`tilcer.cz`, for the default
   `status@tilcer.cz`). An unverified domain is a 403 on every send; the dashboard's **Send test
@@ -255,9 +257,11 @@ next passing check.
   ends the same way. ⚠ Removing `STATUS_RESEND_API_KEY` is switching them **off**, not pausing
   them: a deployment that boots without a key cancels what was waiting, so putting the key back
   later does not mail an old backlog as news.
-- **What leaves for Resend** is an excerpt: a crash's title and the first 300 characters of its
-  message (never a stack), a report's first 300 characters and its ref (never the reporter's name,
-  page, browser, console or IP). Resend keeps what it sends.
+- **What leaves for Resend** is an excerpt: the site's name, a crash's title and the first 300
+  characters of its message (never a stack), a report's first 300 characters and its ref (never the
+  reporter's name, page, browser, console or IP), and — for a site going down or back up — its
+  monitored URL and the failing check's HTTP status or error, which quotes that URL. ⚠ So a
+  monitored URL that carries a secret (a token in its query) mails it. Resend keeps what it sends.
 - **Quota.** Resend's free plan is 100 emails a day, and the account is shared with the fleet's
   other senders. The digest window folds a burst into one email, and while a digest is waiting on a
   retry nothing new is assembled, so an outage ends in one email rather than a backlog. The hourly

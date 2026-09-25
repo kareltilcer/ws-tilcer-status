@@ -53,7 +53,9 @@ func backoff(attempts int) time.Duration {
 // earlier, timed-out attempt had in fact already delivered.
 const giveUpAfter = 23 * time.Hour
 
-// sendTimeout bounds one send, whether from the worker or the test button.
+// sendTimeout bounds one send, whether from the worker or the test button, for
+// any mailer. The Resend client's own bound (10 s) is shorter and fires first;
+// this one is the ceiling notify guarantees whatever the provider does.
 const sendTimeout = 15 * time.Second
 
 // maxEventsPerDigest bounds one digest's assembly; anything beyond it waits for

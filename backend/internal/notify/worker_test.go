@@ -110,6 +110,55 @@ func TestAssemblyDropsWhatIsNoLongerWanted(t *testing.T) {
 	}
 }
 
+// TestAssemblyDropsWhatWasDealtWithMeanwhile: an event is re-checked against
+// what it announces, not only against the settings. A group ignored or resolved
+// while its "new crash" waited — inside the window, or behind a pending digest
+// for hours — and a report deleted meanwhile are no longer news: the email would
+// announce what Karel has already dealt with, and link to a report that is gone.
+func TestAssemblyDropsWhatWasDealtWithMeanwhile(t *testing.T) {
+	h := newHarness(t)
+	h.enable("karel@example.test")
+	ignored := h.seedGroup("home", crash.StatusOpen)
+	resolved := h.seedGroup("home", crash.StatusOpen)
+	kept := h.seedGroup("home", crash.StatusOpen)
+	for _, g := range []int64{ignored, resolved, kept} {
+		h.crash(newCrash(g, t0))
+	}
+	h.report(feedback.ReportSignal{SiteID: "fin", Ref: "R-D3AD", Kind: "bug", Message: "spam", At: t0})
+	h.report(feedback.ReportSignal{SiteID: "fin", Ref: "R-7QK2", Kind: "bug", Message: "Empty board", At: t0})
+
+	for _, stmt := range []string{
+		fmt.Sprintf(`UPDATE crash_group SET status = 'ignored' WHERE id = %d`, ignored),
+		fmt.Sprintf(`UPDATE crash_group SET status = 'resolved' WHERE id = %d`, resolved),
+		`DELETE FROM feedback_report WHERE ref = 'R-D3AD'`,
+	} {
+		if _, err := h.db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.run(t0.Add(2 * time.Minute))
+
+	sent := h.mail.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("sent %d emails, want one carrying what is still news", len(sent))
+	}
+	text := sent[0].Text
+	for _, gone := range []string{fmt.Sprintf("/crashes/%d\n", ignored), fmt.Sprintf("/crashes/%d\n", resolved), "R-D3AD"} {
+		if strings.Contains(text, gone) {
+			t.Fatalf("the email still announces %q:\n%s", gone, text)
+		}
+	}
+	if !strings.Contains(text, fmt.Sprintf("/crashes/%d\n", kept)) || !strings.Contains(text, "R-7QK2") {
+		t.Fatalf("the email lost what is still news:\n%s", text)
+	}
+	if ds := h.allDigests(); len(ds) != 1 || ds[0].EventCount != 2 {
+		t.Fatalf("digests = %+v, want one of 2 events", ds)
+	}
+	if n := h.count(`SELECT COUNT(*) FROM notify_event WHERE digest_id IS NULL`); n != 0 {
+		t.Fatalf("%d dropped events were left in the outbox", n)
+	}
+}
+
 // TestAPendingDigestHoldsTheNextOneBack: while a digest waits on a retry, what
 // arrives meanwhile collects in the outbox instead of becoming digests of its
 // own. The cap counts digests created, so without this a provider that is down

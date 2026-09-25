@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/crash"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/timeutil"
 )
 
@@ -184,6 +185,10 @@ type event struct {
 	Ref       string
 	Payload   payload
 	CreatedAt string
+	// Stale is whether what the event announces was dealt with after it was
+	// queued: its crash group is no longer open (ignored or resolved), or its
+	// report was deleted. See Worker.assemble.
+	Stale bool
 }
 
 // oldestPending returns the created_at of the oldest event not yet in a digest.
@@ -198,13 +203,25 @@ func oldestPending(ctx context.Context, q querier) (string, bool, error) {
 
 // pendingEvents reads up to limit unassigned events, oldest first, and drains the
 // cursor before returning — the caller writes through the same transaction next.
+//
+// Each carries Stale, read in the same query: a crash event's ref is its group
+// id, and the group must still exist and be open, as CrashRecorded required when
+// it queued the event; a feedback event's ref is the report's, which must still
+// exist. A site's events need no such check — deleting a site cascades to them.
 func pendingEvents(ctx context.Context, q querier, limit int) ([]event, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT e.id, e.site_id, s.name, e.kind, e.ref, e.payload, e.created_at
+		`SELECT e.id, e.site_id, s.name, e.kind, e.ref, e.payload, e.created_at,
+		        CASE
+		          WHEN e.kind IN (?, ?) THEN NOT EXISTS (
+		               SELECT 1 FROM crash_group g WHERE g.id = CAST(e.ref AS INTEGER) AND g.status = ?)
+		          WHEN e.kind = ? THEN NOT EXISTS (
+		               SELECT 1 FROM feedback_report r WHERE r.ref = e.ref)
+		          ELSE 0
+		        END
 		   FROM notify_event e JOIN site s ON s.id = e.site_id
 		  WHERE e.digest_id IS NULL
 		  ORDER BY e.id
-		  LIMIT ?`, limit)
+		  LIMIT ?`, KindCrashNew, KindCrashRegression, crash.StatusOpen, KindFeedback, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +232,7 @@ func pendingEvents(ctx context.Context, q querier, limit int) ([]event, error) {
 			e   event
 			raw string
 		)
-		if err := rows.Scan(&e.ID, &e.SiteID, &e.SiteName, &e.Kind, &e.Ref, &raw, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.SiteID, &e.SiteName, &e.Kind, &e.Ref, &raw, &e.CreatedAt, &e.Stale); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(raw), &e.Payload); err != nil {

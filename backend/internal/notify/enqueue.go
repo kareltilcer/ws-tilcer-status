@@ -112,7 +112,9 @@ func (n *Notifier) deliverable(ctx context.Context, q querier, kind, siteID stri
 // news the first time it hits production, the 500th repeat is not, and a manual
 // reopen through triage — which never comes through here — is Karel's own doing.
 // Only an OPEN group's announcement is mailed: one Karel has ignored (or
-// resolved, with regressions not reopening it) consumes it silently.
+// resolved, with regressions not reopening it) consumes it silently — and so
+// does one ignored or resolved before its digest is assembled, which
+// Worker.assemble checks again.
 //
 // The state machine runs whether or not anything is mailed: an event that
 // happens while notifications are off consumes the announcement, so switching

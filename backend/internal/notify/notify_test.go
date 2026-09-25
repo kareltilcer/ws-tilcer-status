@@ -188,9 +188,17 @@ func (h *harness) check(c monitoring.CheckSignal) {
 	}
 }
 
+// report files the report and runs the hook in one transaction, as feedback's
+// insert does — assembly drops a report's notification once the report is gone.
 func (h *harness) report(s feedback.ReportSignal) {
 	h.t.Helper()
-	if err := h.inTx(func(tx *sql.Tx) error { return h.mod.notifier.ReportSubmitted(context.Background(), tx, s) }); err != nil {
+	if err := h.inTx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`INSERT INTO feedback_report (ref, site_id, kind, message, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?)`, s.Ref, s.SiteID, s.Kind, s.Message, ts(s.At), ts(s.At)); err != nil {
+			return err
+		}
+		return h.mod.notifier.ReportSubmitted(context.Background(), tx, s)
+	}); err != nil {
 		h.t.Fatalf("report hook: %v", err)
 	}
 }

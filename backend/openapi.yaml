@@ -1947,10 +1947,13 @@ components:
           description: >-
             New crash groups and resolved groups that came back — only for
             `error`/`fatal` events whose `environment` is `prod`, `production`
-            or unset.
+            or unset, and only while the group is open: one ignored or resolved
+            before its email is assembled is dropped from it.
         feedback:
           type: boolean
-          description: New feedback reports.
+          description: >-
+            New feedback reports — except one deleted before its email is
+            assembled.
         downtime:
           type: boolean
           description: A site turning red, and the next successful check after it.

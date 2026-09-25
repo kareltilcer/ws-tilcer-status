@@ -148,11 +148,15 @@ func (w *Worker) assemble(ctx context.Context, now time.Time) error {
 		}
 		// Re-check each event against the settings as they are NOW: a site muted,
 		// a toggle switched off or the recipients cleared since the event was
-		// queued means it is no longer wanted.
+		// queued means it is no longer wanted. ⚠ And against what it announces: a
+		// crash group Karel has since ignored or resolved, or a report since
+		// deleted, is no longer news — an event can wait a window, or hours behind
+		// a pending digest, and an email about a group already triaged, or linking
+		// to a report that is gone, is noise.
 		var keep []event
 		var keepIDs, dropIDs []int64
 		for _, e := range events {
-			if st.deliverable(e.Kind, mutedSet[e.SiteID]) {
+			if !e.Stale && st.deliverable(e.Kind, mutedSet[e.SiteID]) {
 				keep = append(keep, e)
 				keepIDs = append(keepIDs, e.ID)
 			} else {

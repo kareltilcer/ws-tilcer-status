@@ -17,8 +17,10 @@ import (
 // SDK's Send ignores the caller's context.
 const resendEndpoint = "https://api.resend.com/emails"
 
-// resendTimeout bounds one HTTP exchange. The worker's own context is the outer
-// bound; this one keeps a test-send handler from waiting on a stalled socket.
+// resendTimeout bounds one HTTP exchange, whatever the caller's context allows.
+// Both of notify's callers — the worker and the test button — also pass a
+// context of their own (sendTimeout, 15 s); this shorter bound is the one that
+// fires on a stalled socket, on either path.
 const resendTimeout = 10 * time.Second
 
 // maxErrorBody caps how much of a refusal is read and kept: it ends up in a log

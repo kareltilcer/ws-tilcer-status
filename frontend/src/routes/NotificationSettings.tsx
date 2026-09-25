@@ -100,7 +100,7 @@ const EVENT_ROWS: { key: keyof NotificationEvents; title: string; hint: string }
     title: 'New crashes, and crashes that come back',
     hint: 'A crash group’s first error or fatal event from production (environment prod, production or unset), and a resolved group reopened by a new event. Warnings, dev builds and ignored groups never email.',
   },
-  { key: 'feedback', title: 'Feedback reports', hint: 'Every report sent from the widget.' },
+  { key: 'feedback', title: 'Feedback reports', hint: 'Every report sent from the widget, unless it is deleted before its email is written.' },
   { key: 'downtime', title: 'Sites going down and back up', hint: 'When a site turns red, and again at its next passing check.' },
 ]
 
@@ -121,11 +121,17 @@ function parseRecipients(text: string): string[] {
     })
 }
 
+/** formatWindow states the digest window exactly — "2 minutes", "1 minute 30
+ *  seconds". ⚠ Not rounded to minutes: the page is where the configured value
+ *  is read back, and a 90 s window must not read as 2 minutes. */
 function formatWindow(seconds: number): string {
   if (seconds <= 0) return 'no time'
-  if (seconds < 60) return `${seconds} s`
-  const mins = Math.round(seconds / 60)
-  return mins === 1 ? '1 minute' : `${mins} minutes`
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  const parts: string[] = []
+  if (mins > 0) parts.push(mins === 1 ? '1 minute' : `${mins} minutes`)
+  if (secs > 0) parts.push(secs === 1 ? '1 second' : `${secs} seconds`)
+  return parts.join(' ')
 }
 
 function DeliveryCard({ settings, onDirtyChange }: { settings: Settings; onDirtyChange: (dirty: boolean) => void }) {
