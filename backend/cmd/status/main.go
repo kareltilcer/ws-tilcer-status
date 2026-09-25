@@ -1,7 +1,7 @@
 // Command status is the entrypoint for the `status` monitoring & crash-reporting
 // service: it loads configuration, opens the embedded SQLite database, runs
 // migrations, wires Mode B auth, starts the background scheduler (poller, nightly
-// rollup, daily retention), and serves the JSON API.
+// rollup, daily retention, notification worker), and serves the JSON API.
 package main
 
 import (
@@ -21,6 +21,8 @@ import (
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/feedback"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/feedback/blob"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/monitoring"
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/notify"
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/notify/mail"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/auth"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/config"
 	appdb "github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/db"
@@ -95,7 +97,25 @@ func run(logger *slog.Logger) error {
 	sessionMW := auth.NewSessionAuth(authConf)
 	csrfMW := auth.NewCSRF(cfg.AllowedOrigins, cfg.DevAuthBypass)
 
-	// 4. Feature modules (mounted onto the gated /api group). The sites registry is
+	// 4. The mail provider. Resend when a key is set; in development without one,
+	// a mailer that logs what it would have sent, so the whole pipeline can be
+	// exercised offline; in production without one, none — the service runs
+	// without email and the dashboard says so. ⚠ `mailer` stays an untyped nil in
+	// that case: a nil *Resend in the interface would read as configured.
+	var mailer mail.Mailer
+	switch {
+	case cfg.ResendAPIKey != "":
+		mailer = mail.NewResend(cfg.ResendAPIKey)
+	case !cfg.IsProduction():
+		mailer = mail.NewLog(logger)
+	}
+	if mailer != nil {
+		logger.Info("notifications ready", "provider", mailer.Provider(), "from", cfg.MailFrom)
+	} else {
+		logger.Warn("notifications unavailable: no mail provider (set STATUS_RESEND_API_KEY)")
+	}
+
+	// 5. Feature modules (mounted onto the gated /api group). The sites registry is
 	// the shared join point every functional module keys off. Two modules also
 	// expose public, key-authenticated surfaces outside the session gate: crash
 	// ingest, and the three widget routes of feedback (V3-D52).
@@ -114,7 +134,8 @@ func run(logger *slog.Logger) error {
 		UptimeWindowDays: cfg.UptimeWindowDays,
 		// GET /api/meta carries it so the dashboard can tell a deployment without
 		// object storage from a site with feedback switched off.
-		FeedbackEnabled: cfg.FeedbackEnabled,
+		FeedbackEnabled:      cfg.FeedbackEnabled,
+		NotificationsEnabled: mailer != nil,
 	}, logger)
 
 	// The feedback module is composed whether or not this deployment has object
@@ -165,38 +186,63 @@ func run(logger *slog.Logger) error {
 	// for the sweep.
 	defer fbMod.Drain()
 
-	modules := []registry.Module{sitesMod, crashMod, monMod, fbMod}
+	// Notifications. The notifier is wired into all three producers even with no
+	// provider: the crash and downtime state machines must keep running, or a
+	// provider switched on later would mail the history of every open group as
+	// news. With no provider it simply queues nothing.
+	notifyMod := notify.NewModule(sqldb, sitesMod.Store(), mailer, notify.Config{
+		PublicURL:     cfg.PublicURL,
+		From:          cfg.MailFrom,
+		DigestWindow:  cfg.NotifyDigestWindow,
+		MaxPerHour:    cfg.NotifyMaxPerHour,
+		RetentionDays: cfg.RetentionDays,
+	}, logger)
+	crashMod.SetNotifier(notifyMod.Notifier())
+	monMod.SetNotifier(notifyMod.Notifier())
+	fbMod.SetNotifier(notifyMod.Notifier())
 
-	// 5. Background scheduler: the poller every CHECK_INTERVAL, and a daily closure
-	// that rolls up yesterday, refreshes cached uptime, then purges (retention
-	// appended in M4). The rollup-before-purge order is enforced inside the daily
-	// closure. On boot the same RunDaily backfills any missed rollup days and
-	// refreshes the uptime cache, so a restart after an outage never leaves a stale
-	// uptime figure or lets the purge delete un-aggregated checks.
+	modules := []registry.Module{sitesMod, crashMod, monMod, fbMod, notifyMod}
+
+	// 6. Background scheduler: the poller every CHECK_INTERVAL, the notification
+	// worker when there is a provider, and a daily closure that rolls up
+	// yesterday, refreshes cached uptime, then purges (retention appended in M4).
+	// The rollup-before-purge order is enforced inside the daily closure. On boot
+	// the same RunDaily backfills any missed rollup days and refreshes the uptime
+	// cache, so a restart after an outage never leaves a stale uptime figure or
+	// lets the purge delete un-aggregated checks.
 	jobsCtx, cancelJobs := context.WithCancel(context.Background())
 	var jobsWG sync.WaitGroup
+	// ⚠ Wait is deferred BEFORE cancel, so on every return path the jobs are
+	// cancelled, then joined, and only then do the earlier defers drain the object
+	// deletes and close the database. Without it a serve error returned straight
+	// past a poll or a send still using the connection.
+	defer jobsWG.Wait()
 	defer cancelJobs()
 	purger := retention.NewPurger(sqldb, cfg.RetentionDays, cfg.RollupRetentionDays, logger)
 	if err := monMod.Rollup().RunDaily(jobsCtx, time.Now().UTC()); err != nil {
 		logger.Error("rollup catch-up on boot", "err", err)
+	}
+	jobs := scheduler.Jobs{
+		Poll: monMod.Poller().RunOnce,
+		// rollup → purge → notification prune → feedback sweep, in that order and
+		// with the rollup failure skipping only the purge. Both rules are
+		// normative, so they live in the named runDailyJob beside this file rather
+		// than in a closure no test can reach — see daily.go and daily_test.go.
+		Daily: func(ctx context.Context) {
+			runDailyJob(ctx, logger, monMod.Rollup(), purger, notifyMod, fbMod, time.Now().UTC())
+		},
+	}
+	if notifyMod.Available() {
+		jobs.Notify = func(ctx context.Context) { notifyMod.Worker().RunOnce(ctx, time.Now().UTC()) }
 	}
 	scheduler.Start(jobsCtx, &jobsWG, scheduler.Config{
 		CheckInterval: cfg.CheckInterval,
 		DailyAtHour:   cfg.DailyAtHour,
 		DailyAtMin:    cfg.DailyAtMin,
 		Logger:        logger,
-	}, scheduler.Jobs{
-		Poll: monMod.Poller().RunOnce,
-		// rollup → purge → feedback sweep, in that order and with the rollup
-		// failure skipping the rest. Both rules are normative, so they live in the
-		// named runDailyJob beside this file rather than in a closure no test can
-		// reach — see daily.go and daily_test.go.
-		Daily: func(ctx context.Context) {
-			runDailyJob(ctx, logger, monMod.Rollup(), purger, fbMod, time.Now().UTC())
-		},
-	})
+	}, jobs)
 
-	// 6. HTTP server.
+	// 7. HTTP server.
 	handler := httpx.NewRouter(httpx.Deps{
 		Logger:            logger,
 		DB:                sqldb,
@@ -220,7 +266,7 @@ func run(logger *slog.Logger) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	// 7. Serve until interrupted, then shut down gracefully.
+	// 8. Serve until interrupted, then shut down gracefully.
 	serveErr := make(chan error, 1)
 	go func() {
 		logger.Info("listening", "addr", cfg.Addr)

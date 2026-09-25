@@ -23,6 +23,9 @@ type Poller struct {
 	concurrency      int
 	redThreshold     int
 	logger           *slog.Logger
+	// notifier is told about every written check (Module.SetNotifier); nil tells
+	// nobody.
+	notifier Notifier
 }
 
 // NewPoller builds a poller. timeout bounds each HTTP GET. Most checks follow
@@ -90,7 +93,7 @@ func (p *Poller) RunOnce(ctx context.Context) {
 	now := time.Now().UTC()
 	checkedAt := timeutil.Format(now)
 	var okCount, failCount int
-	for _, o := range outcomes {
+	for i, o := range outcomes {
 		if o.OK {
 			okCount++
 		} else {
@@ -100,8 +103,17 @@ func (p *Poller) RunOnce(ctx context.Context) {
 			if err := p.store.WriteCheck(ctx, tx, o, checkedAt); err != nil {
 				return err
 			}
-			_, err := sites.RecomputeAndPersist(ctx, tx, o.SiteID, p.redThreshold, now)
-			return err
+			color, err := sites.RecomputeAndPersist(ctx, tx, o.SiteID, p.redThreshold, now)
+			if err != nil || p.notifier == nil {
+				return err
+			}
+			// ⚠ Last, for the reason crash ingest gives: the notifier runs in a
+			// savepoint, and nothing of ours may follow a transaction SQLite has
+			// already rolled back.
+			return p.notifier.CheckRecorded(ctx, tx, CheckSignal{
+				SiteID: o.SiteID, URL: sitesToCheck[i].URL, OK: o.OK, Color: color,
+				StatusCode: o.StatusCode, Error: o.Err, At: now,
+			})
 		}); err != nil {
 			p.logger.Error("poller: write check", "site", o.SiteID, "err", err)
 		}

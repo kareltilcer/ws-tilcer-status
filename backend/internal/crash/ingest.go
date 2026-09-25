@@ -114,17 +114,20 @@ func (m *Module) ingest(w http.ResponseWriter, r *http.Request) {
 		contextJSON = string(b)
 	}
 
-	// 6) one tx: fingerprint → group upsert → event insert → color recompute.
+	// 6) one tx: fingerprint → group upsert → event insert → color recompute →
+	// notifier. ⚠ The notifier is the LAST statement: it runs inside a savepoint
+	// of its own, and a transaction SQLite has already rolled back must not be
+	// followed by a statement of ours that would then commit on its own.
 	fp := Fingerprint(siteID, level, in.Message, in.Stack, in.Fingerprint)
 	title := truncate(msg, 200)
 
 	var groupID, eventID int64
 	if err := appdb.WithTx(r.Context(), m.db, func(tx *sql.Tx) error {
-		gid, err := m.crashStore.UpsertGroup(r.Context(), tx, siteID, fp, title, level, occStr, m.cfg.ReopenOnRegression)
+		g, err := m.crashStore.UpsertGroup(r.Context(), tx, siteID, fp, title, level, occStr, m.cfg.ReopenOnRegression)
 		if err != nil {
 			return err
 		}
-		eid, err := m.crashStore.InsertEvent(r.Context(), tx, siteID, gid, level, in.Message,
+		eid, err := m.crashStore.InsertEvent(r.Context(), tx, siteID, g.ID, level, in.Message,
 			in.Stack, in.Environment, in.Release, contextJSON, occStr, recvStr)
 		if err != nil {
 			return err
@@ -132,8 +135,16 @@ func (m *Module) ingest(w http.ResponseWriter, r *http.Request) {
 		if _, err := sites.RecomputeAndPersist(r.Context(), tx, siteID, m.cfg.RedFailThreshold, now); err != nil {
 			return err
 		}
-		groupID, eventID = gid, eid
-		return nil
+		groupID, eventID = g.ID, eid
+		if m.notifier == nil {
+			return nil
+		}
+		return m.notifier.CrashRecorded(r.Context(), tx, Signal{
+			SiteID: siteID, GroupID: g.ID, EventID: eid,
+			Created: g.Created, Reopened: g.Reopened, GroupStatus: g.Status,
+			Level: level, Environment: in.Environment, Release: in.Release,
+			Title: title, Message: msg, At: now,
+		})
 	}); err != nil {
 		httpx.WriteError(w, httpx.ErrInternal(""))
 		return

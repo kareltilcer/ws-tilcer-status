@@ -22,6 +22,8 @@ type Module struct {
 	sitesStore *sites.Store
 	limiter    *ratelimit.Limiter
 	cfg        Config
+	// notifier is told about every accepted event (SetNotifier); nil tells nobody.
+	notifier Notifier
 }
 
 // NewModule builds the crash module. sitesStore provides the per-site ingest key

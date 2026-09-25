@@ -25,6 +25,10 @@ type Config struct {
 	// feedback module: /api/meta is service metadata, and monitoring must not
 	// learn to import a feature module to report a deployment fact.
 	FeedbackEnabled bool
+	// NotificationsEnabled is whether this deployment has a mail provider — the
+	// same kind of deployment fact, for the same reason: a notifications page on a
+	// deployment that cannot send offers a switch whose only answer is 503.
+	NotificationsEnabled bool
 }
 
 // Module implements registry.Module for the monitoring endpoints and exposes the
@@ -35,6 +39,7 @@ type Module struct {
 	rollup           *Rollup
 	uptimeWindowDays int
 	feedbackEnabled  bool
+	notifyEnabled    bool
 }
 
 // NewModule builds the monitoring module and its background jobs.
@@ -46,6 +51,7 @@ func NewModule(db *sql.DB, cfg Config, logger *slog.Logger) *Module {
 		rollup:           NewRollup(store, cfg.UptimeWindowDays, logger),
 		uptimeWindowDays: cfg.UptimeWindowDays,
 		feedbackEnabled:  cfg.FeedbackEnabled,
+		notifyEnabled:    cfg.NotificationsEnabled,
 	}
 }
 

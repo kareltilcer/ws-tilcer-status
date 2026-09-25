@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Status (Monitoring & Crash Reporting) API
-  version: 0.3.0
+  version: 0.4.0
   description: >-
     API for the status service. Actively monitors registered sites, ingests
     crash reports from them, and (v3) collects bug reports written by the users
@@ -14,6 +14,12 @@ info:
     cookie plus a double-submit CSRF token**, not the `bearerAuth` JWT this
     document used to claim; and `buckets` defaults per window rather than to a
     fixed 90.
+
+    0.4.0 adds email notifications: the `/api/notifications/*` settings routes
+    and `notifications_enabled` on `GET /api/meta`. The notifications
+    themselves are not an API — a worker emails the configured recipients —
+    so what this document describes is how they are configured and what became
+    of them.
 
     Auth: dashboard endpoints require the `session` cookie, and every unsafe
     method additionally requires `X-CSRF-Token` matching the `csrf` cookie and
@@ -42,6 +48,8 @@ tags:
     description: User bug reports — the cross-site inbox (admin)
   - name: widget
     description: Public feedback-widget endpoints (per-site widget key)
+  - name: notifications
+    description: Email notification settings and delivery history (admin)
 
 paths:
   /healthz:
@@ -180,6 +188,13 @@ paths:
                   feedback_enabled:
                     type: boolean
                     description: v3 — whether the feedback module is configured on this deployment
+                  notifications_enabled:
+                    type: boolean
+                    description: >-
+                      0.4.0 — whether this deployment has a mail provider
+                      (`STATUS_RESEND_API_KEY`, or the log-only mailer of a
+                      development deployment). When false the notifications
+                      page can only say so; turning them on answers 503.
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -988,6 +1003,201 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
+  # --- Notifications (admin) --------------------------------------------------
+  # Email about new crash groups, crashes that came back, new feedback reports,
+  # and sites going down and coming back up. Queued inside the transaction that
+  # caused it, folded into one digest per STATUS_NOTIFY_DIGEST_WINDOW, and sent
+  # by a background worker that retries with the digest's idempotency key.
+  /api/notifications/settings:
+    get:
+      tags: [notifications]
+      summary: Read the notification settings
+      description: >-
+        Readable by any session. `recipients` is **null** for a caller without
+        `admin` — the addresses are personal data and nothing a non-admin can
+        do on the page needs them.
+      responses:
+        "200":
+          description: The settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      tags: [notifications]
+      summary: Replace the notification settings
+      description: >-
+        Every field is required; mutes have their own routes. Recipients are
+        plain addresses (no display name), at most 5, deduplicated ignoring
+        case; blank entries are dropped. Requires `admin`.
+
+        Settings apply to what is queued from now on — and a digest is
+        re-checked against them when it is assembled, so muting a site or
+        switching a kind off also drops what was already waiting. Switching the
+        master switch off cancels every digest not yet sent.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationSettingsUpdate"
+      responses:
+        "200":
+          description: The saved settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CSRFOrOriginRejected"
+        "422":
+          description: >-
+            A field is missing, a recipient is not a plain address, there are
+            more than 5, or `enabled` is true with no recipient.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: >-
+            `enabled` is true but this deployment has no mail provider
+            (`mail_unconfigured`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/notifications/muted-sites/{siteId}:
+    parameters:
+      - name: siteId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/SiteIdString"
+    put:
+      tags: [notifications]
+      summary: Mute a site
+      description: >-
+        Nothing about the site is emailed until it is unmuted, and anything
+        already queued for it is dropped when the next digest is assembled. The
+        board is unaffected. Idempotent. Requires `admin`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "204":
+          description: Muted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CSRFOrOriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [notifications]
+      summary: Unmute a site
+      description: Idempotent. Requires `admin`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "204":
+          description: Unmuted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CSRFOrOriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/notifications/test:
+    post:
+      tags: [notifications]
+      summary: Send a test email to the saved recipients
+      description: >-
+        Sends one email immediately, straight through the provider — not
+        queued, not digested, and regardless of the master switch and the
+        per-kind toggles: its job is to prove the provider and the addresses
+        work before anything real depends on them. Uses the SAVED recipients,
+        so save first. Requires `admin`.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: The provider accepted the message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationTestResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CSRFOrOriginRejected"
+        "422":
+          description: No recipient is saved (`no_recipients`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          description: >-
+            The provider refused the message or could not be reached
+            (`mail_failed`); `detail` carries the provider's reason — an
+            unverified sender domain, a bad key, an invalid address.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: This deployment has no mail provider (`mail_unconfigured`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/notifications/deliveries:
+    get:
+      tags: [notifications]
+      summary: Recent notification emails and what became of them
+      description: >-
+        Newest first. A digest is `pending` until the provider accepts it
+        (`sent`) or the worker gives up (`failed`: refused permanently, not
+        delivered within 23 hours, or cancelled by switching notifications off).
+        `recipients` is null for a non-admin, as on the settings.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: The deliveries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NotificationDelivery"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
 components:
   securitySchemes:
     sessionCookie:
@@ -1709,6 +1919,124 @@ components:
           items:
             $ref: "#/components/schemas/UploadSlot"
           description: One slot per declared file, in the order declared. Empty when no files were declared.
+
+    # --- 0.4.0 — Notifications ---
+    NotificationEvents:
+      type: object
+      required: [crash, feedback, downtime]
+      properties:
+        crash:
+          type: boolean
+          description: >-
+            New crash groups and resolved groups that came back — only for
+            `error`/`fatal` events whose `environment` is `prod`, `production`
+            or unset.
+        feedback:
+          type: boolean
+          description: New feedback reports.
+        downtime:
+          type: boolean
+          description: A site turning red, and the next successful check after it.
+
+    NotificationSettings:
+      type: object
+      required: [available, provider, from, enabled, recipients, events, muted_sites, digest_window_seconds, max_per_hour, updated_at]
+      properties:
+        available:
+          type: boolean
+          description: Whether this deployment has a mail provider at all.
+        provider:
+          type: [string, "null"]
+          description: "`resend`, or `log` on a development deployment; null when unavailable."
+        from:
+          type: string
+          description: The sender (`STATUS_MAIL_FROM`).
+        enabled:
+          type: boolean
+          description: The master switch. Off by default.
+        recipients:
+          type: [array, "null"]
+          items:
+            type: string
+            format: email
+          description: Null for a caller without `admin`.
+        events:
+          $ref: "#/components/schemas/NotificationEvents"
+        muted_sites:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteIdString"
+        digest_window_seconds:
+          type: integer
+          description: "`STATUS_NOTIFY_DIGEST_WINDOW` — how long a notification waits for company."
+        max_per_hour:
+          type: integer
+          description: "`STATUS_NOTIFY_MAX_PER_HOUR` — reaching it delays digests, never drops them."
+        updated_at:
+          type: [string, "null"]
+          format: date-time
+
+    NotificationSettingsUpdate:
+      type: object
+      required: [enabled, recipients, events]
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+        recipients:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+            format: email
+            maxLength: 254
+        events:
+          $ref: "#/components/schemas/NotificationEvents"
+
+    NotificationDelivery:
+      type: object
+      required: [id, created_at, state, subject, event_count, recipients, attempts, next_attempt_at, last_error, sent_at]
+      properties:
+        id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        state:
+          type: string
+          enum: [pending, sent, failed]
+        subject:
+          type: string
+        event_count:
+          type: integer
+          description: How many notifications the email carries.
+        recipients:
+          type: [array, "null"]
+          items:
+            type: string
+          description: Frozen when the digest was rendered. Null for a caller without `admin`.
+        attempts:
+          type: integer
+        next_attempt_at:
+          type: [string, "null"]
+          format: date-time
+          description: Set only while pending.
+        last_error:
+          type: [string, "null"]
+        sent_at:
+          type: [string, "null"]
+          format: date-time
+
+    NotificationTestResult:
+      type: object
+      required: [provider_message_id, recipients]
+      properties:
+        provider_message_id:
+          type: string
+        recipients:
+          type: array
+          items:
+            type: string
 
 
 # Default auth for gated endpoints. Health probes, the auth routes, crash ingest

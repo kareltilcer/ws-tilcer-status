@@ -120,6 +120,9 @@ type Module struct {
 	auxKeyLimiter *ratelimit.Limiter
 	auxIPLimiter  *ratelimit.Limiter
 
+	// notifier is told about every accepted report (SetNotifier); nil tells nobody.
+	notifier Notifier
+
 	// deletes tracks the object deletes issued after a delete transaction commits.
 	// They run detached because the response does not wait on R2 (FR-22); Drain
 	// lets a shutdown — and a test — wait for them.

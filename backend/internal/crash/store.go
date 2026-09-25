@@ -15,11 +15,22 @@ type Store struct{ db *sql.DB }
 // NewStore returns a store over db.
 func NewStore(db *sql.DB) *Store { return &Store{db: db} }
 
+// GroupUpsert is what UpsertGroup did: the group's id, and whether this event
+// created it or brought it back from resolved. A notifier needs to tell "a new
+// crash" and "a crash that came back" from "the 500th repeat", and only the
+// upsert knows which one happened.
+type GroupUpsert struct {
+	ID       int64
+	Created  bool
+	Reopened bool
+	Status   string // the group's status after this event
+}
+
 // UpsertGroup creates or bumps the crash group for (siteID, fingerprint) within
-// tx and returns its id. On a hit it increments count, widens first/last seen,
-// raises the tracked level to the highest seen, and reopens a resolved group when
-// reopen is set (an ignored group is never auto-reopened).
-func (s *Store) UpsertGroup(ctx context.Context, tx *sql.Tx, siteID, fingerprint, title, level, at string, reopen bool) (int64, error) {
+// tx. On a hit it increments count, widens first/last seen, raises the tracked
+// level to the highest seen, and reopens a resolved group when reopen is set (an
+// ignored group is never auto-reopened).
+func (s *Store) UpsertGroup(ctx context.Context, tx *sql.Tx, siteID, fingerprint, title, level, at string, reopen bool) (GroupUpsert, error) {
 	var (
 		id       int64
 		status   string
@@ -34,12 +45,16 @@ func (s *Store) UpsertGroup(ctx context.Context, tx *sql.Tx, siteID, fingerprint
 			 VALUES (?,?,?,?,1,'open',?,?)`,
 			siteID, fingerprint, title, level, at, at)
 		if err != nil {
-			return 0, err
+			return GroupUpsert{}, err
 		}
-		return res.LastInsertId()
+		id, err := res.LastInsertId()
+		if err != nil {
+			return GroupUpsert{}, err
+		}
+		return GroupUpsert{ID: id, Created: true, Status: StatusOpen}, nil
 	}
 	if err != nil {
-		return 0, err
+		return GroupUpsert{}, err
 	}
 	newStatus := status
 	if status == StatusResolved && reopen {
@@ -54,9 +69,9 @@ func (s *Store) UpsertGroup(ctx context.Context, tx *sql.Tx, siteID, fingerprint
 		        status = ?
 		  WHERE id = ?`,
 		at, at, maxLevel(curLevel, level), newStatus, id); err != nil {
-		return 0, err
+		return GroupUpsert{}, err
 	}
-	return id, nil
+	return GroupUpsert{ID: id, Reopened: newStatus != status, Status: newStatus}, nil
 }
 
 // InsertEvent inserts one crash event within tx and returns its id.

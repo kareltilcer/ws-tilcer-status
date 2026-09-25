@@ -103,6 +103,56 @@ func TestPollerDebounceAndRecovery(t *testing.T) {
 	}
 }
 
+// recordingNotifier collects the check signals the poller sends.
+type recordingNotifier struct{ got []CheckSignal }
+
+func (r *recordingNotifier) CheckRecorded(_ context.Context, _ *sql.Tx, c CheckSignal) error {
+	r.got = append(r.got, c)
+	return nil
+}
+
+// TestPollerTellsTheNotifierEveryCheck: the notifier sees each check's outcome
+// and the color it LEFT the site in — so the debounce is visible to it: the
+// first failure holds green, the second is red.
+func TestPollerTellsTheNotifierEveryCheck(t *testing.T) {
+	mod, _, db := newMon(t)
+	ctx := context.Background()
+	rec := &recordingNotifier{}
+	mod.SetNotifier(rec)
+
+	var status atomic.Int32
+	status.Store(200)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(int(status.Load()))
+	}))
+	defer ts.Close()
+	createSite(t, db, "fin", ts.URL)
+
+	mod.Poller().RunOnce(ctx)
+	status.Store(503)
+	mod.Poller().RunOnce(ctx)
+	mod.Poller().RunOnce(ctx)
+	status.Store(200)
+	mod.Poller().RunOnce(ctx)
+
+	want := []struct {
+		ok    bool
+		color sites.Color
+	}{{true, sites.Green}, {false, sites.Green}, {false, sites.Red}, {true, sites.Green}}
+	if len(rec.got) != len(want) {
+		t.Fatalf("notifier saw %d checks, want %d", len(rec.got), len(want))
+	}
+	for i, w := range want {
+		c := rec.got[i]
+		if c.OK != w.ok || c.Color != w.color || c.SiteID != "fin" || c.URL != ts.URL || c.At.IsZero() {
+			t.Fatalf("check %d = %+v, want ok=%t color=%s", i, c, w.ok, w.color)
+		}
+	}
+	if rec.got[2].StatusCode == nil || *rec.got[2].StatusCode != 503 {
+		t.Fatalf("the failing check did not carry its status code: %+v", rec.got[2])
+	}
+}
+
 func TestRollupAndUptime(t *testing.T) {
 	mod, sst, db := newMon(t)
 	ctx := context.Background()
