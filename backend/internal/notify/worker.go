@@ -259,23 +259,37 @@ func (w *Worker) deliverOne(ctx context.Context, d digest, now time.Time) bool {
 		IdempotencyKey: d.IdempotencyKey,
 	})
 	cancel()
+	if sendErr == nil {
+		// ⚠ Recorded even when shutdown began during the send: the provider has
+		// accepted it, and that is known. Left pending, the digest would be sent
+		// again on the next boot — deduplicated by its key inside the provider's
+		// window, but marked expired past it, about an email that did arrive. The
+		// scheduler joins this goroutine before the database is closed.
+		bg := context.WithoutCancel(ctx)
+		w.settle(bg, d, "sent", markSent(bg, w.db, d.ID, res.ID, at))
+		return ctx.Err() == nil
+	}
 	if ctx.Err() != nil {
-		// Shutting down. Whether the provider got it is unknown; the row stays
-		// pending with its attempts unchanged, and the next boot resends it with
-		// the same idempotency key — which is exactly what that key is for.
+		// Shutting down, and the send failed with it. Whether the provider got it
+		// is unknown; the row stays pending with its attempts unchanged, and the
+		// next boot resends it with the same idempotency key — which is exactly
+		// what that key is for.
 		return false
 	}
 
 	switch {
-	case sendErr == nil:
-		w.settle(ctx, d, "sent", markSent(ctx, w.db, d.ID, res.ID, at))
 	case mail.IsPermanent(sendErr):
 		w.logger.Error("notify: provider refused a digest; giving up", "digest", d.ID, "err", sendErr)
 		w.settle(ctx, d, "failed", markFailed(ctx, w.db, d.ID, sendErr.Error(), at, true))
 	default:
 		wait := backoff(d.Attempts + 1)
 		if ra := mail.RetryAfterOf(sendErr); ra > wait {
-			wait = ra
+			// ⚠ The provider's hint lengthens the wait up to the longest backoff
+			// step and no further. A retry it refuses again costs one request;
+			// a longer wait would park this digest past giveUpAfter — expiry is
+			// checked only when a digest is due — and, because a pending digest
+			// holds the next one back, every notification queued behind it too.
+			wait = min(ra, maxRetryWait)
 		}
 		msg := sendErr.Error()
 		if errors.Is(sendErr, context.DeadlineExceeded) {

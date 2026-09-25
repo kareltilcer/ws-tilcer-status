@@ -1032,8 +1032,9 @@ paths:
       summary: Replace the notification settings
       description: >-
         Every field is required; mutes have their own routes. Recipients are
-        plain addresses (no display name), at most 5, deduplicated ignoring
-        case; blank entries are dropped. Requires `admin`.
+        plain addresses (no display name) on a dotted domain, at most 5,
+        deduplicated ignoring case; blank entries are dropped. Requires
+        `admin`.
 
         Settings apply to what is queued from now on — and a digest is
         re-checked against them when it is assembled, so muting a site or
@@ -1066,8 +1067,10 @@ paths:
           $ref: "#/components/responses/CSRFOrOriginRejected"
         "422":
           description: >-
-            A field is missing, a recipient is not a plain address, there are
-            more than 5, or `enabled` is true with no recipient.
+            A field is missing, a recipient is not a plain address or has no
+            dotted domain (`karel@gmail`, which the provider would refuse for
+            good), there are more than 5, or `enabled` is true with no
+            recipient.
           content:
             application/json:
               schema:

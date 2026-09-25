@@ -264,5 +264,6 @@ next passing check.
   the quota matters more than timeliness.
 - An outage that began while notifications were off (or its site muted) stays silent at both ends:
   "back up" follows only a "down" that was **queued**. A "down" queued and then dropped before it
-  went out — the site muted, or downtime switched off, inside the digest window — still gets its
-  "back up" at the next passing check.
+  went out — the site muted, downtime or all notifications switched off, inside the digest window —
+  still gets its "back up" at the next passing check if by then the site is unmuted and both are on
+  again; otherwise that "back up" is dropped too.

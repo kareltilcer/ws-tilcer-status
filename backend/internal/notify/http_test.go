@@ -54,6 +54,7 @@ func TestSettingsValidation(t *testing.T) {
 		settingsBody(false, "Karel <karel@example.test>"),
 		settingsBody(false, "karel@example.test\r\nBcc: x@example.test"),
 		settingsBody(false, "not-an-address"),
+		settingsBody(true, "karel@gmail"), // parses, and is refused by the provider for good
 		settingsBody(false, "a@x.test", "b@x.test", "c@x.test", "d@x.test", "e@x.test", "f@x.test"),
 		settingsBody(false, strings.Repeat("a", 250)+"@x.test"),
 		settingsBody(true), // on with nobody to mail
@@ -323,7 +324,10 @@ func TestValidateRecipients(t *testing.T) {
 	if err != nil || strings.Join(got, ",") != "a@x.test,b@x.test" {
 		t.Fatalf("got %v, %v", got, err)
 	}
-	for _, bad := range []string{"a@x.test, b@x.test", "<a@x.test>", "a@x.test (work)", "@", "a b@x.test"} {
+	// The last three parse with net/mail, and the provider refuses each as an
+	// invalid `to` — permanently, so every digest to them would be thrown away.
+	for _, bad := range []string{"a@x.test, b@x.test", "<a@x.test>", "a@x.test (work)", "@", "a b@x.test",
+		"karel@gmail", "karel@localhost", "karel@[192.0.2.1]"} {
 		if _, err := validateRecipients([]string{bad}); err == nil {
 			t.Errorf("%q was accepted", bad)
 		}

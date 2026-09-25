@@ -297,6 +297,49 @@ func TestRetryAfterIsHonoured(t *testing.T) {
 	}
 }
 
+// TestRetryAfterIsCappedAtTheLongestBackoff: a pending digest holds the next one
+// back, and expiry is checked only when a digest is due — so a provider's
+// 30-hour hint, honoured, would hold every notification for 30 hours and expire
+// the digest a day late. Capped, it is retried hourly and expires on schedule.
+func TestRetryAfterIsCappedAtTheLongestBackoff(t *testing.T) {
+	h := newHarness(t)
+	h.enable("karel@example.test")
+	h.queueCrash(t0)
+	h.mail.Fail(&mail.SendError{Status: 429, Code: "daily_quota_exceeded", RetryAfter: 30 * time.Hour})
+	at := t0.Add(2 * time.Minute)
+	h.run(at)
+	if ds, want := h.allDigests(), ts(at.Add(time.Hour)); ds[0].NextAttemptAt != want {
+		t.Fatalf("next attempt = %s, want %s (the longest backoff step)", ds[0].NextAttemptAt, want)
+	}
+}
+
+// cancellingMailer accepts every message and cancels the worker's context while
+// doing so: a provider answering 200 just as shutdown begins.
+type cancellingMailer struct{ cancel context.CancelFunc }
+
+func (m cancellingMailer) Provider() string { return "fake" }
+
+func (m cancellingMailer) Send(context.Context, mail.Message) (mail.Result, error) {
+	m.cancel()
+	return mail.Result{ID: "accepted-at-shutdown"}, nil
+}
+
+// TestASendAcceptedAsShutdownBeginsIsRecorded: the provider's acceptance is
+// known, so it is recorded. Left pending, a boot more than 23 hours later would
+// mark an email that did arrive as expired.
+func TestASendAcceptedAsShutdownBeginsIsRecorded(t *testing.T) {
+	h := newHarness(t)
+	h.enable("karel@example.test")
+	h.queueCrash(t0)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h.mod.worker.mailer = cancellingMailer{cancel: cancel}
+	h.mod.worker.RunOnce(ctx, t0.Add(2*time.Minute))
+	if ds := h.allDigests(); len(ds) != 1 || ds[0].State != DigestSent || ds[0].Attempts != 1 || ds[0].SentAt == nil {
+		t.Fatalf("digest accepted as shutdown began = %+v, want it recorded as sent", ds)
+	}
+}
+
 // TestATimeoutKeepsTheDigestPending: whether a timed-out request was delivered is
 // unknown; the answer is to retry under the same key, which the provider
 // deduplicates.

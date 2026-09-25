@@ -32,13 +32,17 @@ var backoffSteps = []time.Duration{
 	time.Minute, 2 * time.Minute, 5 * time.Minute, 15 * time.Minute, 30 * time.Minute, time.Hour,
 }
 
+// maxRetryWait is the longest a digest ever waits for its next attempt — the
+// last backoff step, and the ceiling on a provider's Retry-After too.
+var maxRetryWait = backoffSteps[len(backoffSteps)-1]
+
 // backoff returns how long to wait after the given number of failed attempts.
 func backoff(attempts int) time.Duration {
 	if attempts < 1 {
 		attempts = 1
 	}
 	if attempts > len(backoffSteps) {
-		return backoffSteps[len(backoffSteps)-1]
+		return maxRetryWait
 	}
 	return backoffSteps[attempts-1]
 }
