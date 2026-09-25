@@ -2,6 +2,7 @@ import { apiFetch } from './client'
 import type {
   AttachmentURL,
   Color,
+  DeliveryPage,
   CrashGroup,
   GroupDetail,
   GroupPage,
@@ -10,6 +11,9 @@ import type {
   FeedbackConfig,
   FeedbackConfigWithKey,
   Meta,
+  NotificationSettings,
+  NotificationSettingsUpdate,
+  NotificationTestResult,
   Report,
   ReportKind,
   ReportPage,
@@ -140,4 +144,25 @@ export function rotateWidgetKey(siteId: string) {
   return apiFetch<{ widget_key: string }>(`/api/sites/${encodeURIComponent(siteId)}/rotate-widget-key`, {
     method: 'POST',
   })
+}
+
+// --- notifications ---
+export function getNotificationSettings() {
+  return apiFetch<NotificationSettings>('/api/notifications/settings')
+}
+export function updateNotificationSettings(body: NotificationSettingsUpdate) {
+  return apiFetch<NotificationSettings>('/api/notifications/settings', { method: 'PUT', body })
+}
+export function muteSite(siteId: string) {
+  return apiFetch<void>(`/api/notifications/muted-sites/${encodeURIComponent(siteId)}`, { method: 'PUT' })
+}
+export function unmuteSite(siteId: string) {
+  return apiFetch<void>(`/api/notifications/muted-sites/${encodeURIComponent(siteId)}`, { method: 'DELETE' })
+}
+/** sendTestNotification sends one real email now, to the SAVED recipients. */
+export function sendTestNotification() {
+  return apiFetch<NotificationTestResult>('/api/notifications/test', { method: 'POST' })
+}
+export function listDeliveries(limit = 20) {
+  return apiFetch<DeliveryPage>(`/api/notifications/deliveries?limit=${limit}`)
 }

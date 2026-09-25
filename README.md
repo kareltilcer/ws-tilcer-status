@@ -158,7 +158,7 @@ Secrets live in Coolify only — never in the repo.
 | `STATUS_INGEST_RATE` | `60/min` | per-site ingest rate |
 | `STATUS_INGEST_BURST` | `120` | per-site token-bucket burst |
 | `STATUS_REOPEN_ON_REGRESSION` | `true` | reopen resolved groups on new events |
-| `STATUS_DAILY_JOB_AT` | `00:15` | daily rollup → purge → feedback sweep time (UTC) |
+| `STATUS_DAILY_JOB_AT` | `00:15` | daily rollup → purge → notification prune → feedback sweep time (UTC) |
 | `STATUS_FEEDBACK_ENABLED` | `false` | master switch for the feedback module. **When true, every `STATUS_R2_*` var below plus the ticket secret and IP hash salt is required at boot** |
 | `STATUS_R2_ENDPOINT` | — | `https://<account>.r2.cloudflarestorage.com` |
 | `STATUS_R2_BUCKET` | — | `ws-tilcer-status-feedback` |
@@ -174,6 +174,11 @@ Secrets live in Coolify only — never in the repo.
 | `STATUS_FEEDBACK_VIEW_TTL` | `5m` | presigned GET lifetime |
 | `STATUS_FEEDBACK_UNCLAIMED_TTL` | `24h` | sweep threshold **and** the GC's minimum object age |
 | `STATUS_FEEDBACK_MIN_DWELL_MS` | `3000` | minimum time between a ticket being issued and a submission |
+| `STATUS_RESEND_API_KEY` | — | Resend API key for email notifications. **Optional**: without it the service runs without email (a development deployment logs what it would have sent), and the dashboard's Notifications page says so |
+| `STATUS_MAIL_FROM` | `tilcer status <status@tilcer.cz>` | sender; ⚠ its domain must be **verified in Resend** |
+| `STATUS_PUBLIC_URL` | `https://status.tilcer.cz` | where the dashboard is served — every link in an email is built on it |
+| `STATUS_NOTIFY_DIGEST_WINDOW` | `2m` | how long the first queued notification waits for company before its email goes out (0–1h) |
+| `STATUS_NOTIFY_MAX_PER_HOUR` | `6` | emails per rolling hour (1–60). Reaching it **delays**, never drops: what waits goes out together |
 | `LITESTREAM_ENABLED` | `true` | R2 replication (set `false` for the local harness) |
 | `LITESTREAM_R2_ENDPOINT` / `LITESTREAM_R2_BUCKET` / `LITESTREAM_ACCESS_KEY_ID` / `LITESTREAM_SECRET_ACCESS_KEY` | — | R2 creds (prefix `status/`) |
 
@@ -227,3 +232,24 @@ images and clips attached to user reports, under the `feedback/` prefix. Three t
 
 `backend/spike-r2-presign.py` is the reproducer for what a presigned PUT actually enforces on R2
 (V3-D54); run it by hand against a scratch bucket if that ever needs re-checking.
+
+**Email notifications.** Set `STATUS_RESEND_API_KEY`, then turn them on — and choose the recipients,
+the kinds and the muted sites — under **Notifications** in the dashboard; the settings live in SQLite,
+not in env. They cover a crash group's first error-or-worse event **in production** (`environment`
+`prod`, `production` or unset — see [`docs/integration.md`](docs/integration.md)), a resolved group
+reopened by a new event, a new feedback report, a site turning red, and its next passing check.
+
+- ⚠ **Verify the sender's domain in Resend first** (`tilcer.cz`, for the default
+  `status@tilcer.cz`). An unverified domain is a 403 on every send; the dashboard's **Send test
+  email** shows Resend's reason, and a digest refused that way keeps retrying — for up to 23 hours —
+  so fixing the domain delivers it.
+- **Nothing is lost to a restart or an outage.** Notifications are queued in SQLite inside the
+  transaction that caused them and sent afterwards by a worker, retried with the same idempotency
+  key until Resend accepts them.
+- **What leaves for Resend** is an excerpt: a crash's title and the first 300 characters of its
+  message (never a stack), a report's first 300 characters and its ref (never the reporter's name,
+  page, browser, console or IP). Resend keeps what it sends.
+- **Quota.** Resend's free plan is 100 emails a day, and the account is shared with the fleet's
+  other senders; the digest window and the hourly cap exist to stay well inside it.
+- An outage that began while notifications were off (or its site muted) stays silent at both ends —
+  there is no "back up" for a "down" nobody was told about.

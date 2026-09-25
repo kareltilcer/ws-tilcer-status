@@ -11,6 +11,7 @@ import { AddSite } from '@/routes/AddSite'
 import { CrashGroup } from '@/routes/CrashGroup'
 import { Inbox } from '@/routes/Inbox'
 import { ReportDetail } from '@/routes/ReportDetail'
+import { NotificationSettings } from '@/routes/NotificationSettings'
 import { paths } from '@/app/routes'
 
 function AppToaster() {
@@ -32,6 +33,7 @@ export default function App() {
                 <Route path={paths.groupPattern} element={<CrashGroup />} />
                 <Route path={paths.reports} element={<Inbox />} />
                 <Route path={paths.reportPattern} element={<ReportDetail />} />
+                <Route path={paths.notifications} element={<NotificationSettings />} />
                 <Route path="*" element={<Navigate to={paths.board} replace />} />
               </Route>
             </Routes>

@@ -144,7 +144,7 @@ func TestReopenByADevEventArmsTheNextProdError(t *testing.T) {
 }
 
 // TestIgnoredAndManuallyReopenedGroupsStaySilent: an ignored group is never news,
-// and a group Karel reopened himself through triage is not armed by that.
+// and a group Karel reopened by hand through triage is not armed by that.
 func TestIgnoredAndManuallyReopenedGroupsStaySilent(t *testing.T) {
 	h := newHarness(t)
 	h.enable("karel@example.test")

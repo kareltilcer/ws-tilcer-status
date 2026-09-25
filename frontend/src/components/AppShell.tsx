@@ -95,6 +95,7 @@ export function AppShell() {
           )}
         </button>
         <button onClick={() => { nav(paths.addSite); setDrawer(false) }} style={navItemStyle(loc.pathname === paths.addSite)}>Add site</button>
+        <button onClick={() => { nav(paths.notifications); setDrawer(false) }} style={navItemStyle(loc.pathname === paths.notifications)}>Notifications</button>
       </nav>
       <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ padding: '0 4px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{identity.email}</div>

@@ -45,7 +45,7 @@ site, and the endpoint is rate-limited and size-capped. Backend keys should stil
 | `message` | string (**required**) | The error text. Drives grouping and the group title (first ~200 chars). |
 | `level` | enum | `fatal` (crashed the process — panics), `error` (handled but wrong — the default), `warning` (noise worth watching). A group tracks the **highest** level seen. |
 | `stack` | string | Stack trace. The **first frame** contributes to the default fingerprint. |
-| `environment` | string | Convention: `prod` / `dev` / `staging`. Shown per event. |
+| `environment` | string | Convention: `prod` / `dev` / `staging`. Shown per event. ⚠ It decides **email**: only `error`/`fatal` events whose environment is `prod`, `production` or unset notify — so a dev build that reports as `prod` emails Karel. |
 | `release` | string | Convention: `<site>@<version>`, e.g. `fin@2026.31.2`. |
 | `fingerprint` | string | Overrides grouping — see below. |
 | `context` | object | Free-form tags/metadata. Bounded by the total body cap. |
