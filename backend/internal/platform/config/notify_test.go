@@ -48,6 +48,8 @@ func TestPublicURLIsTrimmedAndValidated(t *testing.T) {
 		"ftp://status.tilcer.cz",           // not http(s)
 		"https://status.tilcer.cz/?a=1",    // a query would land in every link
 		"https://status.tilcer.cz/#board",  // so would a fragment
+		"https://status.tilcer.cz?",        // even an empty one: u.RawQuery is ""
+		"https://status.tilcer.cz/#",       // and u.Fragment is ""
 		"https://user:pw@status.tilcer.cz", // and credentials
 		"https://",                         // no host
 	} {

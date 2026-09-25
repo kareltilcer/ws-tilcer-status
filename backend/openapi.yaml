@@ -1183,8 +1183,9 @@ paths:
       description: >-
         Newest first. A digest is `pending` until the provider accepts it
         (`sent`) or the worker gives up (`failed`: refused permanently, not
-        delivered within 23 hours, cancelled by switching notifications off, or
-        superseded because the sender or the recipients changed — its
+        delivered within 23 hours, cancelled by switching notifications off or
+        by a boot without a mail provider, or superseded because the sender or
+        the recipients changed — its
         notifications then go out again in the next digest). While one is
         `pending`, no new digest is assembled: what arrives meanwhile waits and
         goes out together once it is settled.

@@ -28,6 +28,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/notify/mail"
+	appdb "github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/db"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/httpx"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/ratelimit"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/sites"
@@ -106,6 +107,38 @@ func (m *Module) RegisterRoutes(r chi.Router) {
 	r.With(httpx.RequireAdmin).Delete("/notifications/muted-sites/{siteId}", m.unmuteSite)
 	r.With(httpx.RequireAdmin).Post("/notifications/test", m.sendTest)
 	r.Get("/notifications/deliveries", m.listDeliveries)
+}
+
+// DropBacklog is the module's boot step, and it does something only on a
+// deployment with NO mail provider: it cancels every pending digest and drops
+// every queued notification, in one transaction, exactly as switching
+// notifications off does. Database-only.
+//
+// ⚠ Booting without STATUS_RESEND_API_KEY must mean "off", not "paused". The
+// notifier queues nothing while there is no provider and the worker does not
+// run, so what an earlier deployment had queued — or held behind a pending
+// digest — would otherwise sit in the outbox for the whole retention window and
+// go out as news the moment the key came back: a "down" from weeks ago, with no
+// "back up" to follow it, since the recovery happened while nothing could be
+// queued.
+func (m *Module) DropBacklog(ctx context.Context) error {
+	if m.mailer != nil {
+		return nil
+	}
+	var digests, events int64
+	err := appdb.WithTx(ctx, m.db, func(tx *sql.Tx) error {
+		var err error
+		if digests, err = cancelPending(ctx, tx, reasonNoProvider); err != nil {
+			return err
+		}
+		events, err = dropQueued(ctx, tx)
+		return err
+	})
+	if err == nil && digests+events > 0 {
+		m.logger.Info("notify: no mail provider; dropped what an earlier deployment had queued",
+			"digests_cancelled", digests, "notifications_dropped", events)
+	}
+	return err
 }
 
 // Prune is the module's step in the daily job: digests older than the retention

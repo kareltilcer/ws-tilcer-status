@@ -209,6 +209,48 @@ func TestSwitchingOffCancelsWhatIsPending(t *testing.T) {
 	}
 }
 
+// TestBootingWithoutAProviderDropsTheBacklog: removing STATUS_RESEND_API_KEY is
+// switching off, not pausing. What an earlier deployment left — a digest waiting
+// on a retry, and the "down" it was holding back — is dropped when the service
+// boots without a provider, so putting the key back weeks later does not mail a
+// three-week-old outage as news. With a provider the same step touches nothing.
+func TestBootingWithoutAProviderDropsTheBacklog(t *testing.T) {
+	h := newHarness(t)
+	h.enable("karel@example.test")
+	h.queueCrash(t0)
+	h.mail.Fail(&mail.SendError{Status: 500, Detail: "internal"})
+	h.run(t0.Add(2 * time.Minute))                          // pending, retrying
+	h.check(check(false, sites.Red, t0.Add(3*time.Minute))) // held behind it
+
+	if err := h.mod.DropBacklog(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if ds := h.allDigests(); len(ds) != 1 || ds[0].State != DigestPending || len(h.queued()) != 1 {
+		t.Fatalf("with a provider the boot step changed the queue: %+v, queued %v", ds, h.queued())
+	}
+
+	// The next deployment boots without a key.
+	bare := NewModule(h.db, sites.NewStore(h.db, 2), nil, testConfig(), discardLogger())
+	if err := bare.DropBacklog(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ds := h.allDigests()
+	if len(ds) != 1 || ds[0].State != DigestFailed || ds[0].LastError == nil || *ds[0].LastError != reasonNoProvider {
+		t.Fatalf("pending digest after a boot without a provider = %+v", ds)
+	}
+	if got := h.queued(); len(got) != 0 {
+		t.Fatalf("queued %v after a boot without a provider, want nothing", got)
+	}
+
+	// …and the one after that has the key again, three weeks on.
+	later := t0.AddDate(0, 0, 21)
+	h.run(later)
+	h.run(later.Add(15 * time.Second))
+	if n := len(h.mail.Attempts()); n != 1 {
+		t.Fatalf("%d send attempts once the key was back, want only the original failed one", n)
+	}
+}
+
 // TestARetryResendsTheIdenticalRequest: the provider's idempotency key refuses
 // the same key with a different body, so a retry must be byte-for-byte the
 // first attempt — and it waits out the backoff first.

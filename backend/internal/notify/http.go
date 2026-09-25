@@ -112,7 +112,7 @@ func (m *Module) putSettings(w http.ResponseWriter, r *http.Request) {
 		if st.Enabled {
 			return nil
 		}
-		if _, err := cancelPending(r.Context(), tx); err != nil {
+		if _, err := cancelPending(r.Context(), tx, reasonTurnedOff); err != nil {
 			return err
 		}
 		_, err := dropQueued(r.Context(), tx)

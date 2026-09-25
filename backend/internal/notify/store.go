@@ -450,12 +450,17 @@ func markFailed(ctx context.Context, q querier, id int64, lastErr, at string, at
 // reasonTurnedOff is the last_error of a digest cancelled by the master switch.
 const reasonTurnedOff = "cancelled: notifications were turned off"
 
-// cancelPending fails every pending digest — notifications were switched off, and
-// a queue that resumes delivering yesterday's news the moment they are switched
-// back on is not what "off" means.
-func cancelPending(ctx context.Context, q querier) (int64, error) {
+// reasonNoProvider is the last_error of a digest cancelled because the service
+// booted without a mail provider — see Module.DropBacklog.
+const reasonNoProvider = "cancelled: this deployment has no mail provider"
+
+// cancelPending fails every pending digest, recording reason — notifications were
+// switched off (or can no longer be sent at all), and a queue that resumes
+// delivering yesterday's news the moment they are switched back on is not what
+// "off" means.
+func cancelPending(ctx context.Context, q querier, reason string) (int64, error) {
 	res, err := q.ExecContext(ctx,
-		`UPDATE notify_digest SET state = 'failed', last_error = ? WHERE state = 'pending'`, reasonTurnedOff)
+		`UPDATE notify_digest SET state = 'failed', last_error = ? WHERE state = 'pending'`, reason)
 	if err != nil {
 		return 0, err
 	}
@@ -504,7 +509,8 @@ func supersedeDigest(ctx context.Context, q querier, id int64) (bool, error) {
 //
 // A digest that old is deleted whatever its state: past giveUpAfter it can no
 // longer be sent anyway, and one left pending because the worker stopped running
-// (the key was removed) would otherwise sit on the deliveries list forever.
+// — the key was removed and Module.DropBacklog could not cancel it at boot —
+// would otherwise sit on the deliveries list forever.
 func prune(ctx context.Context, q querier, cutoff string) (digests, events, states int64, err error) {
 	res, err := q.ExecContext(ctx, `DELETE FROM notify_digest WHERE created_at < ?`, cutoff)
 	if err != nil {

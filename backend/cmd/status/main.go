@@ -189,7 +189,9 @@ func run(logger *slog.Logger) error {
 	// Notifications. The notifier is wired into all three producers even with no
 	// provider: the crash and downtime state machines must keep running, or a
 	// provider switched on later would mail the history of every open group as
-	// news. With no provider it simply queues nothing.
+	// news. With no provider it simply queues nothing — and what an earlier
+	// deployment with one left queued is dropped here, before anything runs, or
+	// putting the key back would mail it as news (DropBacklog).
 	notifyMod := notify.NewModule(sqldb, sitesMod.Store(), mailer, notify.Config{
 		PublicURL:     cfg.PublicURL,
 		From:          cfg.MailFrom,
@@ -197,6 +199,9 @@ func run(logger *slog.Logger) error {
 		MaxPerHour:    cfg.NotifyMaxPerHour,
 		RetentionDays: cfg.RetentionDays,
 	}, logger)
+	if err := notifyMod.DropBacklog(context.Background()); err != nil {
+		logger.Error("notify: drop the backlog of a deployment without a mail provider", "err", err)
+	}
 	crashMod.SetNotifier(notifyMod.Notifier())
 	monMod.SetNotifier(notifyMod.Notifier())
 	fbMod.SetNotifier(notifyMod.Notifier())

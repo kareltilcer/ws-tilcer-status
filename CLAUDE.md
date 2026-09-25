@@ -110,8 +110,10 @@ pending** — the hourly cap counts digests created, so without that a provider 
 window and the recovery sends the backlog in a minute. ⚠ Because of that hold, a pending digest whose
 **envelope** is stale (`STATUS_MAIL_FROM` or the saved recipients changed) is superseded — failed, its
 events put back in the outbox — or an envelope the provider refuses would hold every notification
-for 23 h. Payloads are excerpts only: never a stack, never a reporter's label, page, browser, console
-or IP hash.
+for 23 h. ⚠ Booting **without a provider** cancels what is pending and drops what is queued
+(`Module.DropBacklog`), as switching off does — nothing drains the outbox then, and a key put back
+weeks later would otherwise mail it as news. Payloads are excerpts only: never a stack, never a
+reporter's label, page, browser, console or IP hash.
 
 ## Frontend (`frontend/`)
 

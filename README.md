@@ -252,7 +252,9 @@ next passing check.
   24-hour idempotency window. ⚠ A digest still undelivered then is given up (`expired` on the
   dashboard) and what it carried is **not** sent: past that window a retry could duplicate an
   attempt that timed out but did arrive. A digest Resend refuses outright (a 4xx no retry can fix)
-  ends the same way.
+  ends the same way. ⚠ Removing `STATUS_RESEND_API_KEY` is switching them **off**, not pausing
+  them: a deployment that boots without a key cancels what was waiting, so putting the key back
+  later does not mail an old backlog as news.
 - **What leaves for Resend** is an excerpt: a crash's title and the first 300 characters of its
   message (never a stack), a report's first 300 characters and its ref (never the reporter's name,
   page, browser, console or IP). Resend keeps what it sends.

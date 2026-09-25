@@ -11,9 +11,9 @@ const (
 
 // Digest states. A digest is pending until the provider accepts it (sent) or the
 // worker gives up on it (failed) — refused permanently, expired past the
-// idempotency window, cancelled because notifications were switched off, or
-// superseded because its sender or recipients changed (its events then go out
-// again in the next digest).
+// idempotency window, cancelled because notifications were switched off or the
+// service booted without a mail provider, or superseded because its sender or
+// recipients changed (its events then go out again in the next digest).
 const (
 	DigestPending = "pending"
 	DigestSent    = "sent"

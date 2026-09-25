@@ -411,9 +411,12 @@ func Load(getenv Getenv) (*Config, error) {
 		l.errf("STATUS_MAIL_FROM must be an address like \"status <status@tilcer.cz>\" (got %q)", c.MailFrom)
 	}
 	if u, err := url.Parse(c.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") ||
-		u.Host == "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		u.Host == "" || strings.ContainsAny(c.PublicURL, "?#") || u.User != nil {
 		// Every emailed link is this plus a path; a relative, query-carrying or
-		// credential-carrying base would put that into every one of them.
+		// credential-carrying base would put that into every one of them. ⚠ The
+		// raw string is searched for '?' and '#', not u.RawQuery and u.Fragment:
+		// both are empty for a bare trailing "?" or "#", which would still turn
+		// every link into the board's URL with the path in its query or fragment.
 		l.errf("STATUS_PUBLIC_URL must be an absolute http(s) URL with no query or fragment, e.g. %q (got %q)",
 			defaultPublicURL, c.PublicURL)
 	}

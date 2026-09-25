@@ -218,7 +218,7 @@ func (w *Worker) deliver(ctx context.Context, now time.Time) {
 		// transaction that switches them off, so normally nothing is pending here.
 		// This keeps "off" meaning off whatever the table says, and never sends
 		// while it is.
-		n, err := cancelPending(ctx, w.db)
+		n, err := cancelPending(ctx, w.db, reasonTurnedOff)
 		if err != nil {
 			w.logger.Error("notify: cancel pending digests", "err", err)
 		} else if n > 0 {
