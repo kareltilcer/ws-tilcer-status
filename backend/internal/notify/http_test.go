@@ -264,6 +264,30 @@ func TestSwitchingOffCancelsAtOnce(t *testing.T) {
 	}
 }
 
+// TestSwitchingOffDropsWhatIsQueued: an event still waiting for its digest is
+// waiting too. Left to the worker it is dropped only by a pass that runs while
+// off, past the window and under the cap — so off and on again before one does
+// would mail it.
+func TestSwitchingOffDropsWhatIsQueued(t *testing.T) {
+	h := newHarness(t)
+	h.enable("karel@example.test")
+	h.queueCrash(t0) // inside its window: no pass has touched it
+
+	if code, body := h.do("PUT", "/api/notifications/settings", settingsBody(false, "karel@example.test"), nil); code != 200 {
+		t.Fatalf("switch off: %d %s", code, body)
+	}
+	if got := h.queued(); len(got) != 0 {
+		t.Fatalf("queued %v right after switching off, want nothing", got)
+	}
+	if code, body := h.do("PUT", "/api/notifications/settings", settingsBody(true, "karel@example.test"), nil); code != 200 {
+		t.Fatalf("switch on: %d %s", code, body)
+	}
+	h.run(t0.Add(3 * time.Minute))
+	if n := len(h.mail.Attempts()); n != 0 {
+		t.Fatalf("switching off and on again mailed %d emails about what was queued before", n)
+	}
+}
+
 // TestASendInFlightWhenSwitchedOffIsRecordedAsSent: the cancellation can land
 // while a send is in flight, because a send holds no connection. The provider
 // accepted it, so the list must say "sent" — not "cancelled" about an email
@@ -335,8 +359,15 @@ func TestTheUpgradeSeedDoesNotMailHistory(t *testing.T) {
 	}
 	prod := group("prod", [2]any{"error", "prod"})
 	unset := group("unset", [2]any{"fatal", nil})
+	// qualifies trims with strings.TrimSpace; the seed must agree with it on
+	// more than the space.
+	padded := group("padded", [2]any{"error", "\tProduction\n"})
+	blank := group("blank", [2]any{"error", " \t "})
 	devOnly := group("dev", [2]any{"error", "dev"})
 	warnOnly := group("warn", [2]any{"warning", "prod"})
+	if !qualifies("error", "\tProduction\n") || !qualifies("error", " \t ") {
+		t.Fatal("the fixture no longer matches what qualifies calls production")
+	}
 
 	migrate(t, db, true)
 	seeded := func(id int64) bool {
@@ -346,7 +377,7 @@ func TestTheUpgradeSeedDoesNotMailHistory(t *testing.T) {
 		}
 		return n == 1
 	}
-	if !seeded(prod) || !seeded(unset) {
+	if !seeded(prod) || !seeded(unset) || !seeded(padded) || !seeded(blank) {
 		t.Fatal("a group with a production error was left armed: switching notifications on would mail it")
 	}
 	if seeded(devOnly) || seeded(warnOnly) {

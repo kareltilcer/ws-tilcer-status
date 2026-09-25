@@ -341,17 +341,60 @@ func dueDigests(ctx context.Context, q querier, now string, limit int) ([]digest
 }
 
 // recentDigests returns the newest digests for the deliveries list.
+//
+// It reads only what the list shows: Sender, Text, HTML and IdempotencyKey stay
+// empty. A 25-item digest's rendered bodies are tens of kilobytes, and the page
+// polls this every 30 s — reading them off disk only to drop them is a cost on
+// the one connection for nothing.
 func recentDigests(ctx context.Context, q querier, limit int) ([]digest, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT `+digestCols+` FROM notify_digest ORDER BY id DESC LIMIT ?`, limit)
+		`SELECT id, created_at, recipients, subject, event_count, state, attempts, next_attempt_at, last_error, sent_at
+		   FROM notify_digest ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []digest{}
 	for rows.Next() {
-		d, err := scanDigest(rows)
-		if err != nil {
+		var (
+			d               digest
+			recipients      string
+			lastErr, sentAt sql.NullString
+		)
+		if err := rows.Scan(&d.ID, &d.CreatedAt, &recipients, &d.Subject, &d.EventCount, &d.State, &d.Attempts,
+			&d.NextAttemptAt, &lastErr, &sentAt); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(recipients), &d.Recipients); err != nil {
+			return nil, err
+		}
+		d.LastError = nsPtr(lastErr)
+		d.SentAt = nsPtr(sentAt)
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// pendingEnvelopes returns the id, sender and recipients of every pending digest
+// — the envelope Worker.supersede compares with the current one. It drains its
+// cursor before returning; the caller writes through the same transaction next.
+func pendingEnvelopes(ctx context.Context, q querier) ([]digest, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT id, sender, recipients FROM notify_digest WHERE state = 'pending' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []digest
+	for rows.Next() {
+		var (
+			d          digest
+			recipients string
+		)
+		if err := rows.Scan(&d.ID, &d.Sender, &recipients); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(recipients), &d.Recipients); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -362,13 +405,13 @@ func recentDigests(ctx context.Context, q querier, limit int) ([]digest, error) 
 // The three outcomes of a send. Each is one statement guarded by state, so a
 // digest settled by anything else is never overwritten — with one exception.
 //
-// ⚠ markSent also overwrites 'failed'. The only other writer is a cancellation
-// (switching notifications off, which the settings PUT applies at once), and it
-// can land while a send is in flight — the send holds no connection. When the
-// provider has accepted the message, "sent" is the truth, and a deliveries list
-// that said "cancelled" about an email Karel received would be a lie. A retry or
-// a refusal stays guarded by 'pending': a cancelled digest never re-enters the
-// retry loop.
+// ⚠ markSent also overwrites 'failed'. A cancellation (switching notifications
+// off, which the settings PUT applies at once) can land while a send is in
+// flight, because the send holds no connection; a supersede cannot, being the
+// worker's own step before it sends. When the provider has accepted the message,
+// "sent" is the truth, and a deliveries list that said "cancelled" about an email
+// Karel received would be a lie. A retry or a refusal stays guarded by 'pending':
+// a cancelled digest never re-enters the retry loop.
 func markSent(ctx context.Context, q querier, id int64, providerID, at string) error {
 	_, err := q.ExecContext(ctx,
 		`UPDATE notify_digest
@@ -417,6 +460,39 @@ func cancelPending(ctx context.Context, q querier) (int64, error) {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// dropQueued deletes every event not yet in a digest — the other half of
+// switching off. Left to the worker, they would go only when an assembly pass
+// happened to run while off, past the window and under the hourly cap; switched
+// back on before that — say within the hour after the cap was hit, which is when
+// someone switches off — they would be mailed.
+func dropQueued(ctx context.Context, q querier) (int64, error) {
+	res, err := q.ExecContext(ctx, `DELETE FROM notify_event WHERE digest_id IS NULL`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// reasonSuperseded is the last_error of a digest retired by Worker.supersede.
+const reasonSuperseded = "superseded: the sender or the recipients changed; its notifications go out again in the next email"
+
+// supersedeDigest retires a pending digest and puts its events back in the
+// outbox, where the next assembly picks them up again. It reports whether the
+// digest was still pending.
+func supersedeDigest(ctx context.Context, q querier, id int64) (bool, error) {
+	res, err := q.ExecContext(ctx,
+		`UPDATE notify_digest SET state = 'failed', last_error = ? WHERE id = ? AND state = 'pending'`,
+		reasonSuperseded, id)
+	if err != nil {
+		return false, err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return false, err
+	}
+	_, err = q.ExecContext(ctx, `UPDATE notify_event SET digest_id = NULL WHERE digest_id = ?`, id)
+	return err == nil, err
 }
 
 // --- retention --------------------------------------------------------------

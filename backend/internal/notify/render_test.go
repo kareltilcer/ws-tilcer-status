@@ -143,6 +143,19 @@ func TestLinksAreBuiltOnThePublicURL(t *testing.T) {
 	}
 }
 
+// TestTheFooterDoesNotClaimASendTime: the email is rendered once and every
+// retry sends it unchanged, possibly hours later — so the one time it states is
+// when it was written, and it says so.
+func TestTheFooterDoesNotClaimASendTime(t *testing.T) {
+	r := render([]event{crashEvent(KindCrashNew, t0)}, "https://status.example.test", t0)
+	want := "Written by status.example.test at 2026-09-25 14:00 UTC."
+	for part, body := range map[string]string{"text": r.Text, "html": r.HTML} {
+		if !strings.Contains(body, want) || strings.Contains(body, "Sent by") {
+			t.Errorf("%s footer does not say %q:\n%s", part, want, body)
+		}
+	}
+}
+
 func TestHumanDuration(t *testing.T) {
 	cases := map[time.Duration]string{
 		20 * time.Second:               "under a minute",

@@ -104,13 +104,21 @@ const EVENT_ROWS: { key: keyof NotificationEvents; title: string; hint: string }
   { key: 'downtime', title: 'Sites going down and back up', hint: 'When a site turns red, and again at its next passing check.' },
 ]
 
-/** parseRecipients splits what was typed on commas, semicolons and whitespace.
- *  The server is the validator; this only decides what the list IS. */
+/** parseRecipients splits what was typed on commas, semicolons and whitespace,
+ *  and drops a repeat ignoring case, as the server does — so the five-address
+ *  limit below counts what the server would store, not what was typed. The
+ *  server is the validator; this only decides what the list IS. */
 function parseRecipients(text: string): string[] {
+  const seen = new Set<string>()
   return text
     .split(/[\s,;]+/)
     .map((s) => s.trim())
-    .filter(Boolean)
+    .filter((s) => {
+      const key = s.toLowerCase()
+      if (!s || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
 }
 
 function formatWindow(seconds: number): string {
@@ -330,7 +338,8 @@ function SitesCard({ settings }: { settings: Settings }) {
     <div style={cardStyle}>
       <h2 style={{ margin: '0 0 3px', fontSize: 15, fontWeight: 700 }}>Sites</h2>
       <p style={{ margin: '0 0 6px', fontSize: 12.5, color: 'var(--muted)', maxWidth: '62ch' }}>
-        A muted site sends nothing, and anything already waiting for it is dropped. The board is unaffected.
+        A muted site sends nothing new, and what was queued for it but not yet written into an email is dropped. An
+        email already waiting on a retry goes out as written. The board is unaffected.
       </p>
       {sitesQ.isLoading ? (
         <div className="om-skel" style={{ height: 80, width: '100%', borderRadius: 9, marginTop: 8 }} />
@@ -389,7 +398,8 @@ function DeliveriesCard() {
       <h2 style={{ margin: '0 0 3px', fontSize: 15, fontWeight: 700 }}>Recent emails</h2>
       <p style={{ margin: '0 0 6px', fontSize: 12.5, color: 'var(--muted)' }}>
         A failed send is retried for up to 23 hours, and anything new waits for it and goes out together in the next
-        email; a refusal that no retry can fix, or switching notifications off, ends it.
+        email; a refusal that no retry can fix, or switching notifications off, ends it. Changing the recipients (or the
+        sender) ends it too — what it carried goes out again in the next email, from and to what is set now.
       </p>
       {q.isLoading ? (
         <div className="om-skel" style={{ height: 80, width: '100%', borderRadius: 9, marginTop: 8 }} />

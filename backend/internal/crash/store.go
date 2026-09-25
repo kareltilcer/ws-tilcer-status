@@ -23,6 +23,10 @@ type GroupUpsert struct {
 	ID       int64
 	Reopened bool
 	Status   string // the group's status after this event
+	// Title is the group's STORED title — the first event's — which is what the
+	// dashboard lists it under. With a `fingerprint` override a later event's
+	// message can differ from it.
+	Title string
 }
 
 // UpsertGroup creates or bumps the crash group for (siteID, fingerprint) within
@@ -34,10 +38,11 @@ func (s *Store) UpsertGroup(ctx context.Context, tx *sql.Tx, siteID, fingerprint
 		id       int64
 		status   string
 		curLevel string
+		curTitle string
 	)
 	err := tx.QueryRowContext(ctx,
-		`SELECT id, status, level FROM crash_group WHERE site_id = ? AND fingerprint = ?`,
-		siteID, fingerprint).Scan(&id, &status, &curLevel)
+		`SELECT id, status, level, title FROM crash_group WHERE site_id = ? AND fingerprint = ?`,
+		siteID, fingerprint).Scan(&id, &status, &curLevel, &curTitle)
 	if err == sql.ErrNoRows {
 		res, err := tx.ExecContext(ctx,
 			`INSERT INTO crash_group (site_id, fingerprint, title, level, count, status, first_seen, last_seen)
@@ -50,7 +55,7 @@ func (s *Store) UpsertGroup(ctx context.Context, tx *sql.Tx, siteID, fingerprint
 		if err != nil {
 			return GroupUpsert{}, err
 		}
-		return GroupUpsert{ID: id, Status: StatusOpen}, nil
+		return GroupUpsert{ID: id, Status: StatusOpen, Title: title}, nil
 	}
 	if err != nil {
 		return GroupUpsert{}, err
@@ -70,7 +75,7 @@ func (s *Store) UpsertGroup(ctx context.Context, tx *sql.Tx, siteID, fingerprint
 		at, at, maxLevel(curLevel, level), newStatus, id); err != nil {
 		return GroupUpsert{}, err
 	}
-	return GroupUpsert{ID: id, Reopened: newStatus != status, Status: newStatus}, nil
+	return GroupUpsert{ID: id, Reopened: newStatus != status, Status: newStatus, Title: curTitle}, nil
 }
 
 // InsertEvent inserts one crash event within tx and returns its id.

@@ -118,6 +118,12 @@ CREATE INDEX idx_notify_event_digest ON notify_event (digest_id);
 -- record it as announced and disarmed, so switching notifications on does not
 -- mail the history of every open group. A group only ever seen outside
 -- production keeps no row — it has never been news, and stays armed.
+--
+-- ⚠ "Qualifying" must mean exactly what notify.qualifies says, or a group it
+-- would call production is left armed here and mails its history. Its
+-- strings.TrimSpace strips every unicode.IsSpace rune, and SQLite's one-argument
+-- trim() strips only the space — hence the explicit set, which is Unicode's
+-- White_Space property: tab, LF, VT, FF, CR, space, NEL, NBSP and the rest.
 -- +goose StatementBegin
 INSERT INTO notify_crash_state (group_id, armed, announced)
 SELECT g.id, 0, 1
@@ -127,8 +133,10 @@ SELECT g.id, 0, 1
         WHERE e.group_id = g.id
           AND e.level IN ('error', 'fatal')
           AND (e.environment IS NULL
-               OR trim(e.environment) = ''
-               OR lower(trim(e.environment)) IN ('prod', 'production')));
+               OR lower(trim(e.environment, char(9, 10, 11, 12, 13, 32, 133, 160, 5760,
+                         8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202,
+                         8232, 8233, 8239, 8287, 12288)))
+                  IN ('', 'prod', 'production')));
 -- +goose StatementEnd
 
 -- +goose Down

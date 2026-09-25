@@ -90,7 +90,7 @@ func render(events []event, publicURL string, now time.Time) rendered {
 		More:        more,
 		BoardURL:    publicURL + "/",
 		SettingsURL: publicURL + "/settings/notifications",
-		SentAt:      formatTime(now),
+		WrittenAt:   formatTime(now),
 	}
 	return rendered{Subject: subject, Text: renderText(view), HTML: renderHTML(view)}
 }
@@ -321,7 +321,11 @@ type emailView struct {
 	More        string
 	BoardURL    string
 	SettingsURL string
-	SentAt      string
+	// WrittenAt is when the digest was rendered. ⚠ Not when it is sent: the
+	// email is frozen so every retry is byte-identical, and a retry can go out
+	// hours later — "sent at" would then state a time it was not sent at. The
+	// mail client shows when it arrived.
+	WrittenAt string
 }
 
 func renderText(v emailView) string {
@@ -340,7 +344,7 @@ func renderText(v emailView) string {
 	if v.More != "" {
 		b.WriteString("\n" + v.More + " — " + v.BoardURL + "\n")
 	}
-	fmt.Fprintf(&b, "\n-- \nSent by %s at %s.\nChange what you get: %s\n", v.Host, v.SentAt, v.SettingsURL)
+	fmt.Fprintf(&b, "\n-- \nWritten by %s at %s.\nChange what you get: %s\n", v.Host, v.WrittenAt, v.SettingsURL)
 	return b.String()
 }
 
@@ -357,7 +361,7 @@ var htmlTemplate = template.Must(template.New("digest").Parse(`<!doctype html>
 {{end}}<p style="margin:6px 0 0;font-size:13px;"><a href="{{.Link}}" style="color:#2f5fd0;">{{.LinkText}}</a></p>
 </div>
 {{end}}{{if .More}}<p style="border-top:1px solid #eceef2;margin:0;padding-top:14px;font-size:13px;">{{.More}} — <a href="{{.BoardURL}}" style="color:#2f5fd0;">open the board</a></p>
-{{end}}<p style="margin:20px 0 0;font-size:12px;color:#8a92a1;">Sent by {{.Host}} at {{.SentAt}}. <a href="{{.SettingsURL}}" style="color:#8a92a1;">Change what you get</a>.</p>
+{{end}}<p style="margin:20px 0 0;font-size:12px;color:#8a92a1;">Written by {{.Host}} at {{.WrittenAt}}. <a href="{{.SettingsURL}}" style="color:#8a92a1;">Change what you get</a>.</p>
 </div>
 </body></html>
 `))

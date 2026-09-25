@@ -26,8 +26,8 @@ type Signal struct {
 	Level       string // this EVENT's level, not the group's highest
 	Environment string
 	Release     string
-	Title       string
-	Message     string
+	Title       string // the GROUP's title, as the dashboard lists it
+	Message     string // this event's message
 	At          time.Time
 }
 

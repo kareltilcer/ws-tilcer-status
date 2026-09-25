@@ -101,9 +101,11 @@ func (m *Module) putSettings(w http.ResponseWriter, r *http.Request) {
 		OnFeedback: *in.Events.Feedback,
 		OnDowntime: *in.Events.Downtime,
 	}
-	// Switching off cancels what is waiting in the SAME transaction, so the
-	// response — and the deliveries list the page refetches on it — already says
-	// so, and no pass can assemble a digest between the two. Database-only.
+	// Switching off cancels what is waiting in the SAME transaction — the
+	// digests not yet sent, and the events not yet in one — so the response, and
+	// the deliveries list the page refetches on it, already say so, no pass can
+	// assemble a digest between the two, and switching back on starts from an
+	// empty queue. Database-only.
 	if err := appdb.WithTx(r.Context(), m.db, func(tx *sql.Tx) error {
 		if err := saveSettings(r.Context(), tx, st, ts(time.Now().UTC())); err != nil {
 			return err
@@ -111,7 +113,10 @@ func (m *Module) putSettings(w http.ResponseWriter, r *http.Request) {
 		if st.Enabled {
 			return nil
 		}
-		_, err := cancelPending(r.Context(), tx)
+		if _, err := cancelPending(r.Context(), tx); err != nil {
+			return err
+		}
+		_, err := dropQueued(r.Context(), tx)
 		return err
 	}); err != nil {
 		m.fail(w, "save settings", err)

@@ -143,6 +143,52 @@ func TestAPendingDigestHoldsTheNextOneBack(t *testing.T) {
 	}
 }
 
+// TestAChangedEnvelopeSupersedesAPendingDigest: a digest refused for its
+// envelope — an unverified sender, a provider that mails only its owner — must
+// not keep retrying that envelope for 23 hours, holding everything behind it,
+// once the sender or the recipients are fixed. Its notifications go out again,
+// once, to the envelope as it is now.
+func TestAChangedEnvelopeSupersedesAPendingDigest(t *testing.T) {
+	refused := &mail.SendError{Status: 403, Code: "validation_error", Detail: "domain is not verified"}
+	for _, tc := range []struct {
+		name   string
+		change func(h *harness)
+		wantTo string
+		from   string
+	}{
+		{"recipients", func(h *harness) { h.enable("owner@example.test") }, "owner@example.test", "status <status@example.test>"},
+		{"sender", func(h *harness) { h.mod.worker.cfg.From = "status <status@verified.example.test>" }, "karel@example.test", "status <status@verified.example.test>"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.enable("karel@example.test")
+			h.queueCrash(t0)
+			h.mail.Fail(refused)
+			h.run(t0.Add(2 * time.Minute)) // refused; retrying
+
+			tc.change(h)
+			h.run(t0.Add(4 * time.Minute)) // the retry would be due now
+			ds := h.allDigests()
+			if len(ds) != 2 || ds[0].State != DigestFailed || ds[0].LastError == nil || *ds[0].LastError != reasonSuperseded {
+				t.Fatalf("digests after the %s changed = %+v, want the stale one superseded", tc.name, ds)
+			}
+			if ds[1].State != DigestSent || ds[1].EventCount != 1 {
+				t.Fatalf("the re-sent digest = %+v", ds[1])
+			}
+			sent := h.mail.Sent()
+			if len(sent) != 1 || len(sent[0].To) != 1 || sent[0].To[0] != tc.wantTo || sent[0].From != tc.from {
+				t.Fatalf("sent %+v, want one email from %q to %q", sent, tc.from, tc.wantTo)
+			}
+			if at := h.mail.Attempts(); at[0].IdempotencyKey == at[1].IdempotencyKey {
+				t.Fatal("the new envelope reused the stale digest's idempotency key, which the provider refuses")
+			}
+			if got := h.queued(); len(got) != 0 {
+				t.Fatalf("queued %v after the re-send", got)
+			}
+		})
+	}
+}
+
 // TestSwitchingOffCancelsWhatIsPending: "off" means off — a digest waiting on a
 // retry does not go out when notifications are switched back on next week.
 func TestSwitchingOffCancelsWhatIsPending(t *testing.T) {

@@ -86,3 +86,29 @@ func TestUpsertGroupSaysWhatHappened(t *testing.T) {
 		t.Fatalf("ignored: %+v, an ignored group is never auto-reopened", ignored)
 	}
 }
+
+// TestUpsertGroupReportsTheStoredTitle: with a `fingerprint` override, events
+// with different messages share a group, and the group keeps its first title. A
+// notifier names the crash by that title — the one the dashboard lists — not by
+// whichever message came last.
+func TestUpsertGroupReportsTheStoredTitle(t *testing.T) {
+	s, db := newStore(t)
+	up := func(title string) GroupUpsert {
+		t.Helper()
+		var g GroupUpsert
+		if err := appdb.WithTx(context.Background(), db, func(tx *sql.Tx) error {
+			var err error
+			g, err = s.UpsertGroup(context.Background(), tx, "home", "db-timeout", title, LevelError, timeutil.Format(time.Now()), true)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+	if g := up("Timeout on /api/a"); g.Title != "Timeout on /api/a" {
+		t.Fatalf("new group title = %q", g.Title)
+	}
+	if g := up("Timeout on /api/b"); g.Title != "Timeout on /api/a" {
+		t.Fatalf("repeat reported title %q, want the group's stored one", g.Title)
+	}
+}

@@ -242,7 +242,9 @@ reopened by a new event, a new feedback report, a site turning red, and its next
 - ⚠ **Verify the sender's domain in Resend first** (`tilcer.cz`, for the default
   `status@tilcer.cz`). An unverified domain is a 403 on every send; the dashboard's **Send test
   email** shows Resend's reason, and a digest refused that way keeps retrying — for up to 23 hours —
-  so fixing the domain delivers it.
+  so fixing the domain delivers it. Fixing it the other way — pointing `STATUS_MAIL_FROM` at a
+  verified domain, or changing the recipients — retires that digest and sends what it carried again
+  as a new email.
 - **Nothing is lost to a restart or an outage.** Notifications are queued in SQLite inside the
   transaction that caused them and sent afterwards by a worker, retried with the same idempotency
   key until Resend accepts them.

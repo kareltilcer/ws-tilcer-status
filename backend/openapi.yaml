@@ -1038,9 +1038,12 @@ paths:
         Settings apply to what is queued from now on — and a digest is
         re-checked against them when it is assembled, so muting a site or
         switching a kind off also drops what was already waiting. Switching the
-        master switch off cancels every digest not yet sent, in the same
-        transaction: the deliveries list read after this response shows them
-        `failed`.
+        master switch off cancels every digest not yet sent and drops every
+        notification not yet in one, in the same transaction: the deliveries
+        list read after this response shows them `failed`, and switching back
+        on starts from an empty queue. Changing the recipients supersedes a
+        digest still pending — it turns `failed` and what it carried goes out
+        again, to the new recipients, in the next digest.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -1090,7 +1093,8 @@ paths:
       summary: Mute a site
       description: >-
         Nothing about the site is emailed until it is unmuted, and anything
-        already queued for it is dropped when the next digest is assembled. The
+        already queued for it is dropped when the next digest is assembled; a
+        digest already assembled and waiting on a retry is sent as written. The
         board is unaffected. Idempotent. Requires `admin`.
       security:
         - sessionCookie: []
@@ -1176,9 +1180,11 @@ paths:
       description: >-
         Newest first. A digest is `pending` until the provider accepts it
         (`sent`) or the worker gives up (`failed`: refused permanently, not
-        delivered within 23 hours, or cancelled by switching notifications off).
-        While one is `pending`, no new digest is assembled: what arrives
-        meanwhile waits and goes out together once it is settled.
+        delivered within 23 hours, cancelled by switching notifications off, or
+        superseded because the sender or the recipients changed — its
+        notifications then go out again in the next digest). While one is
+        `pending`, no new digest is assembled: what arrives meanwhile waits and
+        goes out together once it is settled.
         `recipients` is null for a non-admin, as on the settings, and every
         address in a non-admin's `last_error` reads `[address]`.
       parameters:

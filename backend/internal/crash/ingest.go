@@ -142,7 +142,7 @@ func (m *Module) ingest(w http.ResponseWriter, r *http.Request) {
 		return m.notifier.CrashRecorded(r.Context(), tx, Signal{
 			SiteID: siteID, GroupID: g.ID, Reopened: g.Reopened, GroupStatus: g.Status,
 			Level: level, Environment: in.Environment, Release: in.Release,
-			Title: title, Message: msg, At: now,
+			Title: g.Title, Message: msg, At: now,
 		})
 	}); err != nil {
 		httpx.WriteError(w, httpx.ErrInternal(""))
