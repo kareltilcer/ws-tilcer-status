@@ -272,6 +272,9 @@ func TestShutdownMidSendLeavesTheDigestPending(t *testing.T) {
 	}
 }
 
+// TestPrune: digests past the retention window go whatever their state — one
+// stuck pending because the worker stopped running would otherwise stay on the
+// deliveries list forever — and their events go with them.
 func TestPrune(t *testing.T) {
 	h := newHarness(t)
 	h.enable("karel@example.test")
@@ -279,7 +282,10 @@ func TestPrune(t *testing.T) {
 	h.run(t0.Add(2 * time.Minute)) // sent
 	h.queueCrash(t0.Add(3 * time.Minute))
 	h.mail.Fail(&mail.SendError{Status: 500})
-	h.run(t0.Add(5 * time.Minute)) // pending
+	h.run(t0.Add(5 * time.Minute)) // pending, and the worker never runs again
+	recent := t0.AddDate(0, 0, 60)
+	h.queueCrash(recent)
+	h.run(recent.Add(2 * time.Minute)) // sent, inside the window
 
 	// home is down, then its monitoring is switched off.
 	h.check(check(false, sites.Red, t0))
@@ -291,11 +297,11 @@ func TestPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 	ds := h.allDigests()
-	if len(ds) != 1 || ds[0].State != DigestPending {
-		t.Fatalf("after prune: %+v, want only the pending digest", ds)
+	if len(ds) != 1 || ds[0].CreatedAt != ts(recent.Add(2*time.Minute)) {
+		t.Fatalf("after prune: %+v, want only the recent digest", ds)
 	}
 	if n := h.count(`SELECT COUNT(*) FROM notify_event`); n != 1 {
-		t.Fatalf("%d events after prune, want the pending digest's one", n)
+		t.Fatalf("%d events after prune, want the recent digest's one", n)
 	}
 	if n := h.count(`SELECT COUNT(*) FROM notify_site_state`); n != 0 {
 		t.Fatalf("an unmonitored site kept its downtime memory")

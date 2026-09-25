@@ -400,13 +400,16 @@ func cancelPending(ctx context.Context, q querier, reason string) (int64, error)
 
 // --- retention --------------------------------------------------------------
 
-// prune deletes settled digests (and, by cascade, their events) older than
-// cutoff, any unassigned event that old, and the downtime memory of sites that
-// are no longer monitored — a site re-enabled weeks later must not open with a
-// "back up" email about an outage nobody was watching.
+// prune deletes digests (and, by cascade, their events) older than cutoff, any
+// unassigned event that old, and the downtime memory of sites that are no longer
+// monitored — a site re-enabled weeks later must not open with a "back up" email
+// about an outage nobody was watching.
+//
+// A digest that old is deleted whatever its state: past giveUpAfter it can no
+// longer be sent anyway, and one left pending because the worker stopped running
+// (the key was removed) would otherwise sit on the deliveries list forever.
 func prune(ctx context.Context, q querier, cutoff string) (digests, events, states int64, err error) {
-	res, err := q.ExecContext(ctx,
-		`DELETE FROM notify_digest WHERE state <> 'pending' AND created_at < ?`, cutoff)
+	res, err := q.ExecContext(ctx, `DELETE FROM notify_digest WHERE created_at < ?`, cutoff)
 	if err != nil {
 		return 0, 0, 0, err
 	}

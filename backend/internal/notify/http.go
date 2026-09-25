@@ -209,8 +209,8 @@ func testMessage(cfg Config, st settings, now time.Time) mail.Message {
 		To:      st.Recipients,
 		Subject: sanitizeSubject("[status] Test email"),
 		Text:    text,
-		// A test is never retried, but a key still makes a double-submitted press
-		// harmless at the provider.
+		// A fresh key per press: a test is never retried, and its key must never
+		// collide with a digest's.
 		IdempotencyKey: "status-test-" + uuid.NewString(),
 	}
 }

@@ -104,9 +104,9 @@ func (m *Module) RegisterRoutes(r chi.Router) {
 	r.Get("/notifications/deliveries", m.listDeliveries)
 }
 
-// Prune is the module's step in the daily job: settled digests older than the
-// retention window go, with their events, and so does the downtime memory of a
-// site that is no longer monitored. It is database-only.
+// Prune is the module's step in the daily job: digests older than the retention
+// window go, with their events, and so does the downtime memory of a site that
+// is no longer monitored. It is database-only.
 func (m *Module) Prune(ctx context.Context, now time.Time) error {
 	cutoff := ts(now.AddDate(0, 0, -m.cfg.RetentionDays))
 	digests, events, states, err := prune(ctx, m.db, cutoff)
