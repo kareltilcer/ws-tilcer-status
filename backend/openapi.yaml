@@ -49,7 +49,9 @@ tags:
   - name: widget
     description: Public feedback-widget endpoints (per-site widget key)
   - name: notifications
-    description: Email notification settings and delivery history (admin)
+    description: >-
+      Email notification settings and delivery history. Reads need a session;
+      changes and the test send need `admin`.
 
 paths:
   /healthz:
@@ -1036,7 +1038,9 @@ paths:
         Settings apply to what is queued from now on — and a digest is
         re-checked against them when it is assembled, so muting a site or
         switching a kind off also drops what was already waiting. Switching the
-        master switch off cancels every digest not yet sent.
+        master switch off cancels every digest not yet sent, in the same
+        transaction: the deliveries list read after this response shows them
+        `failed`.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -1173,7 +1177,10 @@ paths:
         Newest first. A digest is `pending` until the provider accepts it
         (`sent`) or the worker gives up (`failed`: refused permanently, not
         delivered within 23 hours, or cancelled by switching notifications off).
-        `recipients` is null for a non-admin, as on the settings.
+        While one is `pending`, no new digest is assembled: what arrives
+        meanwhile waits and goes out together once it is settled.
+        `recipients` is null for a non-admin, as on the settings, and every
+        address in a non-admin's `last_error` reads `[address]`.
       parameters:
         - name: limit
           in: query
@@ -2023,6 +2030,10 @@ components:
           description: Set only while pending.
         last_error:
           type: [string, "null"]
+          description: >-
+            The provider's refusal or the worker's reason. For a caller without
+            `admin`, every address in it reads `[address]` — a provider's own
+            words can name one.
         sent_at:
           type: [string, "null"]
           format: date-time

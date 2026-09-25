@@ -2,8 +2,8 @@ import { apiFetch } from './client'
 import type {
   AttachmentURL,
   Color,
-  DeliveryPage,
   CrashGroup,
+  DeliveryPage,
   GroupDetail,
   GroupPage,
   GroupStatus,

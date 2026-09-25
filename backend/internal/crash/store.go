@@ -15,13 +15,12 @@ type Store struct{ db *sql.DB }
 // NewStore returns a store over db.
 func NewStore(db *sql.DB) *Store { return &Store{db: db} }
 
-// GroupUpsert is what UpsertGroup did: the group's id, and whether this event
-// created it or brought it back from resolved. A notifier needs to tell "a new
-// crash" and "a crash that came back" from "the 500th repeat", and only the
-// upsert knows which one happened.
+// GroupUpsert is what UpsertGroup did: the group's id, its status after this
+// event, and whether this event brought it back from resolved. A notifier needs
+// to tell "a crash that came back" from "the 500th repeat", and only the upsert
+// knows which one happened. ("New" is not here on purpose — see Signal.)
 type GroupUpsert struct {
 	ID       int64
-	Created  bool
 	Reopened bool
 	Status   string // the group's status after this event
 }
@@ -51,7 +50,7 @@ func (s *Store) UpsertGroup(ctx context.Context, tx *sql.Tx, siteID, fingerprint
 		if err != nil {
 			return GroupUpsert{}, err
 		}
-		return GroupUpsert{ID: id, Created: true, Status: StatusOpen}, nil
+		return GroupUpsert{ID: id, Status: StatusOpen}, nil
 	}
 	if err != nil {
 		return GroupUpsert{}, err

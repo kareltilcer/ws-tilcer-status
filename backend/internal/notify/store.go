@@ -260,6 +260,17 @@ type digest struct {
 	SentAt         *string
 }
 
+// hasPendingDigest reports whether any digest is still waiting to be sent — see
+// Worker.assemble for why that holds the next one back.
+func hasPendingDigest(ctx context.Context, q querier) (bool, error) {
+	var one int
+	err := q.QueryRowContext(ctx, `SELECT 1 FROM notify_digest WHERE state = 'pending' LIMIT 1`).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 func digestsSince(ctx context.Context, q querier, since string) (int, error) {
 	var n int
 	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM notify_digest WHERE created_at > ?`, since).Scan(&n)
@@ -348,15 +359,22 @@ func recentDigests(ctx context.Context, q querier, limit int) ([]digest, error) 
 	return out, rows.Err()
 }
 
-// The three outcomes of a send. Each is one statement guarded by
-// state = 'pending', so a digest settled by anything else is never overwritten.
-
+// The three outcomes of a send. Each is one statement guarded by state, so a
+// digest settled by anything else is never overwritten — with one exception.
+//
+// ⚠ markSent also overwrites 'failed'. The only other writer is a cancellation
+// (switching notifications off, which the settings PUT applies at once), and it
+// can land while a send is in flight — the send holds no connection. When the
+// provider has accepted the message, "sent" is the truth, and a deliveries list
+// that said "cancelled" about an email Karel received would be a lie. A retry or
+// a refusal stays guarded by 'pending': a cancelled digest never re-enters the
+// retry loop.
 func markSent(ctx context.Context, q querier, id int64, providerID, at string) error {
 	_, err := q.ExecContext(ctx,
 		`UPDATE notify_digest
 		    SET state = 'sent', attempts = attempts + 1, last_attempt_at = ?, sent_at = ?,
 		        provider_message_id = ?, last_error = NULL
-		  WHERE id = ? AND state = 'pending'`,
+		  WHERE id = ? AND state IN ('pending', 'failed')`,
 		at, at, nullIfEmpty(providerID), id)
 	return err
 }
@@ -386,12 +404,15 @@ func markFailed(ctx context.Context, q querier, id int64, lastErr, at string, at
 	return err
 }
 
+// reasonTurnedOff is the last_error of a digest cancelled by the master switch.
+const reasonTurnedOff = "cancelled: notifications were turned off"
+
 // cancelPending fails every pending digest — notifications were switched off, and
 // a queue that resumes delivering yesterday's news the moment they are switched
 // back on is not what "off" means.
-func cancelPending(ctx context.Context, q querier, reason string) (int64, error) {
+func cancelPending(ctx context.Context, q querier) (int64, error) {
 	res, err := q.ExecContext(ctx,
-		`UPDATE notify_digest SET state = 'failed', last_error = ? WHERE state = 'pending'`, reason)
+		`UPDATE notify_digest SET state = 'failed', last_error = ? WHERE state = 'pending'`, reasonTurnedOff)
 	if err != nil {
 		return 0, err
 	}

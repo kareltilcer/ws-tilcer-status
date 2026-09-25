@@ -110,6 +110,39 @@ func TestAssemblyDropsWhatIsNoLongerWanted(t *testing.T) {
 	}
 }
 
+// TestAPendingDigestHoldsTheNextOneBack: while a digest waits on a retry, what
+// arrives meanwhile collects in the outbox instead of becoming digests of its
+// own. The cap counts digests created, so without this a provider that is down
+// for hours would receive one email per window the moment it answered again.
+func TestAPendingDigestHoldsTheNextOneBack(t *testing.T) {
+	h := newHarness(t)
+	h.enable("karel@example.test")
+	h.queueCrash(t0)
+	h.mail.Fail(&mail.SendError{Status: 503, Detail: "unavailable", RetryAfter: time.Hour})
+	h.run(t0.Add(2 * time.Minute)) // digest 1 fails; next attempt in an hour
+
+	h.queueCrash(t0.Add(10 * time.Minute))
+	h.run(t0.Add(13 * time.Minute))
+	h.report(feedback.ReportSignal{SiteID: "fin", Ref: "R-7QK2", Kind: "bug", Message: "x", At: t0.Add(20 * time.Minute)})
+	h.run(t0.Add(23 * time.Minute))
+	if ds := h.allDigests(); len(ds) != 1 || ds[0].State != DigestPending {
+		t.Fatalf("digests while one is pending = %+v, want only the pending one", ds)
+	}
+	if got := h.queued(); len(got) != 2 {
+		t.Fatalf("queued %v while a digest is pending, want both events held", got)
+	}
+
+	h.run(t0.Add(62 * time.Minute)) // the retry goes out
+	h.run(t0.Add(62*time.Minute + 15*time.Second))
+	sent := h.mail.Sent()
+	if len(sent) != 2 || !strings.HasPrefix(sent[1].Subject, "[status] 2 updates") {
+		t.Fatalf("after recovery: %d emails, want the retry and ONE digest of what was held (%v)", len(sent), sent)
+	}
+	if got := h.queued(); len(got) != 0 {
+		t.Fatalf("queued %v after recovery", got)
+	}
+}
+
 // TestSwitchingOffCancelsWhatIsPending: "off" means off — a digest waiting on a
 // retry does not go out when notifications are switched back on next week.
 func TestSwitchingOffCancelsWhatIsPending(t *testing.T) {
@@ -280,12 +313,20 @@ func TestPrune(t *testing.T) {
 	h.enable("karel@example.test")
 	h.queueCrash(t0)
 	h.run(t0.Add(2 * time.Minute)) // sent
-	h.queueCrash(t0.Add(3 * time.Minute))
-	h.mail.Fail(&mail.SendError{Status: 500})
-	h.run(t0.Add(5 * time.Minute)) // pending, and the worker never runs again
 	recent := t0.AddDate(0, 0, 60)
 	h.queueCrash(recent)
 	h.run(recent.Add(2 * time.Minute)) // sent, inside the window
+	// An old digest assembled and then never sent: the worker stopped running
+	// (the key was removed) before it could send or expire it. Assembled alone —
+	// a full pass would expire it — and last, because a pending digest holds the
+	// next one back.
+	h.queueCrash(t0.Add(3 * time.Minute))
+	if err := h.mod.worker.assemble(context.Background(), t0.Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if n := h.count(`SELECT COUNT(*) FROM notify_digest WHERE state = 'pending'`); n != 1 {
+		t.Fatalf("%d pending digests, want the stuck one", n)
+	}
 
 	// home is down, then its monitoring is switched off.
 	h.check(check(false, sites.Red, t0))
@@ -323,7 +364,8 @@ func TestNoMailSendInsideATransaction(t *testing.T) {
 	h.mail.Fail(&mail.SendError{Status: 500})
 	h.run(t0.Add(2 * time.Minute)) // fails, retry scheduled
 	h.report(feedback.ReportSignal{SiteID: "fin", Ref: "R-7QK2", Kind: "bug", Message: "x", At: t0.Add(3 * time.Minute)})
-	h.run(t0.Add(6 * time.Minute)) // two due: the retry and a new digest
+	h.run(t0.Add(6 * time.Minute))                // the retry
+	h.run(t0.Add(6*time.Minute + 15*time.Second)) // the report, held back until the retry went out
 	if code, body := h.do("POST", "/api/notifications/test", nil, nil); code != 200 {
 		t.Fatalf("test send: %d %s", code, body)
 	}

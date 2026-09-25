@@ -2,11 +2,13 @@ package notify
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/notify/mail"
+	appdb "github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/db"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/httpx"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/sites"
 )
@@ -98,7 +101,19 @@ func (m *Module) putSettings(w http.ResponseWriter, r *http.Request) {
 		OnFeedback: *in.Events.Feedback,
 		OnDowntime: *in.Events.Downtime,
 	}
-	if err := saveSettings(r.Context(), m.db, st, ts(time.Now().UTC())); err != nil {
+	// Switching off cancels what is waiting in the SAME transaction, so the
+	// response — and the deliveries list the page refetches on it — already says
+	// so, and no pass can assemble a digest between the two. Database-only.
+	if err := appdb.WithTx(r.Context(), m.db, func(tx *sql.Tx) error {
+		if err := saveSettings(r.Context(), tx, st, ts(time.Now().UTC())); err != nil {
+			return err
+		}
+		if st.Enabled {
+			return nil
+		}
+		_, err := cancelPending(r.Context(), tx)
+		return err
+	}); err != nil {
 		m.fail(w, "save settings", err)
 		return
 	}
@@ -243,11 +258,23 @@ func (m *Module) listDeliveries(w http.ResponseWriter, r *http.Request) {
 		}
 		if admin {
 			item.Recipients = nonNil(d.Recipients)
+		} else if d.LastError != nil {
+			// ⚠ The provider's own words can name an address — Resend's refusal of
+			// an unverified sender quotes the account's email — and the addresses
+			// are exactly what a non-admin is not shown.
+			redacted := redactAddresses(*d.LastError)
+			item.LastError = &redacted
 		}
 		out.Items = append(out.Items, item)
 	}
 	httpx.JSON(w, http.StatusOK, out)
 }
+
+// emailLike matches anything shaped like an address inside free text.
+var emailLike = regexp.MustCompile("[^\\s<>()\\[\\]\"'`@,;:]+@[^\\s<>()\\[\\]\"'`@,;:]+\\.[A-Za-z]{2,}")
+
+// redactAddresses replaces every address-shaped run in s with "[address]".
+func redactAddresses(s string) string { return emailLike.ReplaceAllString(s, "[address]") }
 
 // fail logs an unexpected error and answers a bare 500; the detail stays in the
 // log.

@@ -269,7 +269,7 @@ func mustJSON(t *testing.T, body []byte, dst any) {
 // newCrash is a signal for a brand-new group's first, qualifying event.
 func newCrash(groupID int64, at time.Time) crash.Signal {
 	return crash.Signal{
-		SiteID: "home", GroupID: groupID, Created: true, GroupStatus: crash.StatusOpen,
+		SiteID: "home", GroupID: groupID, GroupStatus: crash.StatusOpen,
 		Level: crash.LevelError, Environment: "prod", Release: "home@1.2.3",
 		Title: "TypeError: x is undefined", Message: "TypeError: x is undefined\n    at render (app.js:1:2)", At: at,
 	}
@@ -278,7 +278,6 @@ func newCrash(groupID int64, at time.Time) crash.Signal {
 // repeat is a later event in the same group.
 func repeat(groupID int64, env string, at time.Time) crash.Signal {
 	s := newCrash(groupID, at)
-	s.Created = false
 	s.Environment = env
 	return s
 }

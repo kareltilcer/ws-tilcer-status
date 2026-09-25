@@ -178,7 +178,7 @@ Secrets live in Coolify only — never in the repo.
 | `STATUS_MAIL_FROM` | `tilcer status <status@tilcer.cz>` | sender; ⚠ its domain must be **verified in Resend** |
 | `STATUS_PUBLIC_URL` | `https://status.tilcer.cz` | where the dashboard is served — every link in an email is built on it |
 | `STATUS_NOTIFY_DIGEST_WINDOW` | `2m` | how long the first queued notification waits for company before its email goes out (0–1h) |
-| `STATUS_NOTIFY_MAX_PER_HOUR` | `6` | emails per rolling hour (1–60). Reaching it **delays**, never drops: what waits goes out together |
+| `STATUS_NOTIFY_MAX_PER_HOUR` | `6` | digests per rolling hour (1–60). Reaching it **delays**, never drops: what waits goes out together. 24× it is the daily ceiling — see the quota note below |
 | `LITESTREAM_ENABLED` | `true` | R2 replication (set `false` for the local harness) |
 | `LITESTREAM_R2_ENDPOINT` / `LITESTREAM_R2_BUCKET` / `LITESTREAM_ACCESS_KEY_ID` / `LITESTREAM_SECRET_ACCESS_KEY` | — | R2 creds (prefix `status/`) |
 
@@ -250,6 +250,10 @@ reopened by a new event, a new feedback report, a site turning red, and its next
   message (never a stack), a report's first 300 characters and its ref (never the reporter's name,
   page, browser, console or IP). Resend keeps what it sends.
 - **Quota.** Resend's free plan is 100 emails a day, and the account is shared with the fleet's
-  other senders; the digest window and the hourly cap exist to stay well inside it.
+  other senders. The digest window folds a burst into one email, and while a digest is waiting on a
+  retry nothing new is assembled, so an outage ends in one email rather than a backlog. The hourly
+  cap is the only daily bound — 24 × `STATUS_NOTIFY_MAX_PER_HOUR`, which is **144** at the default
+  6 and therefore above the free plan: a day of flapping could use it up. Set it to 3 (72 a day) if
+  the quota matters more than timeliness.
 - An outage that began while notifications were off (or its site muted) stays silent at both ends —
   there is no "back up" for a "down" nobody was told about.

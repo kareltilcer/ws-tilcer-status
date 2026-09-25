@@ -6,7 +6,7 @@ import { ApiError } from '@/api/client'
 import { qk } from '@/api/keys'
 import { useAuth } from '@/app/auth'
 import { StateBlock, Toggle, cardStyle, fieldLabel, ghostButton, inputStyle, primaryButton } from '@/components/ui'
-import { relativeTime } from '@/lib/format'
+import { relativeTime, relativeTimeAhead } from '@/lib/format'
 import type { DeliveryState, NotificationEvents, NotificationSettings as Settings, NotificationTestResult } from '@/api/types'
 
 /**
@@ -123,17 +123,21 @@ function formatWindow(seconds: number): string {
 function DeliveryCard({ settings, onDirtyChange }: { settings: Settings; onDirtyChange: (dirty: boolean) => void }) {
   const qc = useQueryClient()
   const { isAdmin } = useAuth()
+  // ⚠ Keyed on the delivery fields alone, never on `settings` itself: a mute
+  // toggle below refetches this same query with a new `muted_sites`, and a reset
+  // keyed on the whole object would throw away whatever was typed here and not
+  // yet saved.
+  const { crash, feedback, downtime } = settings.events
+  const savedRecipients = (settings.recipients ?? []).join(', ')
   const saved = useMemo(
-    () => ({ enabled: settings.enabled, recipients: (settings.recipients ?? []).join(', '), events: settings.events }),
-    [settings],
+    () => ({ enabled: settings.enabled, recipients: savedRecipients, events: { crash, feedback, downtime } }),
+    [settings.enabled, savedRecipients, crash, feedback, downtime],
   )
   const [enabled, setEnabled] = useState(saved.enabled)
   const [recipients, setRecipients] = useState(saved.recipients)
   const [events, setEvents] = useState<NotificationEvents>(saved.events)
 
-  // Re-sync when the server's copy changes (a save, another tab). Query data is
-  // structurally shared, so an unchanged refetch keeps the same object and does
-  // not wipe what is being typed.
+  // Re-sync when the server's copy of these fields changes (a save, another tab).
   useEffect(() => {
     setEnabled(saved.enabled)
     setRecipients(saved.recipients)
@@ -384,8 +388,8 @@ function DeliveriesCard() {
     <div style={cardStyle}>
       <h2 style={{ margin: '0 0 3px', fontSize: 15, fontWeight: 700 }}>Recent emails</h2>
       <p style={{ margin: '0 0 6px', fontSize: 12.5, color: 'var(--muted)' }}>
-        A failed send is retried for up to 23 hours; a refusal that no retry can fix, or switching notifications off,
-        ends it.
+        A failed send is retried for up to 23 hours, and anything new waits for it and goes out together in the next
+        email; a refusal that no retry can fix, or switching notifications off, ends it.
       </p>
       {q.isLoading ? (
         <div className="om-skel" style={{ height: 80, width: '100%', borderRadius: 9, marginTop: 8 }} />
@@ -425,14 +429,4 @@ function DeliveriesCard() {
       )}
     </div>
   )
-}
-
-/** relativeTimeAhead renders a future timestamp as "in 3m". */
-function relativeTimeAhead(iso: string): string {
-  const secs = Math.round((new Date(iso).getTime() - Date.now()) / 1000)
-  if (Number.isNaN(secs) || secs <= 5) return 'shortly'
-  if (secs < 60) return `in ${secs}s`
-  const mins = Math.round(secs / 60)
-  if (mins < 60) return `in ${mins}m`
-  return `in ${Math.round(mins / 60)}h`
 }

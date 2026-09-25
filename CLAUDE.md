@@ -105,7 +105,9 @@ must return it rather than run another statement, which would commit on its own 
 ⚠ The outbox has **no UNIQUE constraint**: it is written inside feedback's insert transaction, whose
 retry loop reads any "UNIQUE constraint failed" as a ref collision. A digest is rendered **once** and
 stored — a retry must send the byte-identical request, or Resend refuses the reused idempotency key
-(409); retries stop at 23 h, inside Resend's 24 h window. Payloads are excerpts only: never a stack,
+(409); retries stop at 23 h, inside Resend's 24 h window. ⚠ **No digest is assembled while another is
+pending** — the hourly cap counts digests created, so without that a provider outage mints one per
+window and the recovery sends the backlog in a minute. Payloads are excerpts only: never a stack,
 never a reporter's label, page, browser, console or IP hash.
 
 ## Frontend (`frontend/`)

@@ -209,6 +209,91 @@ func TestNonAdminsReadWithoutAddressesAndCannotWrite(t *testing.T) {
 	}
 }
 
+// TestAProviderRefusalNamesNoAddressToANonAdmin: the provider's own words can
+// quote an address — Resend's refusal of an unverified sender names the
+// account's email — and a non-admin is not shown addresses. An admin still sees
+// the refusal as the provider wrote it.
+func TestAProviderRefusalNamesNoAddressToANonAdmin(t *testing.T) {
+	h := newHarness(t)
+	h.enable("karel@example.test")
+	h.queueCrash(t0)
+	h.mail.Fail(&mail.SendError{Status: 403, Code: "validation_error",
+		Detail: "You can only send testing emails to your own email address (karel.tilcer@example.test)."})
+	h.run(t0.Add(2 * time.Minute))
+
+	_, body := h.do("GET", "/api/notifications/deliveries", nil, map[string]string{"X-Test-Roles": "viewer"})
+	if strings.Contains(string(body), "karel.tilcer@") || !strings.Contains(string(body), "own email address ([address])") {
+		t.Fatalf("viewer deliveries: %s", body)
+	}
+	_, body = h.do("GET", "/api/notifications/deliveries", nil, nil)
+	if !strings.Contains(string(body), "(karel.tilcer@example.test)") {
+		t.Fatalf("admin deliveries lost the provider's reason: %s", body)
+	}
+}
+
+func TestRedactAddresses(t *testing.T) {
+	cases := map[string]string{
+		"resend: 403 validation_error: to your own email address (a.b+c@x.example.test).": "resend: 403 validation_error: to your own email address ([address]).",
+		"follow the `email@example.com` or `Name <email@example.com>` format":             "follow the `[address]` or `Name <[address]>` format",
+		"resend: 500: internal server error":                                              "resend: 500: internal server error",
+		"expired: not delivered within 23 hours":                                          "expired: not delivered within 23 hours",
+	}
+	for in, want := range cases {
+		if got := redactAddresses(in); got != want {
+			t.Errorf("redactAddresses(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestSwitchingOffCancelsAtOnce: the PUT that switches notifications off cancels
+// what was waiting in the same transaction, so the deliveries list the page
+// refetches on its response already says so.
+func TestSwitchingOffCancelsAtOnce(t *testing.T) {
+	h := newHarness(t)
+	h.enable("karel@example.test")
+	h.queueCrash(t0)
+	h.mail.Fail(&mail.SendError{Status: 500})
+	h.run(t0.Add(2 * time.Minute)) // pending, retrying
+
+	if code, body := h.do("PUT", "/api/notifications/settings", settingsBody(false, "karel@example.test"), nil); code != 200 {
+		t.Fatalf("put: %d %s", code, body)
+	}
+	ds := h.allDigests()
+	if len(ds) != 1 || ds[0].State != DigestFailed || ds[0].LastError == nil || *ds[0].LastError != reasonTurnedOff {
+		t.Fatalf("digest right after switching off = %+v", ds)
+	}
+}
+
+// TestASendInFlightWhenSwitchedOffIsRecordedAsSent: the cancellation can land
+// while a send is in flight, because a send holds no connection. The provider
+// accepted it, so the list must say "sent" — not "cancelled" about an email
+// that arrived.
+func TestASendInFlightWhenSwitchedOffIsRecordedAsSent(t *testing.T) {
+	h := newHarness(t)
+	h.enable("karel@example.test")
+	h.queueCrash(t0)
+	waiting, release := h.mail.Block()
+	done := make(chan struct{})
+	go func() {
+		h.mod.worker.RunOnce(context.Background(), t0.Add(2*time.Minute))
+		close(done)
+	}()
+	select {
+	case <-waiting:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the send never started")
+	}
+	if code, body := h.do("PUT", "/api/notifications/settings", settingsBody(false, "karel@example.test"), nil); code != 200 {
+		t.Fatalf("put: %d %s", code, body)
+	}
+	release()
+	<-done
+	ds := h.allDigests()
+	if len(ds) != 1 || ds[0].State != DigestSent || ds[0].LastError != nil || ds[0].SentAt == nil {
+		t.Fatalf("digest delivered while being cancelled = %+v", ds)
+	}
+}
+
 func TestValidateRecipients(t *testing.T) {
 	got, err := validateRecipients([]string{"a@x.test", " A@X.test", "", "b@x.test"})
 	if err != nil || strings.Join(got, ",") != "a@x.test,b@x.test" {

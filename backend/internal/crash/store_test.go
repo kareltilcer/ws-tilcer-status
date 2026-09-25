@@ -54,23 +54,23 @@ func setStatus(t *testing.T, db *sql.DB, id int64, status string) {
 	}
 }
 
-// TestUpsertGroupSaysWhatHappened: a notifier tells "a new crash" and "a crash
-// that came back" from "the 500th repeat" by these flags alone.
+// TestUpsertGroupSaysWhatHappened: a notifier tells "a crash that came back"
+// from "the 500th repeat" by Reopened alone, and reads the status it left.
 func TestUpsertGroupSaysWhatHappened(t *testing.T) {
 	s, db := newStore(t)
 
 	first := upsert(t, s, db, "fp", true)
-	if !first.Created || first.Reopened || first.Status != StatusOpen || first.ID == 0 {
-		t.Fatalf("first event: %+v, want created and open", first)
+	if first.Reopened || first.Status != StatusOpen || first.ID == 0 {
+		t.Fatalf("first event: %+v, want an open group", first)
 	}
 	again := upsert(t, s, db, "fp", true)
-	if again.Created || again.Reopened || again.ID != first.ID || again.Status != StatusOpen {
-		t.Fatalf("repeat: %+v, want neither created nor reopened", again)
+	if again.Reopened || again.ID != first.ID || again.Status != StatusOpen {
+		t.Fatalf("repeat: %+v, want the same group, not reopened", again)
 	}
 
 	setStatus(t, db, first.ID, StatusResolved)
 	back := upsert(t, s, db, "fp", true)
-	if !back.Reopened || back.Created || back.Status != StatusOpen {
+	if !back.Reopened || back.ID != first.ID || back.Status != StatusOpen {
 		t.Fatalf("after resolve: %+v, want reopened", back)
 	}
 

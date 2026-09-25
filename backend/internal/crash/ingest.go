@@ -140,8 +140,7 @@ func (m *Module) ingest(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 		return m.notifier.CrashRecorded(r.Context(), tx, Signal{
-			SiteID: siteID, GroupID: g.ID, EventID: eid,
-			Created: g.Created, Reopened: g.Reopened, GroupStatus: g.Status,
+			SiteID: siteID, GroupID: g.ID, Reopened: g.Reopened, GroupStatus: g.Status,
 			Level: level, Environment: in.Environment, Release: in.Release,
 			Title: title, Message: msg, At: now,
 		})

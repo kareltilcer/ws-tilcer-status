@@ -50,6 +50,13 @@ func (w *Worker) RunOnce(ctx context.Context, now time.Time) {
 // and go out together in the next digest the cap allows. Nothing is dropped for
 // volume.
 //
+// ⚠ Nor is a new digest assembled while an earlier one is still pending. The cap
+// counts digests CREATED; without this, a provider outage (or a sender domain
+// not yet verified) would mint one digest per window for hours, and the moment
+// the provider answered again deliver would send the whole backlog in about a
+// minute. Held here instead, what arrives meanwhile goes out as ONE digest once
+// the pending one is settled — sent, refused, expired or cancelled.
+//
 // The whole assembly is one transaction with no network in it — rendering is
 // string work — so it holds the single connection for milliseconds.
 func (w *Worker) assemble(ctx context.Context, now time.Time) error {
@@ -61,6 +68,9 @@ func (w *Worker) assemble(ctx context.Context, now time.Time) error {
 		return nil
 	}
 	return appdb.WithTx(ctx, w.db, func(tx *sql.Tx) error {
+		if held, err := hasPendingDigest(ctx, tx); err != nil || held {
+			return err
+		}
 		n, err := digestsSince(ctx, tx, ts(now.Add(-time.Hour)))
 		if err != nil {
 			return err
@@ -151,7 +161,10 @@ func (w *Worker) deliver(ctx context.Context, now time.Time) {
 		return
 	}
 	if !st.Enabled {
-		n, err := cancelPending(ctx, w.db, "cancelled: notifications were turned off")
+		// The settings PUT cancels in the same transaction that switches them
+		// off, so normally nothing is pending here. This keeps "off" meaning off
+		// whatever the table says, and never sends while it is.
+		n, err := cancelPending(ctx, w.db)
 		if err != nil {
 			w.logger.Error("notify: cancel pending digests", "err", err)
 		} else if n > 0 {

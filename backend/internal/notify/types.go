@@ -102,8 +102,10 @@ type Delivery struct {
 	Attempts   int      `json:"attempts"`
 	// NextAttemptAt is set only while the digest is still pending.
 	NextAttemptAt *string `json:"next_attempt_at"`
-	LastError     *string `json:"last_error"`
-	SentAt        *string `json:"sent_at"`
+	// LastError is the provider's refusal or the worker's reason; for a non-admin
+	// every address in it reads "[address]", as on Recipients.
+	LastError *string `json:"last_error"`
+	SentAt    *string `json:"sent_at"`
 }
 
 // DeliveryPage is the deliveries response.

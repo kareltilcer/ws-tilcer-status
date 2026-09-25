@@ -245,6 +245,7 @@ export interface NotificationDelivery {
   attempts: number
   /** Set only while pending. */
   next_attempt_at: string | null
+  /** For a caller without admin, every address in it reads "[address]". */
   last_error: string | null
   sent_at: string | null
 }

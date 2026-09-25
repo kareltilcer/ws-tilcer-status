@@ -11,14 +11,16 @@ import (
 // whether the group was already announced — is the notifier's business, because
 // the same group can be first seen in a developer's browser and only later in
 // production.
+//
+// There is deliberately no "created" flag: a group first seen in dev is still
+// news on its first production error, so "new" is the notifier's own memory of
+// the group, never the upsert's.
 type Signal struct {
 	SiteID  string
 	GroupID int64
-	EventID int64
-	// Created is true when this event opened a brand-new group; Reopened when it
-	// brought a resolved group back (STATUS_REOPEN_ON_REGRESSION). A manual reopen
-	// through triage is neither — it is Karel's own action, not news.
-	Created     bool
+	// Reopened is true when this event brought a resolved group back
+	// (STATUS_REOPEN_ON_REGRESSION). A manual reopen through triage never comes
+	// through here — it is Karel's own action, not news.
 	Reopened    bool
 	GroupStatus string // the group's status after this event
 	Level       string // this EVENT's level, not the group's highest
