@@ -79,6 +79,10 @@ a:hover { text-decoration: underline; }
 button { font-family: inherit; }
 input, select, textarea { font-family: inherit; }
 *:focus-visible { outline: 2px solid var(--focus) !important; outline-offset: 2px !important; }
+/* A modal <dialog> makes the page inert, not still: a wheel over the image
+   viewer's toolbar scrolled the report behind it, and the page's scrollbar stayed
+   beside it. Keyed to the dialog's own state, not to a component being mounted. */
+html:has(dialog:modal) { overflow: hidden; }
 
 @keyframes om-spin { to { transform: rotate(360deg); } }
 @keyframes om-pulse-ring {
