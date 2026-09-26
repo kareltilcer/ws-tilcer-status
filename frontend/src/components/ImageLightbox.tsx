@@ -9,9 +9,9 @@ const PAN_KEYS: Partial<Record<string, [number, number]>> = {
   ArrowDown: [0, 48],
 }
 
-/** How long after the viewer opens or shuts a click is still taken for the rest
- *  of the gesture that did it: iOS reports every tap as the first, so `detail`
- *  alone cannot tell. */
+/** How long after the viewer opens, switches zoom or shuts a click is still taken
+ *  for the rest of the gesture that did it: iOS reports every tap as the first,
+ *  so `detail` alone cannot tell. */
 const SETTLE_MS = 400
 
 /**
@@ -21,7 +21,9 @@ const SETTLE_MS = 400
  * report. That click arrives after the dialog is gone, so nothing in the viewer
  * can see it and no one page element should have to: the document eats clicks
  * for as long as they continue the gesture, and stands down at the first that
- * does not.
+ * does not. The press behind each one too: with only the click eaten, the
+ * second press still selected the word under it and took focus from the
+ * thumbnail close() had just handed it back to.
  */
 function swallowTrailingClicks() {
   const closedAt = performance.now()
@@ -31,8 +33,11 @@ function swallowTrailingClicks() {
       e.stopPropagation()
       return
     }
+    if (e.type !== 'click') return
+    document.removeEventListener('mousedown', swallow, true)
     document.removeEventListener('click', swallow, true)
   }
+  document.addEventListener('mousedown', swallow, true)
   document.addEventListener('click', swallow, true)
 }
 
@@ -86,7 +91,9 @@ export function ImageLightbox({
   // Where to land after switching to actual size: the point that was clicked, as
   // a fraction of the image, and where it was on screen.
   const anchor = useRef<{ fx: number; fy: number; cx: number; cy: number } | null>(null)
-  const openedAt = useRef(0)
+  // When the viewer last changed under the pointer: it opened, or it switched
+  // between fit and actual size.
+  const changedAt = useRef(0)
   // The press behind the next click in the stage: what it went down on, where,
   // how far the stage was scrolled then, and whether the mouse has since moved.
   const press = useRef<{ id: number; target: EventTarget; x: number; y: number; left: number; top: number; moved: boolean } | null>(null)
@@ -99,10 +106,7 @@ export function ImageLightbox({
   // moment it opened. Unmounting removes it from the top layer on its own.
   useLayoutEffect(() => {
     const d = dialogRef.current
-    if (d && !d.open) {
-      d.showModal()
-      openedAt.current = performance.now()
-    }
+    if (d && !d.open) d.showModal()
   }, [])
 
   const measure = () => {
@@ -111,6 +115,9 @@ export function ImageLightbox({
   }
 
   useLayoutEffect(() => {
+    // Here because opening runs this too: the one place every change under the
+    // pointer passes through (see `early`).
+    changedAt.current = performance.now()
     if (!actual) {
       measure()
       return
@@ -162,10 +169,14 @@ export function ImageLightbox({
   // backdrop, which shut the viewer as it opened, or the picture, which jumped
   // to actual size at a point nobody chose. `detail` counts the clicks of one
   // gesture, which also makes a double-click on the picture one zoom, not two;
-  // iOS reports every tap as the first, hence the time since opening as well.
-  // The toolbar is under the pointer too: at phone widths a thumbnail near the
-  // top of the screen sits right where Close and Actual size appear.
-  const early = (e: MouseEvent) => e.detail > 1 || performance.now() - openedAt.current < SETTLE_MS
+  // iOS reports every tap as the first, hence the time as well — since the
+  // viewer last changed, not since it opened. Timed from opening alone, a
+  // double-tap on the picture zoomed and came straight back, and at actual size
+  // dropped to fit and then shut the viewer from the backdrop the shrink had
+  // uncovered. The toolbar is under the pointer too: at phone widths a
+  // thumbnail near the top of the screen sits right where Close and Actual
+  // size appear.
+  const early = (e: MouseEvent) => e.detail > 1 || performance.now() - changedAt.current < SETTLE_MS
   // ⚠ Nor the end of a drag. A click goes to wherever the button came back up —
   // the common ancestor, when that is not where it went down — so a press on the
   // picture released beside it reached the backdrop and shut the viewer, and a
