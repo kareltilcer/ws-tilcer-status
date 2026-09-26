@@ -121,6 +121,10 @@ export interface Meta {
   // feedback switch on site detail is unavailable rather than merely off:
   // PATCH .../feedback-config answers 503.
   feedback_enabled: boolean
+  // Whether this deployment has a mail provider (STATUS_RESEND_API_KEY, or the
+  // log-only mailer in development). False means the notifications page can
+  // only say so: turning them on answers 503.
+  notifications_enabled: boolean
 }
 
 // --- feedback (v3) ---
@@ -195,4 +199,62 @@ export interface AttachmentURL {
   url: string
   expires_at: string
   content_type: string
+}
+
+// --- notifications ---
+
+export interface NotificationEvents {
+  /** New crash groups and resolved groups that came back — error/fatal, production only. */
+  crash: boolean
+  /** New feedback reports. */
+  feedback: boolean
+  /** A site turning red, and the next passing check after it. */
+  downtime: boolean
+}
+
+export interface NotificationSettings {
+  available: boolean
+  /** "resend", or "log" on a development deployment; null when unavailable. */
+  provider: string | null
+  from: string
+  enabled: boolean
+  /** null for a caller without admin — the addresses are personal data. */
+  recipients: string[] | null
+  events: NotificationEvents
+  muted_sites: string[]
+  digest_window_seconds: number
+  max_per_hour: number
+  updated_at: string | null
+}
+
+export interface NotificationSettingsUpdate {
+  enabled: boolean
+  recipients: string[]
+  events: NotificationEvents
+}
+
+export type DeliveryState = 'pending' | 'sent' | 'failed'
+
+export interface NotificationDelivery {
+  id: number
+  created_at: string
+  state: DeliveryState
+  subject: string
+  event_count: number
+  recipients: string[] | null
+  attempts: number
+  /** Set only while pending. */
+  next_attempt_at: string | null
+  /** For a caller without admin, every address in it reads "[address]". */
+  last_error: string | null
+  sent_at: string | null
+}
+
+export interface DeliveryPage {
+  items: NotificationDelivery[]
+}
+
+export interface NotificationTestResult {
+  provider_message_id: string
+  recipients: string[]
 }

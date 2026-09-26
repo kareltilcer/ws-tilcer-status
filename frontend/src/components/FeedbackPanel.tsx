@@ -10,7 +10,7 @@ import { useAuth } from '@/app/auth'
 import { CopyableCode } from '@/components/CodeSnippet'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { KeyModal } from '@/components/KeyModal'
-import { UnreadBadge, cardStyle, ghostButton } from '@/components/ui'
+import { Toggle, UnreadBadge, cardStyle, ghostButton } from '@/components/ui'
 import { widgetEmbedSnippet } from '@/lib/snippets'
 import { relativeTime } from '@/lib/format'
 
@@ -241,53 +241,5 @@ export function FeedbackPanel({ siteId, openReports }: { siteId: string; openRep
         />
       )}
     </div>
-  )
-}
-
-function Toggle({
-  checked,
-  disabled,
-  label,
-  onChange,
-}: {
-  checked: boolean
-  disabled?: boolean
-  label: string
-  onChange: (v: boolean) => void
-}) {
-  return (
-    <button
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      style={{
-        position: 'relative',
-        flex: 'none',
-        width: 40,
-        height: 23,
-        borderRadius: 999,
-        padding: 0,
-        cursor: disabled ? 'default' : 'pointer',
-        opacity: disabled ? 0.5 : 1,
-        background: checked ? 'var(--accent)' : 'var(--s4)',
-        border: `1px solid ${checked ? 'var(--accent)' : 'var(--border-strong)'}`,
-      }}
-    >
-      <span
-        aria-hidden
-        style={{
-          position: 'absolute',
-          top: 2,
-          left: checked ? 19 : 2,
-          height: 17,
-          width: 17,
-          borderRadius: '50%',
-          background: checked ? 'var(--accent-fg)' : 'var(--muted)',
-          transition: 'left .14s ease',
-        }}
-      />
-    </button>
   )
 }

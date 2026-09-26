@@ -1,5 +1,6 @@
-// Package scheduler runs the service's periodic background jobs — the poller and
-// the daily rollup→purge closure — as goroutines cancelled by a shared context.
+// Package scheduler runs the service's periodic background jobs — the poller, the
+// notification worker and the daily rollup→purge closure — as goroutines
+// cancelled by a shared context.
 // There is no cron library: the daily fire time is recomputed each iteration
 // from a UTC wall clock (UTC has no DST, so the timer never drifts).
 package scheduler
@@ -17,6 +18,9 @@ import (
 type Jobs struct {
 	Poll  func(context.Context)
 	Daily func(context.Context)
+	// Notify, when non-nil, runs every NotifyInterval: the notification worker's
+	// pass. It is nil on a deployment with no mail provider.
+	Notify func(context.Context)
 }
 
 // Config configures the schedule.
@@ -24,26 +28,46 @@ type Config struct {
 	CheckInterval time.Duration
 	DailyAtHour   int // UTC
 	DailyAtMin    int // UTC
-	Logger        *slog.Logger
+	// NotifyInterval is how often the Notify job runs (default 15s).
+	NotifyInterval time.Duration
+	Logger         *slog.Logger
 }
 
-// Start launches the poller loop and the daily loop. Both stop when ctx is
-// cancelled; wg tracks them for a graceful shutdown. The poller runs one cycle
-// immediately so the board is fresh on boot.
+// defaultNotifyInterval is often enough that a digest goes out within seconds of
+// its window closing, and rare enough to be idle work nobody notices.
+const defaultNotifyInterval = 15 * time.Second
+
+// Start launches the poller loop, the daily loop and — when there is one — the
+// notification loop. All stop when ctx is cancelled; wg tracks them for a
+// graceful shutdown. The tick loops run one cycle immediately: the board is fresh
+// on boot, and a digest that came due while the service was down goes out.
 func Start(ctx context.Context, wg *sync.WaitGroup, cfg Config, j Jobs) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		pollLoop(ctx, cfg.CheckInterval, j.Poll, cfg.Logger)
+		tickLoop(ctx, cfg.CheckInterval, j.Poll, cfg.Logger, "poll")
 	}()
 	go func() {
 		defer wg.Done()
 		dailyLoop(ctx, cfg.DailyAtHour, cfg.DailyAtMin, j.Daily, cfg.Logger)
 	}()
+	if j.Notify != nil {
+		interval := cfg.NotifyInterval
+		if interval <= 0 {
+			interval = defaultNotifyInterval
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tickLoop(ctx, interval, j.Notify, cfg.Logger, "notify")
+		}()
+	}
 }
 
-func pollLoop(ctx context.Context, interval time.Duration, job func(context.Context), logger *slog.Logger) {
-	runSafe(ctx, job, logger, "poll")
+// tickLoop runs job now and then every interval. A slow run delays the next
+// rather than overlapping it: the ticker drops ticks a busy receiver misses.
+func tickLoop(ctx context.Context, interval time.Duration, job func(context.Context), logger *slog.Logger, name string) {
+	runSafe(ctx, job, logger, name)
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
@@ -51,7 +75,7 @@ func pollLoop(ctx context.Context, interval time.Duration, job func(context.Cont
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			runSafe(ctx, job, logger, "poll")
+			runSafe(ctx, job, logger, name)
 		}
 	}
 }

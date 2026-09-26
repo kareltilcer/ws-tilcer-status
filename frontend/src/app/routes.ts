@@ -9,4 +9,5 @@ export const paths = {
   reports: '/reports',
   report: (ref: string) => `/reports/${encodeURIComponent(ref)}`,
   reportPattern: '/reports/:ref',
+  notifications: '/settings/notifications',
 }

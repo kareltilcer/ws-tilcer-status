@@ -28,4 +28,8 @@ export const qk = {
   // queues behind. Nothing a site edit changes is in this response; `uptime` and
   // `crashes` stay nested because a monitoring change genuinely moves them.
   feedbackConfig: (siteId: string) => ['feedback-config', siteId] as const,
+  // Two keys, not one prefix: saving the settings or a mute invalidates the
+  // settings alone, and the deliveries list polls on its own interval.
+  notificationSettings: () => ['notification-settings'] as const,
+  notificationDeliveries: () => ['notification-deliveries'] as const,
 }

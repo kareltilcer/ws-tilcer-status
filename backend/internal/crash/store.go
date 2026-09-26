@@ -15,31 +15,50 @@ type Store struct{ db *sql.DB }
 // NewStore returns a store over db.
 func NewStore(db *sql.DB) *Store { return &Store{db: db} }
 
+// GroupUpsert is what UpsertGroup did: the group's id, its status after this
+// event, and whether this event brought it back from resolved. A notifier needs
+// to tell "a crash that came back" from "the 500th repeat", and only the upsert
+// knows which one happened. ("New" is not here on purpose — see Signal.)
+type GroupUpsert struct {
+	ID       int64
+	Reopened bool
+	Status   string // the group's status after this event
+	// Title is the group's STORED title — the first event's — which is what the
+	// dashboard lists it under. With a `fingerprint` override a later event's
+	// message can differ from it.
+	Title string
+}
+
 // UpsertGroup creates or bumps the crash group for (siteID, fingerprint) within
-// tx and returns its id. On a hit it increments count, widens first/last seen,
-// raises the tracked level to the highest seen, and reopens a resolved group when
-// reopen is set (an ignored group is never auto-reopened).
-func (s *Store) UpsertGroup(ctx context.Context, tx *sql.Tx, siteID, fingerprint, title, level, at string, reopen bool) (int64, error) {
+// tx. On a hit it increments count, widens first/last seen, raises the tracked
+// level to the highest seen, and reopens a resolved group when reopen is set (an
+// ignored group is never auto-reopened).
+func (s *Store) UpsertGroup(ctx context.Context, tx *sql.Tx, siteID, fingerprint, title, level, at string, reopen bool) (GroupUpsert, error) {
 	var (
 		id       int64
 		status   string
 		curLevel string
+		curTitle string
 	)
 	err := tx.QueryRowContext(ctx,
-		`SELECT id, status, level FROM crash_group WHERE site_id = ? AND fingerprint = ?`,
-		siteID, fingerprint).Scan(&id, &status, &curLevel)
+		`SELECT id, status, level, title FROM crash_group WHERE site_id = ? AND fingerprint = ?`,
+		siteID, fingerprint).Scan(&id, &status, &curLevel, &curTitle)
 	if err == sql.ErrNoRows {
 		res, err := tx.ExecContext(ctx,
 			`INSERT INTO crash_group (site_id, fingerprint, title, level, count, status, first_seen, last_seen)
 			 VALUES (?,?,?,?,1,'open',?,?)`,
 			siteID, fingerprint, title, level, at, at)
 		if err != nil {
-			return 0, err
+			return GroupUpsert{}, err
 		}
-		return res.LastInsertId()
+		id, err := res.LastInsertId()
+		if err != nil {
+			return GroupUpsert{}, err
+		}
+		return GroupUpsert{ID: id, Status: StatusOpen, Title: title}, nil
 	}
 	if err != nil {
-		return 0, err
+		return GroupUpsert{}, err
 	}
 	newStatus := status
 	if status == StatusResolved && reopen {
@@ -54,9 +73,9 @@ func (s *Store) UpsertGroup(ctx context.Context, tx *sql.Tx, siteID, fingerprint
 		        status = ?
 		  WHERE id = ?`,
 		at, at, maxLevel(curLevel, level), newStatus, id); err != nil {
-		return 0, err
+		return GroupUpsert{}, err
 	}
-	return id, nil
+	return GroupUpsert{ID: id, Reopened: newStatus != status, Status: newStatus, Title: curTitle}, nil
 }
 
 // InsertEvent inserts one crash event within tx and returns its id.

@@ -27,6 +27,10 @@ services:
       STATUS_AUTH_SERVICE_SECRET: ${STATUS_AUTH_SERVICE_SECRET:-REPLACE_ME_service_client_secret}
       STATUS_AUTH_JWT_SECRET: ${STATUS_AUTH_JWT_SECRET:-REPLACE_ME_shared_jwt_secret}
       STATUS_AUTH_JWT_ISSUER: ${STATUS_AUTH_JWT_ISSUER:-}
+      # Email notifications. Without a key a development deployment logs what it
+      # would have sent; links in emails point at the local SPA.
+      STATUS_RESEND_API_KEY: ${STATUS_RESEND_API_KEY:-}
+      STATUS_PUBLIC_URL: ${STATUS_PUBLIC_URL:-http://localhost:1155}
       LITESTREAM_ENABLED: ${LITESTREAM_ENABLED:-false}
       STATUS_DB_PATH: ${STATUS_DB_PATH:-/data/status.db}
     volumes:

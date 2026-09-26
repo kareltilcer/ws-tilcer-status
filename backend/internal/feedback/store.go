@@ -247,11 +247,16 @@ type slot struct {
 	ByteSize     int64
 }
 
+// onInsert runs inside the insert transaction, after the report and its
+// attachment rows and before the commit, with the ref this attempt minted. A ref
+// collision rolls it back with everything else, and the retry runs it again.
+type onInsert func(ctx context.Context, tx *sql.Tx, ref string) error
+
 // InsertReport writes the report and one pending attachment row per declared file
 // in a single transaction, retrying on the unique(ref) collision. Object keys are
 // derived from the ref, so they are minted here; nothing in this method touches
-// object storage.
-func (s *Store) InsertReport(ctx context.Context, r newReport, files []resolvedFile, now time.Time) (ref string, slots []slot, err error) {
+// object storage. hook may be nil.
+func (s *Store) InsertReport(ctx context.Context, r newReport, files []resolvedFile, now time.Time, hook onInsert) (ref string, slots []slot, err error) {
 	ts := timeutil.Format(now)
 	var consoleJSON *string
 	if len(r.ConsoleTail) > 0 {
@@ -268,7 +273,7 @@ func (s *Store) InsertReport(ctx context.Context, r newReport, files []resolvedF
 		if err != nil {
 			return "", nil, err
 		}
-		out, err := s.insertReportOnce(ctx, r, files, candidate, consoleJSON, ts)
+		out, err := s.insertReportOnce(ctx, r, files, candidate, consoleJSON, ts, hook)
 		if err != nil {
 			if isUniqueViolation(err) {
 				continue // lost the ref race; mint another
@@ -281,7 +286,7 @@ func (s *Store) InsertReport(ctx context.Context, r newReport, files []resolvedF
 }
 
 // insertReportOnce is one attempt of InsertReport, in one transaction.
-func (s *Store) insertReportOnce(ctx context.Context, r newReport, files []resolvedFile, ref string, consoleJSON *string, ts string) ([]slot, error) {
+func (s *Store) insertReportOnce(ctx context.Context, r newReport, files []resolvedFile, ref string, consoleJSON *string, ts string, hook onInsert) ([]slot, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -321,6 +326,12 @@ func (s *Store) insertReportOnce(ctx context.Context, r newReport, files []resol
 			return nil, err
 		}
 		slots = append(slots, slot{AttachmentID: aid, ObjectKey: key, ContentType: f.Type.contentType, ByteSize: f.SignedSize})
+	}
+	// ⚠ Last before the commit — see onInsert and Notifier.
+	if hook != nil {
+		if err := hook(ctx, tx, ref); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err

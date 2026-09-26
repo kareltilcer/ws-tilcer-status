@@ -14,6 +14,17 @@ export function uptimeWindow(days: number): { window: UptimeWindow; buckets: num
   return { window: '90d', buckets: 90, label: '90 days' }
 }
 
+/** compactSpan renders a positive number of seconds as "12s" / "3m" / "2h" /
+ *  "4d" — the one rounding rule both directions of relative time share. */
+function compactSpan(secs: number): string {
+  if (secs < 60) return `${secs}s`
+  const mins = Math.round(secs / 60)
+  if (mins < 60) return `${mins}m`
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return `${hours}h`
+  return `${Math.round(hours / 24)}d`
+}
+
 /** relativeTime renders an ISO timestamp as a compact "12s ago" / "3m ago". */
 export function relativeTime(iso: string | null): string {
   if (!iso) return '—'
@@ -21,13 +32,15 @@ export function relativeTime(iso: string | null): string {
   if (Number.isNaN(then)) return '—'
   const secs = Math.max(0, Math.round((Date.now() - then) / 1000))
   if (secs < 5) return 'now'
-  if (secs < 60) return `${secs}s ago`
-  const mins = Math.round(secs / 60)
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.round(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.round(hours / 24)
-  return `${days}d ago`
+  return `${compactSpan(secs)} ago`
+}
+
+/** relativeTimeAhead renders a future ISO timestamp as "in 3m"; anything due
+ *  within a few seconds, already past, or unreadable reads "shortly". */
+export function relativeTimeAhead(iso: string): string {
+  const secs = Math.round((new Date(iso).getTime() - Date.now()) / 1000)
+  if (Number.isNaN(secs) || secs <= 5) return 'shortly'
+  return `in ${compactSpan(secs)}`
 }
 
 /** fileSize renders an attachment's size the way a phone would — "420 kB",

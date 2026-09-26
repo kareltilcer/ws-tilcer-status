@@ -5,6 +5,7 @@ package apitest
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -21,6 +22,8 @@ import (
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/feedback"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/feedback/blob/blobtest"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/monitoring"
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/notify"
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/notify/mail/mailtest"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/auth"
 	appdb "github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/db"
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/httpx"
@@ -48,7 +51,17 @@ type api struct {
 	// fb is the feedback module, kept so a test can Drain the object deletes a
 	// DELETE response deliberately does not wait for (FR-22).
 	fb *feedback.Module
+	// mail is the notify module's fake provider, and notify the module itself —
+	// kept so a test can run the worker with a clock of its choosing.
+	mail   *mailtest.Fake
+	notify *notify.Module
+	// db is the service's database, for the few assertions no route can make.
+	db *sql.DB
 }
+
+// testPublicURL is the harness's STATUS_PUBLIC_URL: every emailed link starts
+// with it.
+const testPublicURL = "https://status.example.test"
 
 func newAPI(t *testing.T, burst int, ratePerSec float64) *api {
 	t.Helper()
@@ -77,7 +90,7 @@ func newAPI(t *testing.T, burst int, ratePerSec float64) *api {
 	})
 	monMod := monitoring.NewModule(db, monitoring.Config{
 		CheckTimeout: time.Second, PollConcurrency: 1, RedFailThreshold: 2, UptimeWindowDays: uptimeWindowDays,
-		FeedbackEnabled: true,
+		FeedbackEnabled: true, NotificationsEnabled: true,
 	}, discardLogger())
 	blobs := blobtest.New()
 	fbMod := feedback.NewModule(db, sitesMod.Store(), blobs, feedback.Config{
@@ -91,7 +104,16 @@ func newAPI(t *testing.T, burst int, ratePerSec float64) *api {
 	// exactly as cmd/status does it — `sites` never imports `feedback`.
 	sitesMod.SetReportCounter(fbMod)
 	sitesMod.SetObjectPurger(fbMod)
-	modules := []registry.Module{sitesMod, crashMod, monMod, fbMod}
+	// …and the notifier into all three producers, as cmd/status does.
+	mailer := mailtest.New()
+	notifyMod := notify.NewModule(db, sitesMod.Store(), mailer, notify.Config{
+		PublicURL: testPublicURL, From: "status <status@example.test>",
+		DigestWindow: 2 * time.Minute, MaxPerHour: 6, RetentionDays: 90,
+	}, discardLogger())
+	crashMod.SetNotifier(notifyMod.Notifier())
+	monMod.SetNotifier(notifyMod.Notifier())
+	fbMod.SetNotifier(notifyMod.Notifier())
+	modules := []registry.Module{sitesMod, crashMod, monMod, fbMod, notifyMod}
 
 	handler := httpx.NewRouter(httpx.Deps{
 		Logger: discardLogger(), DB: db, Site: "status", InsecureAuth: true,
@@ -106,7 +128,7 @@ func newAPI(t *testing.T, burst int, ratePerSec float64) *api {
 	})
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	return &api{srv: srv, rt: handler, blobs: blobs, fb: fbMod}
+	return &api{srv: srv, rt: handler, blobs: blobs, fb: fbMod, mail: mailer, notify: notifyMod, db: db}
 }
 
 func (a *api) do(t *testing.T, method, path string, body any, headers map[string]string) (int, []byte) {

@@ -6,6 +6,8 @@ package config
 
 import (
 	"fmt"
+	netmail "net/mail"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -106,6 +108,24 @@ type Config struct {
 
 	FeedbackTicketSecret string // never logged
 	IPHashSalt           string // never logged
+
+	// --- Notifications ---
+	// ResendAPIKey is the mail provider's key. Unset is NOT an error: the service
+	// runs without email (in development it logs what it would have sent), and
+	// the dashboard says so instead of offering a switch that cannot work.
+	ResendAPIKey string // never logged
+	// MailFrom is the sender, e.g. "tilcer status <status@tilcer.cz>"; its domain
+	// must be verified at the provider.
+	MailFrom string
+	// PublicURL is where the dashboard is served, without a trailing slash —
+	// every link in an email is built on it.
+	PublicURL string
+	// NotifyDigestWindow is how long the oldest queued notification waits for
+	// company before its digest is sent.
+	NotifyDigestWindow time.Duration
+	// NotifyMaxPerHour caps digests per rolling hour. Reaching it delays, never
+	// drops: what is queued goes out together in the next digest.
+	NotifyMaxPerHour int
 }
 
 // IsProduction reports whether the service is running in production.
@@ -143,7 +163,8 @@ func (c *Config) Redacted() string {
 			"feedback_enabled=%t r2_endpoint=%s r2_bucket=%s r2_key_id=%s r2_secret=%s ticket_secret=%s ip_hash_salt=%s "+
 			"feedback_max_files=%d feedback_max_image_bytes=%d feedback_max_video_bytes=%d feedback_max_text_bytes=%d "+
 			"feedback_rate_per_sec=%.4f feedback_burst=%d feedback_ip_rate_per_sec=%.4f feedback_ip_burst=%d "+
-			"feedback_upload_ttl=%s feedback_view_ttl=%s feedback_unclaimed_ttl=%s feedback_min_dwell=%s",
+			"feedback_upload_ttl=%s feedback_view_ttl=%s feedback_unclaimed_ttl=%s feedback_min_dwell=%s "+
+			"resend_key=%s mail_from=%q public_url=%s notify_digest_window=%s notify_max_per_hour=%d",
 		c.Env, c.Addr, c.DBPath, static, c.SiteKey, c.AuthBaseURL, mask(c.AuthServiceSecret), mask(c.AuthJWTSecret), jwtIssuer,
 		c.AllowedOrigins, c.SessionTTLDays, c.RoleRefreshMinutes, c.TrustedProxyCount, c.DevAuthBypass,
 		c.CheckInterval, c.CheckTimeout, c.PollConcurrency, c.RedFailThreshold, c.UptimeWindowDays,
@@ -154,6 +175,7 @@ func (c *Config) Redacted() string {
 		c.FeedbackMaxFiles, c.FeedbackMaxImageBytes, c.FeedbackMaxVideoBytes, c.FeedbackMaxTextBytes,
 		c.FeedbackRatePerSec, c.FeedbackBurst, c.FeedbackIPRatePerSec, c.FeedbackIPBurst,
 		c.FeedbackUploadTTL, c.FeedbackViewTTL, c.FeedbackUnclaimedTTL, c.FeedbackMinDwell,
+		mask(c.ResendAPIKey), c.MailFrom, c.PublicURL, c.NotifyDigestWindow, c.NotifyMaxPerHour,
 	)
 }
 
@@ -172,6 +194,9 @@ const (
 
 	// megabyte converts the MB-denominated attachment caps to bytes.
 	megabyte = 1024 * 1024
+
+	defaultMailFrom  = "tilcer status <status@tilcer.cz>"
+	defaultPublicURL = "https://status.tilcer.cz"
 )
 
 var defaultAllowedOrigins = []string{"https://*.tilcer.cz"}
@@ -275,6 +300,14 @@ func Load(getenv Getenv) (*Config, error) {
 		c.IPHashSalt = l.strDefault("STATUS_IP_HASH_SALT", "")
 	}
 
+	// Notifications. Nothing here is required: a deployment without a key simply
+	// has no email.
+	c.ResendAPIKey = l.strDefault("STATUS_RESEND_API_KEY", "")
+	c.MailFrom = strings.TrimSpace(l.strDefault("STATUS_MAIL_FROM", defaultMailFrom))
+	c.PublicURL = strings.TrimRight(strings.TrimSpace(l.strDefault("STATUS_PUBLIC_URL", defaultPublicURL)), "/")
+	c.NotifyDigestWindow = l.durationDefault("STATUS_NOTIFY_DIGEST_WINDOW", 2*time.Minute)
+	c.NotifyMaxPerHour = l.intDefault("STATUS_NOTIFY_MAX_PER_HOUR", 6)
+
 	// Range sanity.
 	if c.SessionTTLDays < 1 {
 		l.errf("STATUS_SESSION_TTL_DAYS must be >= 1 (got %d)", c.SessionTTLDays)
@@ -371,6 +404,27 @@ func Load(getenv Getenv) (*Config, error) {
 	if c.FeedbackMaxVideoBytes < c.FeedbackMaxImageBytes {
 		l.errf("STATUS_FEEDBACK_MAX_VIDEO_MB (%d bytes) must be >= STATUS_FEEDBACK_MAX_IMAGE_MB (%d bytes) — a video cap below the image cap is always a typo",
 			c.FeedbackMaxVideoBytes, c.FeedbackMaxImageBytes)
+	}
+
+	// Notifications.
+	if _, err := netmail.ParseAddress(c.MailFrom); err != nil {
+		l.errf("STATUS_MAIL_FROM must be an address like \"status <status@tilcer.cz>\" (got %q)", c.MailFrom)
+	}
+	if u, err := url.Parse(c.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") ||
+		u.Host == "" || strings.ContainsAny(c.PublicURL, "?#") || u.User != nil {
+		// Every emailed link is this plus a path; a relative, query-carrying or
+		// credential-carrying base would put that into every one of them. ⚠ The
+		// raw string is searched for '?' and '#', not u.RawQuery and u.Fragment:
+		// both are empty for a bare trailing "?" or "#", which would still turn
+		// every link into the board's URL with the path in its query or fragment.
+		l.errf("STATUS_PUBLIC_URL must be an absolute http(s) URL with no query or fragment, e.g. %q (got %q)",
+			defaultPublicURL, c.PublicURL)
+	}
+	if c.NotifyDigestWindow < 0 || c.NotifyDigestWindow > time.Hour {
+		l.errf("STATUS_NOTIFY_DIGEST_WINDOW must be between 0 and 1h (got %s)", c.NotifyDigestWindow)
+	}
+	if c.NotifyMaxPerHour < 1 || c.NotifyMaxPerHour > 60 {
+		l.errf("STATUS_NOTIFY_MAX_PER_HOUR must be between 1 and 60 (got %d)", c.NotifyMaxPerHour)
 	}
 
 	// Security hard-stop: the dev bypass must never be active in production.

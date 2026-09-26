@@ -22,6 +22,8 @@ Compile-time modular monolith:
   migrations + `WithTx`), `httpx` (chi router, `Error` envelope `{error, detail}`, health probes, role
   gates), `auth` (Mode B: self-hosted login + own session + CSRF), `reqctx`, `idgen`, `paging`
   (cursor helpers), `timeutil` (the one fixed-width RFC3339 UTC layout — all stored timestamps use it).
+  `db/txprobe` is the ONE "no network call while the connection is held" detector, shared by the
+  blob and mail fakes — never copy it into a third.
 - `internal/sites` — the shared registry. Owns the **v2** schema (one migration,
   `migrations/10001_init.sql`, all five tables). CRUD, ingest-key lifecycle, and the pure `ComputeColor`
   + `RecomputeAndPersist` (FR-6). It must never import a feature module: the board's `open_reports`
@@ -35,16 +37,26 @@ Compile-time modular monolith:
   and per-site config through `RegisterRoutes`, the three public widget routes through
   `MountPublicAPI`, as `crash` does. `blob/` wraps R2 behind an interface; `blob/blobtest` is the fake,
   which **truncates** an oversized upload because that is what R2 does.
+- `internal/notify` — email notifications, as an **outbox** (`migrations/30001_notify.sql`). crash
+  ingest, feedback submit and the poller each declare a small `Notifier` interface and call it as the
+  **last** statement of their own transaction; `notify.Notifier` decides and queues there with no
+  network, and `notify.Worker` (a scheduler tick) folds the queue into one digest per window, stores
+  it rendered, and sends it after the commit, retrying under the same idempotency key. Crash
+  "armed/announced" and site up/down state are notify's own tables — ⚠ not `cached_color`, which a
+  URL edit resets and a monitoring switch-off leaves red. `mail/` is the provider behind an interface
+  (stdlib Resend client + a log-only dev mailer); `mail/mailtest` is the fake.
 - `internal/retention` — daily purge (runs **after** the rollup). ⚠ It does **not** touch feedback:
   a report is a hand-written artifact and is kept until deleted (`TestRetentionDoesNotPurgeFeedback`).
-- `internal/scheduler` — the poller ticker + the daily **rollup → purge → feedback sweep** timer
-  (net-new; `home` has none). The sweep runs last because it is the only step that talks to the
-  network.
+- `internal/scheduler` — the poller ticker, the notify worker ticker (only when a mail provider
+  exists) + the daily **rollup → purge → notification prune → feedback sweep** timer (net-new; `home`
+  has none). The sweep runs last because it is the only step that talks to the network.
 - `internal/bootstrap` — assembles the migration sequence (platform sessions + sites schema +
-  feedback tables).
-- `cmd/status/main.go` — config → open → migrate → auth wiring → scheduler → serve → graceful
-  shutdown. `daily.go` holds the daily chain (rollup → purge → sweep) as a named function, because
-  its order is normative and a closure cannot be tested.
+  feedback tables + notify tables).
+- `cmd/status/main.go` — config → open → migrate → auth wiring → mailer → scheduler → serve →
+  graceful shutdown. `daily.go` holds the daily chain (rollup → purge → prune → sweep) as a named
+  function, because its order is normative and a closure cannot be tested. ⚠ `defer jobsWG.Wait()` is
+  registered **before** `defer cancelJobs()`, so every return path cancels, then joins the jobs, and
+  only then drains deletes and closes the DB.
 
 ### Conventions
 - Go 1.26, `chi` v5, `modernc.org/sqlite` (CGO off, `SetMaxOpenConns(1)`, WAL), Goose migrations, slog JSON.
@@ -69,7 +81,7 @@ Compile-time modular monolith:
 
 ### Migrations
 Numeric filename prefix orders them globally: platform sessions `02xxx`, sites schema `10xxx`,
-feedback `20xxx`. Every child table FKs to `site` with `ON DELETE CASCADE`; `foreign_keys` is a DSN
+feedback `20xxx`, notify `30xxx`. Every child table FKs to `site` with `ON DELETE CASCADE`; `foreign_keys` is a DSN
 pragma (per-connection).
 
 ### Object storage (feedback)
@@ -81,6 +93,27 @@ it. Deletion order is normative: keys are read **inside** the transaction, objec
 it commits. The presigned PUT signs `Content-Type` **and** `Content-Length`; dropping the latter turns
 the bucket into an open upload endpoint that reports no error, which is what
 `TestPresignPutSignsContentLength` exists to prevent.
+
+### Email (notify)
+⚠ **No mail send may run inside a transaction or with a `rows` cursor open** — the R2 rule, for the
+same reason, asserted the same way (`TestNoMailSendInsideATransaction` + its probe-proof partner).
+⚠ **A notifier hook is the LAST statement of the producer's transaction, and runs inside a
+`SAVEPOINT`.** Any failure or panic of its own is rolled back to the savepoint and logged — it must
+never cost the crash, report or check it describes. Its error reaches the producer only when SQLite
+has already rolled the whole transaction back (then the commit would fail anyway), and the producer
+must return it rather than run another statement, which would commit on its own in autocommit.
+⚠ The outbox has **no UNIQUE constraint**: it is written inside feedback's insert transaction, whose
+retry loop reads any "UNIQUE constraint failed" as a ref collision. A digest is rendered **once** and
+stored — a retry must send the byte-identical request, or Resend refuses the reused idempotency key
+(409); retries stop at 23 h, inside Resend's 24 h window. ⚠ **No digest is assembled while another is
+pending** — the hourly cap counts digests created, so without that a provider outage mints one per
+window and the recovery sends the backlog in a minute. ⚠ Because of that hold, a pending digest whose
+**envelope** is stale (`STATUS_MAIL_FROM` or the saved recipients changed) is superseded — failed, its
+events put back in the outbox — or an envelope the provider refuses would hold every notification
+for 23 h. ⚠ Booting **without a provider** cancels what is pending and drops what is queued
+(`Module.DropBacklog`), as switching off does — nothing drains the outbox then, and a key put back
+weeks later would otherwise mail it as news. Payloads are excerpts only: never a stack, never a
+reporter's label, page, browser, console or IP hash.
 
 ## Frontend (`frontend/`)
 

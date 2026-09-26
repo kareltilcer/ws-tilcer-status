@@ -19,16 +19,19 @@ import (
 // per-site kill switch is GET/PATCH /api/sites/{id}/feedback-config. It is here
 // because a dashboard that renders the feedback panel on a deployment with no
 // object storage offers a switch whose only possible answer is 503.
+// NotificationsEnabled is the same fact for the mail provider.
 type meta struct {
-	UptimeWindowDays int  `json:"uptime_window_days"`
-	FeedbackEnabled  bool `json:"feedback_enabled"`
+	UptimeWindowDays     int  `json:"uptime_window_days"`
+	FeedbackEnabled      bool `json:"feedback_enabled"`
+	NotificationsEnabled bool `json:"notifications_enabled"`
 }
 
 // getMeta handles GET /api/meta.
 func (m *Module) getMeta(w http.ResponseWriter, _ *http.Request) {
 	httpx.JSON(w, http.StatusOK, meta{
-		UptimeWindowDays: m.uptimeWindowDays,
-		FeedbackEnabled:  m.feedbackEnabled,
+		UptimeWindowDays:     m.uptimeWindowDays,
+		FeedbackEnabled:      m.feedbackEnabled,
+		NotificationsEnabled: m.notifyEnabled,
 	})
 }
 

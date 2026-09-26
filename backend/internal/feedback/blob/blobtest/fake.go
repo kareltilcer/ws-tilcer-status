@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/kareltilcer/ws-tilcer-status/backend/internal/feedback/blob"
+	"github.com/kareltilcer/ws-tilcer-status/backend/internal/platform/db/txprobe"
 )
 
 // object is one stored object plus the size its upload URL was signed for.
@@ -64,15 +65,13 @@ type Fake struct {
 	// and when. Read it with Calls().
 	calls []string
 
-	// txProbe, when set, is queried on every call: if the service's single
+	// probe, when armed, is queried on every call: if the service's single
 	// connection is held by an open transaction the probe blocks and times out,
 	// which records a violation. This is how "no R2 call inside a transaction"
-	// (V3-D05a) is asserted structurally rather than by review. Set it with
-	// SetTxProbe — it is read from the goroutine a detached delete runs on.
-	txProbe *sql.DB
-	// violations names every call that ran while the connection was held. Read it
-	// with Violations().
-	violations []string
+	// (V3-D05a) is asserted structurally rather than by review. Arm it with
+	// SetTxProbe — it is read from the goroutine a detached delete runs on, so it
+	// carries its own lock. The detector is shared with mailtest (txprobe).
+	probe txprobe.Probe
 }
 
 type signedPut struct {
@@ -121,10 +120,10 @@ func (f *Fake) FailPresignOn(n int, err error) {
 	f.mu.Unlock()
 }
 
-// SetTxProbe makes every call probe db before it runs — see txProbe. It is a
+// SetTxProbe makes every call probe db before it runs — see probe. It is a
 // setter rather than a field because a detached object delete (FR-22) reads it
 // from its own goroutine.
-func (f *Fake) SetTxProbe(db *sql.DB) { f.mu.Lock(); f.txProbe = db; f.mu.Unlock() }
+func (f *Fake) SetTxProbe(db *sql.DB) { f.probe.Set(db) }
 
 // BlockDeletes makes every Delete wait until the returned release is called. It
 // is how a test proves a delete response does not wait on the bucket (FR-22):
@@ -142,26 +141,10 @@ func (f *Fake) BlockDeletes() (release func()) {
 	}
 }
 
-// txProbeTimeout bounds how long the probe waits for the single connection
-// before calling it held. Only a violating call ever waits this long.
-const txProbeTimeout = 500 * time.Millisecond
-
 func (f *Fake) enter(ctx context.Context, name string) {
-	f.mu.Lock()
-	probe := f.txProbe
-	f.mu.Unlock()
-	// Query the probe WITHOUT the fake's own lock held: the point is to observe
+	// The probe runs WITHOUT the fake's own lock held: the point is to observe
 	// the database connection, not to serialize the store.
-	if probe != nil {
-		pctx, cancel := context.WithTimeout(ctx, txProbeTimeout)
-		err := probe.QueryRowContext(pctx, "SELECT 1").Scan(new(int))
-		cancel()
-		if err != nil {
-			f.mu.Lock()
-			f.violations = append(f.violations, name)
-			f.mu.Unlock()
-		}
-	}
+	f.probe.Check(ctx, name)
 	f.mu.Lock()
 	f.calls = append(f.calls, name)
 	f.mu.Unlock()
@@ -180,12 +163,8 @@ func (f *Fake) Calls() []string {
 }
 
 // Violations returns the calls that ran while the single database connection was
-// held — see TxProbe. Copied under the lock, for the same reason as Calls.
-func (f *Fake) Violations() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.violations...)
-}
+// held — see probe. Copied under a lock, for the same reason as Calls.
+func (f *Fake) Violations() []string { return f.probe.Violations() }
 
 // PresignPut records what the URL is signed for and returns an opaque URL the
 // test can PUT to via Upload.

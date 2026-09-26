@@ -1,7 +1,9 @@
 package feedback
 
 import (
+	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -137,7 +139,16 @@ func (m *Module) submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ref, slots, err := m.store.InsertReport(r.Context(), report, files, now)
+	var hook onInsert
+	if m.notifier != nil {
+		hook = func(ctx context.Context, tx *sql.Tx, ref string) error {
+			return m.notifier.ReportSubmitted(ctx, tx, ReportSignal{
+				SiteID: siteID, Ref: ref, Kind: report.Kind, Message: report.Message,
+				Attachments: len(files), At: now,
+			})
+		}
+	}
+	ref, slots, err := m.store.InsertReport(r.Context(), report, files, now, hook)
 	if err != nil {
 		m.fail(w, r, "insert report", err)
 		return
