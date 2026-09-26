@@ -7,6 +7,7 @@ import { qk } from '@/api/keys'
 import { paths } from '@/app/routes'
 import { useAuth } from '@/app/auth'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ImageLightbox } from '@/components/ImageLightbox'
 import { AttachmentStateLabel, KindChip, StateBlock, StateChip, cardStyle, ghostButton, primaryButton } from '@/components/ui'
 import { useMediaQuery } from '@/lib/useMediaQuery'
 import { fileSize, relativeTime } from '@/lib/format'
@@ -350,13 +351,19 @@ function AttachmentCard({ reportRef, attachment }: { reportRef: string; attachme
     setReminted(true)
     void q.refetch()
   }
+  const [viewing, setViewing] = useState(false)
   const isVideo = attachment.content_type.startsWith('video/')
   const size = fileSize(attachment.byte_size)
   const shortType = attachment.content_type.split('/')[1]?.toUpperCase() ?? attachment.content_type
+  const label = `${shortType} · ${size}`
 
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', background: 'var(--s2)' }}>
-      <div style={{ height: 126, display: 'grid', placeItems: 'center', background: 'var(--s3)', overflow: 'hidden' }}>
+      {/* ⚠ A fixed track, not the implicit `auto` one. An auto row grows to its
+          item's height, so the media's `max-height: 100%` resolved against
+          itself: a 3:2 screenshot rendered 191px tall and a phone one 621px, and
+          the overflow cut out a band from the middle of each. */}
+      <div style={{ position: 'relative', height: 126, display: 'grid', gridTemplate: 'minmax(0, 1fr) / minmax(0, 1fr)', placeItems: 'center', background: 'var(--s3)', overflow: 'hidden' }}>
         {!stored ? (
           // ⚠ A real, expected state — not an error. The object was never
           // uploaded, or the sweep collected it after the unclaimed TTL.
@@ -377,13 +384,35 @@ function AttachmentCard({ reportRef, attachment }: { reportRef: string; attachme
         ) : isVideo ? (
           <video src={q.data.url} onError={remint} controls preload="metadata" style={{ maxHeight: '100%', maxWidth: '100%' }} />
         ) : (
-          <img src={q.data.url} onError={remint} alt="Attachment from the reporter" style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }} />
+          // Images only. A clip already has the player's own fullscreen control,
+          // and a click on the card would fight the player's for play/pause.
+          <>
+            <img src={q.data.url} onError={remint} alt="Attachment from the reporter" style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }} />
+            {/* ⚠ Laid over the image, not wrapped around it. Inside a <button>
+                the image's `max-height: 100%` has no definite height to resolve
+                against, so it rendered at full width and the box cropped it — a
+                portrait screenshot showed a band from its middle. Inset, so the
+                focus ring is not clipped by the box's overflow. */}
+            <button
+              onClick={() => setViewing(true)}
+              aria-label={`View attachment full size — ${label}`}
+              style={{ position: 'absolute', inset: 4, padding: 0, border: 'none', borderRadius: 6, background: 'none', cursor: 'zoom-in' }}
+            >
+              {/* Always shown, not on hover: a touch screen has no hover, and the
+                  thumbnail gave no sign that it opened anything. */}
+              <span aria-hidden style={{ position: 'absolute', right: 3, bottom: 3, display: 'grid', placeItems: 'center', height: 24, width: 24, borderRadius: 6, background: 'oklch(0 0 0 / .6)', color: 'oklch(1 0 0 / .92)', fontSize: 14, lineHeight: 1 }}>
+                ⤢
+              </span>
+            </button>
+          </>
         )}
       </div>
+      {/* ⚠ A sibling of the thumbnail button, never inside it: React bubbles a
+          click in the dialog through its tree parents, and the button's onClick
+          would reopen the viewer that Close had just shut. */}
+      {viewing && q.data && <ImageLightbox url={q.data.url} label={label} onError={remint} onClose={() => setViewing(false)} />}
       <div style={{ padding: '9px 11px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--subtle)' }}>
-          {shortType} · {size}
-        </span>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--subtle)' }}>{label}</span>
         <AttachmentStateLabel state={attachment.state} />
       </div>
     </div>
