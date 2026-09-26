@@ -9,6 +9,33 @@ const PAN_KEYS: Partial<Record<string, [number, number]>> = {
   ArrowDown: [0, 48],
 }
 
+/** How long after the viewer opens or shuts a click is still taken for the rest
+ *  of the gesture that did it: iOS reports every tap as the first, so `detail`
+ *  alone cannot tell. */
+const SETTLE_MS = 400
+
+/**
+ * ⚠ The rest of the double-click that shut the viewer. Its first click closes
+ * the dialog and the second lands on the page it uncovered: a thumbnail, which
+ * opened another attachment's viewer, or a triage button, which moved the
+ * report. That click arrives after the dialog is gone, so nothing in the viewer
+ * can see it and no one page element should have to: the document eats clicks
+ * for as long as they continue the gesture, and stands down at the first that
+ * does not.
+ */
+function swallowTrailingClicks() {
+  const closedAt = performance.now()
+  const swallow = (e: globalThis.MouseEvent) => {
+    if (e.detail > 1 || performance.now() - closedAt < SETTLE_MS) {
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
+    document.removeEventListener('click', swallow, true)
+  }
+  document.addEventListener('click', swallow, true)
+}
+
 /**
  * ImageLightbox shows one image attachment at full resolution, over the page.
  *
@@ -120,10 +147,12 @@ export function ImageLightbox({
   // card still "viewing" — and the thumbnail then opened nothing, because
   // setting the flag it already held re-rendered nothing. close() itself is
   // synchronous, and it is what hands focus back to the thumbnail. Escape
-  // still arrives through the event, the one close path this does not own.
+  // still arrives through the event, the one close path this does not own —
+  // and the one that is not a click, so it leaves no click behind.
   const close = () => {
     dialogRef.current?.close()
     onClose()
+    swallowTrailingClicks()
   }
   const zoomable = fitScale < 0.995
 
@@ -136,7 +165,7 @@ export function ImageLightbox({
   // iOS reports every tap as the first, hence the time since opening as well.
   // The toolbar is under the pointer too: at phone widths a thumbnail near the
   // top of the screen sits right where Close and Actual size appear.
-  const early = (e: MouseEvent) => e.detail > 1 || performance.now() - openedAt.current < 400
+  const early = (e: MouseEvent) => e.detail > 1 || performance.now() - openedAt.current < SETTLE_MS
   // ⚠ Nor the end of a drag. A click goes to wherever the button came back up —
   // the common ancestor, when that is not where it went down — so a press on the
   // picture released beside it reached the backdrop and shut the viewer, and a
@@ -177,10 +206,12 @@ export function ImageLightbox({
   }
   // And the keyboard's way to pan. Focus stays on a toolbar button, where arrow
   // keys do nothing, and the stage is a scroller only some browsers let Tab reach.
+  // Bare arrows only: Alt+Left and Alt+Right are the browser's Back and Forward,
+  // and Ctrl or Cmd with an arrow is a text or system shortcut, none of them a pan.
   const onKeyDown = (e: KeyboardEvent<HTMLDialogElement>) => {
     const stage = stageRef.current
     const step = PAN_KEYS[e.key]
-    if (!actual || !stage || !step) return
+    if (!actual || !stage || !step || e.altKey || e.ctrlKey || e.metaKey) return
     e.preventDefault()
     stage.scrollBy(step[0], step[1])
   }
@@ -279,9 +310,13 @@ export function ImageLightbox({
           {/* A screenshot is up to 10 MB, and the viewer can open before the
               thumbnail has finished fetching it: the stage was empty and dark
               until it arrived. Faded in late, so an image already in memory —
-              the usual case — never shows it. Clicks pass through to the stage. */}
+              the usual case — never shows it. Clicks pass through to the stage.
+              ⚠ Fixed, not absolute: the stage scrolls, and the toggle is offered
+              once the image's size is known, before it has arrived. Zoomed then,
+              the stage showed the part not yet downloaded and an absolute chip
+              scrolled out of view with the top-left corner. */}
           {loading && (
-            <div role="status" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
+            <div role="status" style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, background: 'oklch(0 0 0 / .6)', color: 'oklch(0.9 0 0)', fontSize: 12.5, animation: 'om-fadein .2s ease .25s both' }}>
                 <Spinner size={13} />
                 {failed ? 'Fetching a fresh view link…' : 'Loading…'}
