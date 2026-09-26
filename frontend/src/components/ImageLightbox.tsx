@@ -1,5 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
 import { Spinner, ghostButton } from '@/components/ui'
+
+/** How far an arrow key pans the image at actual size, in CSS pixels. */
+const PAN_KEYS: Partial<Record<string, [number, number]>> = {
+  ArrowLeft: [-48, 0],
+  ArrowRight: [48, 0],
+  ArrowUp: [0, -48],
+  ArrowDown: [0, 48],
+}
 
 /**
  * ImageLightbox shows one image attachment at full resolution, over the page.
@@ -52,6 +60,9 @@ export function ImageLightbox({
   // a fraction of the image, and where it was on screen.
   const anchor = useRef<{ fx: number; fy: number; cx: number; cy: number } | null>(null)
   const openedAt = useRef(0)
+  // The press behind the next click in the stage: what it went down on, where,
+  // how far the stage was scrolled then, and whether the mouse has since moved.
+  const press = useRef<{ id: number; target: EventTarget; x: number; y: number; left: number; top: number; moved: boolean } | null>(null)
 
   // ⚠ A layout effect, declared before the one that measures, and no close() in
   // a cleanup. The measurement reads the image's laid-out width, which is 0 while
@@ -123,7 +134,56 @@ export function ImageLightbox({
   // to actual size at a point nobody chose. `detail` counts the clicks of one
   // gesture, which also makes a double-click on the picture one zoom, not two;
   // iOS reports every tap as the first, hence the time since opening as well.
-  const stray = (e: MouseEvent) => e.detail > 1 || performance.now() - openedAt.current < 400
+  // The toolbar is under the pointer too: at phone widths a thumbnail near the
+  // top of the screen sits right where Close and Actual size appear.
+  const early = (e: MouseEvent) => e.detail > 1 || performance.now() - openedAt.current < 400
+  // ⚠ Nor the end of a drag. A click goes to wherever the button came back up —
+  // the common ancestor, when that is not where it went down — so a press on the
+  // picture released beside it reached the backdrop and shut the viewer, and a
+  // drag to pan at actual size ended as a click on the picture and dropped back
+  // to fit. A click counts only on what was pressed, by a mouse that did not
+  // travel. Touch needs no distance: a finger that moves is scrolling, and the
+  // browser sends no click at all.
+  const stray = (e: MouseEvent) => {
+    const p = press.current
+    return early(e) || !p || p.target !== e.target || p.moved
+  }
+
+  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    const s = e.currentTarget
+    const r = s.getBoundingClientRect()
+    // A press on the stage's own scrollbar is the browser's: it is neither a pan
+    // nor, whatever its click does, a click on the backdrop.
+    const onScrollbar = e.target === s && (e.clientX - r.left >= s.clientLeft + s.clientWidth || e.clientY - r.top >= s.clientTop + s.clientHeight)
+    press.current = onScrollbar ? null : { id: e.pointerId, target: e.target, x: e.clientX, y: e.clientY, left: s.scrollLeft, top: s.scrollTop, moved: false }
+  }
+  // At actual size a mouse drag pans, the way a desktop reader expects it to;
+  // touch already pans natively. Captured once it is a drag, and not before: a
+  // captured press is released on the stage, so its click would land there too.
+  const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
+    const p = press.current
+    if (!p || p.id !== e.pointerId || e.pointerType !== 'mouse' || !(e.buttons & 1)) return
+    const dx = e.clientX - p.x
+    const dy = e.clientY - p.y
+    if (!p.moved) {
+      if (Math.hypot(dx, dy) < 5) return
+      p.moved = true
+      if (actual) e.currentTarget.setPointerCapture(e.pointerId)
+    }
+    if (actual) {
+      e.currentTarget.scrollLeft = p.left - dx
+      e.currentTarget.scrollTop = p.top - dy
+    }
+  }
+  // And the keyboard's way to pan. Focus stays on a toolbar button, where arrow
+  // keys do nothing, and the stage is a scroller only some browsers let Tab reach.
+  const onKeyDown = (e: KeyboardEvent<HTMLDialogElement>) => {
+    const stage = stageRef.current
+    const step = PAN_KEYS[e.key]
+    if (!actual || !stage || !step) return
+    e.preventDefault()
+    stage.scrollBy(step[0], step[1])
+  }
 
   const onImageClick = (e: MouseEvent<HTMLImageElement>) => {
     if (stray(e)) return
@@ -150,6 +210,7 @@ export function ImageLightbox({
     <dialog
       ref={dialogRef}
       onClose={onClose}
+      onKeyDown={onKeyDown}
       aria-label={`Attachment — ${label}`}
       style={{ inset: 0, width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%', margin: 0, padding: 0, border: 'none', background: 'oklch(0 0 0 / .86)', color: 'var(--text)', overflow: 'hidden' }}
     >
@@ -160,11 +221,11 @@ export function ImageLightbox({
             <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--subtle)' }}>{meta}</div>
           </div>
           {!failed && (zoomable || actual) && (
-            <button onClick={() => setActual((a) => !a)} style={{ ...ghostButton, height: 32 }}>
+            <button onClick={(e) => !early(e) && setActual((a) => !a)} style={{ ...ghostButton, height: 32 }}>
               {actual ? 'Fit to screen' : 'Actual size'}
             </button>
           )}
-          <button onClick={close} style={{ ...ghostButton, height: 32 }}>
+          <button onClick={(e) => !early(e) && close()} style={{ ...ghostButton, height: 32 }}>
             Close
           </button>
         </div>
@@ -172,6 +233,8 @@ export function ImageLightbox({
             and not on the picture, closes the viewer. */}
         <div
           ref={stageRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
           onClick={(e) => e.target === e.currentTarget && !stray(e) && close()}
           style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', overflow: 'auto', overscrollBehavior: 'contain', padding: actual ? 0 : 16 }}
         >
@@ -186,9 +249,9 @@ export function ImageLightbox({
               ref={imgRef}
               src={url}
               alt="Attachment from the reporter, full size"
-              // ⚠ No native drag. At actual size a drag is how a desktop reader
-              // tries to pan, and dropped on the tab strip it opens the view URL
-              // — the bearer token this viewer is in-page to keep out of a tab.
+              // ⚠ No native drag. A drag on the picture is the stage's pan, and a
+              // native one, dropped on the tab strip, opens the view URL — the
+              // bearer token this viewer is in-page to keep out of a tab.
               draggable={false}
               onLoad={(e) => {
                 setLoadedUrl(url)
