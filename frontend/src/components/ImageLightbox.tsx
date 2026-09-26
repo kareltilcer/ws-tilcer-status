@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react'
-import { ghostButton } from '@/components/ui'
+import { Spinner, ghostButton } from '@/components/ui'
 
 /**
  * ImageLightbox shows one image attachment at full resolution, over the page.
@@ -17,12 +17,15 @@ import { ghostButton } from '@/components/ui'
 export function ImageLightbox({
   url,
   label,
+  retrying,
   onError,
   onClose,
 }: {
   url: string
   /** What the thumbnail's footer says — type and size. */
   label: string
+  /** The card is fetching the fresh view link `onError` asked for. */
+  retrying: boolean
   /** The card's re-mint. The same URL the thumbnail loaded can have expired by
    *  the time this opens; a fresh one arrives through `url`. */
   onError: () => void
@@ -39,17 +42,29 @@ export function ImageLightbox({
   // Keyed to the URL rather than a flag, so a re-minted URL retries on its own.
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const failed = failedUrl === url
+  // Keyed the same way: a re-minted URL is a new download.
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null)
+  // ⚠ A failed link waits on the card's re-mint before it says anything. The
+  // expiry message used to render in the same frame that asked for the fresh
+  // link, and told the reader to reload a page that was already recovering.
+  const loading = failed ? retrying : loadedUrl !== url
   // Where to land after switching to actual size: the point that was clicked, as
-  // a fraction of the image, and where it sat in the stage.
-  const anchor = useRef<{ fx: number; fy: number; x: number; y: number } | null>(null)
+  // a fraction of the image, and where it was on screen.
+  const anchor = useRef<{ fx: number; fy: number; cx: number; cy: number } | null>(null)
+  const openedAt = useRef(0)
 
-  // ⚠ A layout effect, and no close() in a cleanup. Opening after paint flashes
-  // the closed dialog in the card for a frame; closing from a cleanup would fire
+  // ⚠ A layout effect, declared before the one that measures, and no close() in
+  // a cleanup. The measurement reads the image's laid-out width, which is 0 while
+  // the dialog is still closed (display: none): a cached image measured then read
+  // "0%" and offered a zoom it did not need. Closing from a cleanup would fire
   // `close` when StrictMode re-runs effects in dev, and shut the viewer the
   // moment it opened. Unmounting removes it from the top layer on its own.
   useLayoutEffect(() => {
     const d = dialogRef.current
-    if (d && !d.open) d.showModal()
+    if (d && !d.open) {
+      d.showModal()
+      openedAt.current = performance.now()
+    }
   }, [])
 
   const measure = () => {
@@ -65,10 +80,17 @@ export function ImageLightbox({
     const stage = stageRef.current
     const img = imgRef.current
     if (!stage || !img) return
-    const a = anchor.current ?? { fx: 0.5, fy: 0.5, x: stage.clientWidth / 2, y: stage.clientHeight / 2 }
+    const a = anchor.current
     anchor.current = null
-    stage.scrollLeft = img.offsetLeft + a.fx * img.offsetWidth - a.x
-    stage.scrollTop = img.offsetTop + a.fy * img.offsetHeight - a.y
+    // ⚠ Where the stage is, read now rather than at the click. The switch
+    // re-renders the toolbar with it — another percentage, another button label —
+    // and at phone widths one line more or less of wrapped meta moves the stage
+    // by that line, and the clicked point with it.
+    const s = stage.getBoundingClientRect()
+    const x = a ? a.cx - s.left : stage.clientWidth / 2
+    const y = a ? a.cy - s.top : stage.clientHeight / 2
+    stage.scrollLeft = img.offsetLeft + (a?.fx ?? 0.5) * img.offsetWidth - x
+    stage.scrollTop = img.offsetTop + (a?.fy ?? 0.5) * img.offsetHeight - y
   }, [actual])
 
   // The image itself, not the window: anything that resizes the stage — the
@@ -94,19 +116,28 @@ export function ImageLightbox({
   }
   const zoomable = fitScale < 0.995
 
+  // ⚠ Not the rest of a double-click. The click that opens the viewer is often
+  // the first of two — a double-click on the thumbnail, a double-tap — and the
+  // second landed on whatever the viewer had just put under the pointer: the
+  // backdrop, which shut the viewer as it opened, or the picture, which jumped
+  // to actual size at a point nobody chose. `detail` counts the clicks of one
+  // gesture, which also makes a double-click on the picture one zoom, not two;
+  // iOS reports every tap as the first, hence the time since opening as well.
+  const stray = (e: MouseEvent) => e.detail > 1 || performance.now() - openedAt.current < 400
+
   const onImageClick = (e: MouseEvent<HTMLImageElement>) => {
+    if (stray(e)) return
     if (actual) {
       setActual(false)
       return
     }
     if (!zoomable) return
     const img = e.currentTarget.getBoundingClientRect()
-    const stage = stageRef.current!.getBoundingClientRect()
     anchor.current = {
       fx: (e.clientX - img.left) / img.width,
       fy: (e.clientY - img.top) / img.height,
-      x: e.clientX - stage.left,
-      y: e.clientY - stage.top,
+      cx: e.clientX,
+      cy: e.clientY,
     }
     setActual(true)
   }
@@ -141,19 +172,26 @@ export function ImageLightbox({
             and not on the picture, closes the viewer. */}
         <div
           ref={stageRef}
-          onClick={(e) => e.target === e.currentTarget && close()}
+          onClick={(e) => e.target === e.currentTarget && !stray(e) && close()}
           style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', overflow: 'auto', overscrollBehavior: 'contain', padding: actual ? 0 : 16 }}
         >
           {failed ? (
-            <div style={{ margin: 'auto', maxWidth: 360, padding: 16, textAlign: 'center', fontSize: 13, color: 'oklch(0.9 0 0)' }}>
-              Couldn't load the image. Its view link may have expired — reload the page to mint a fresh one.
-            </div>
+            !retrying && (
+              <div style={{ margin: 'auto', maxWidth: 360, padding: 16, textAlign: 'center', fontSize: 13, color: 'oklch(0.9 0 0)' }}>
+                Couldn't load the image. Its view link may have expired — reload the page to mint a fresh one.
+              </div>
+            )
           ) : (
             <img
               ref={imgRef}
               src={url}
               alt="Attachment from the reporter, full size"
+              // ⚠ No native drag. At actual size a drag is how a desktop reader
+              // tries to pan, and dropped on the tab strip it opens the view URL
+              // — the bearer token this viewer is in-page to keep out of a tab.
+              draggable={false}
               onLoad={(e) => {
+                setLoadedUrl(url)
                 setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
                 if (!actual) measure()
               }}
@@ -174,6 +212,18 @@ export function ImageLightbox({
                 cursor: actual ? 'zoom-out' : zoomable ? 'zoom-in' : 'default',
               }}
             />
+          )}
+          {/* A screenshot is up to 10 MB, and the viewer can open before the
+              thumbnail has finished fetching it: the stage was empty and dark
+              until it arrived. Faded in late, so an image already in memory —
+              the usual case — never shows it. Clicks pass through to the stage. */}
+          {loading && (
+            <div role="status" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, background: 'oklch(0 0 0 / .6)', color: 'oklch(0.9 0 0)', fontSize: 12.5, animation: 'om-fadein .2s ease .25s both' }}>
+                <Spinner size={13} />
+                {failed ? 'Fetching a fresh view link…' : 'Loading…'}
+              </span>
+            </div>
           )}
         </div>
       </div>

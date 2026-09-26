@@ -345,11 +345,16 @@ function AttachmentCard({ reportRef, attachment }: { reportRef: string; attachme
   // so the media asks for a fresh one when it actually fails. Capped at one: an
   // object that is broken rather than expired must not spin the mint endpoint
   // against the service's single writer connection.
+  // ⚠ `cancelRefetch: false`. The thumbnail and the viewer load the same link, so
+  // one failed download errors both before this card re-renders with `reminted`
+  // set; the second call read the stale `false`, cancelled the re-mint the first
+  // had started and minted again. It now joins the one in flight. Still state,
+  // not a ref: the re-render it causes is what hands the viewer `retrying`.
   const [reminted, setReminted] = useState(false)
   const remint = () => {
     if (reminted) return
     setReminted(true)
-    void q.refetch()
+    void q.refetch({ cancelRefetch: false })
   }
   const [viewing, setViewing] = useState(false)
   const isVideo = attachment.content_type.startsWith('video/')
@@ -410,7 +415,9 @@ function AttachmentCard({ reportRef, attachment }: { reportRef: string; attachme
       {/* ⚠ A sibling of the thumbnail button, never inside it: React bubbles a
           click in the dialog through its tree parents, and the button's onClick
           would reopen the viewer that Close had just shut. */}
-      {viewing && q.data && <ImageLightbox url={q.data.url} label={label} onError={remint} onClose={() => setViewing(false)} />}
+      {viewing && q.data && (
+        <ImageLightbox url={q.data.url} label={label} retrying={q.isFetching} onError={remint} onClose={() => setViewing(false)} />
+      )}
       <div style={{ padding: '9px 11px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--subtle)' }}>{label}</span>
         <AttachmentStateLabel state={attachment.state} />
